@@ -628,3 +628,5 @@ const CalculatorTab = () => {
   );
 };
 
+export default CalculatorTab
+
