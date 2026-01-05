@@ -236,7 +236,12 @@ const CalculatorTab = () => {
               <Calculator className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-wide">HPP Master Pro</h1>
+              <h1 className="text-xl font-bold tracking-wide leading-tight">
+  Kasih Itung Boss
+</h1>
+<p className="text-[10px] text-blue-200">
+  by Diaz Shandikuy Mpruy
+</p>
               {/* [FITUR 3] Preset Dropdown */}
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-[10px] text-blue-200">Jenis Usaha:</span>
