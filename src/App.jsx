@@ -1,9 +1,9 @@
 import React from 'react';
-import CalculatorTab from './calculatortab';
+import CalculatorTab from './CalculatorTab';
 
 function App() {
   return (
-    <div className="bg-slate-50 dark:bg-slate-900 min-h-screen p-6 md:p-12">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 p-6">
       <CalculatorTab />
     </div>
   );
