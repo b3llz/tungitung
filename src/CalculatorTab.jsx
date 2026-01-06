@@ -850,5 +850,5 @@ const App = () => {
   );
 };
 
-export default CalculatorTab;
+export default CalculatorTab
 
