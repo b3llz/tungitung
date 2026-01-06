@@ -1,637 +1,854 @@
-import { useState, useEffect } from 'react'
-import {
-  Plus, Trash2, Calculator, Save, FolderOpen,
-  RotateCcw, Package, Zap, PieChart,
-  CheckCircle, TrendingUp
-} from 'lucide-react'
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
+  Save, FolderOpen, RotateCcw, Info, CheckCircle, 
+  TrendingUp, Package, Zap, DollarSign, Menu, X, 
+  ChevronRight, Upload, Edit3, Image as ImageIcon,
+  Search, Sun, Moon, ArrowRight
+} from 'lucide-react';
 
+// ============================================================================
+// UTILS & COMPONENTS (PREMIUM UI KIT)
+// ============================================================================
 
-const CalculatorTab = () => {
-  // --- [FITUR 3] PRESET USAHA ---
-  const BUSINESS_PRESETS = {
-    makanan: { margin: 40, unit: 'gram', label: 'Makanan (Umum)' },
-    minuman: { margin: 50, unit: 'ml', label: 'Minuman' },
-    frozen: { margin: 30, unit: 'pcs', label: 'Frozen Food' },
-    reseller: { margin: 20, unit: 'pcs', label: 'Reseller/Thrift' }
-  };
+// 1. Format Currency Helper (Display Only)
+const formatDisplay = (val) => {
+  if (!val && val !== 0) return '';
+  // Remove non-digit chars first to avoid errors
+  const num = val.toString().replace(/[^0-9.]/g, '');
+  // Format with commas
+  return num.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
 
-  // --- STATE MANAGEMENT ---
-  const [recipeName, setRecipeName] = useState('Resep Baru');
-  const [showLoadModal, setShowLoadModal] = useState(false);
-  const [savedRecipes, setSavedRecipes] = useState([]);
+// 2. Numeric Input Component (Auto Comma)
+const NumericInput = ({ value, onChange, placeholder, className, prefix, ...props }) => {
+  const [displayValue, setDisplayValue] = useState('');
 
-  // [FITUR 2] Mode Hitung (Simple vs Detail)
-  const [calcMode, setCalcMode] = useState('detail'); 
-  const [simpleModal, setSimpleModal] = useState(0); 
-
-  // [FITUR 3] Jenis Usaha
-  const [businessType, setBusinessType] = useState('makanan');
-
-  // 1. Bahan Baku
-  const [materials, setMaterials] = useState([
-    { id: 1, name: '', price: 0, unit: 'gram', content: 1000, usage: 0, cost: 0 }
-  ]);
-
-  // 2. Operasional (Biaya Tambahan) - [FITUR 1] Update struktur state untuk tipe biaya
-  const [operations, setOperations] = useState([
-    { id: 1, type: '', price: 0, unit: 'jam', content: 1, usage: 0, cost: 0, costType: 'variable' } 
-  ]);
-
-  // 3. Data Produksi - [FITUR 1] Tambah monthlyTarget untuk biaya tetap
-  const [production, setProduction] = useState({
-    yield: 0, 
-    margin: 40,
-    monthlyTarget: 100 // Target produksi per bulan (default)
-  });
-
-  // [FITUR 5] Target Laba
-  const [monthlyProfitTarget, setMonthlyProfitTarget] = useState(0);
-
-  // 4. Target Harga (Untuk Reverse calc)
-  const [marketPrice, setMarketPrice] = useState(0);
-
-  // --- INITIAL LOAD ---
   useEffect(() => {
-    const saved = localStorage.getItem('hpp_recipes');
-    if (saved) {
-      setSavedRecipes(JSON.parse(saved));
-    }
-  }, []);
+    setDisplayValue(formatDisplay(value));
+  }, [value]);
 
-  // [FITUR 3] Handler Preset
-  const applyPreset = (type) => {
-    setBusinessType(type);
-    setProduction(prev => ({ ...prev, margin: BUSINESS_PRESETS[type].margin }));
-    // Update satuan default bahan baris pertama jika kosong
-    if (materials.length === 1 && materials[0].name === '') {
-      const newMats = [...materials];
-      newMats[0].unit = BUSINESS_PRESETS[type].unit;
-      setMaterials(newMats);
-    }
-  };
-
-  // --- CALCULATIONS ---
-
-  const formatIDR = (number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(number);
-  };
-
-  const calculateRowCost = (price, content, usage) => {
-    if (!content || content === 0) return 0;
-    return (price / content) * usage;
-  };
-
-  const updateMaterial = (id, field, value) => {
-    const newMaterials = materials.map(item => {
-      if (item.id === id) {
-        const updatedItem = { ...item, [field]: value };
-        updatedItem.cost = calculateRowCost(updatedItem.price, updatedItem.content, updatedItem.usage);
-        return updatedItem;
-      }
-      return item;
-    });
-    setMaterials(newMaterials);
-  };
-
-  // [FITUR 1] Logic update operasional (handle Variabel vs Tetap)
-  const updateOperation = (id, field, value) => {
-    const newOperations = operations.map(item => {
-      if (item.id === id) {
-        const updatedItem = { ...item, [field]: value };
-        
-        // Jika Biaya Tetap, cost dihitung nanti di totalan (dianggap harga bulanan)
-        // Jika Variabel, hitung seperti biasa
-        if (updatedItem.costType === 'variable') {
-           updatedItem.cost = calculateRowCost(updatedItem.price, updatedItem.content, updatedItem.usage);
-        } else {
-           updatedItem.cost = updatedItem.price; // Simpan harga nominal untuk display
-        }
-        return updatedItem;
-      }
-      return item;
-    });
-    setOperations(newOperations);
-  };
-
-  const addMaterialRow = () => setMaterials([...materials, { id: Date.now(), name: '', price: 0, unit: BUSINESS_PRESETS[businessType].unit, content: 1000, usage: 0, cost: 0 }]);
-  const removeMaterialRow = (id) => materials.length > 1 && setMaterials(materials.filter(item => item.id !== id));
-  
-  const addOperationRow = () => setOperations([...operations, { id: Date.now(), type: '', price: 0, unit: 'jam', content: 1, usage: 0, cost: 0, costType: 'variable' }]);
-  const removeOperationRow = (id) => operations.length > 1 && setOperations(operations.filter(item => item.id !== id));
-
-  // --- TOTALS & LOGIC UTAMA ---
-  
-  // 1. Hitung Bahan (Total Batch)
-  const totalMaterialCost = materials.reduce((acc, curr) => acc + curr.cost, 0);
-
-  // 2. Hitung Ops Variabel (Total Batch)
-  const totalVariableOps = operations
-    .filter(op => op.costType === 'variable')
-    .reduce((acc, curr) => acc + curr.cost, 0);
-
-  // 3. Hitung Ops Tetap (Total Bulanan)
-  const totalFixedOpsMonthly = operations
-    .filter(op => op.costType === 'fixed')
-    .reduce((acc, curr) => acc + (curr.price || 0), 0);
-
-  // 4. Kalkulasi HPP Per Unit
-  let hppPerUnit = 0;
-  let materialPerUnit = 0;
-  let varOpsPerUnit = 0;
-  let fixedOpsPerUnit = 0;
-
-  if (calcMode === 'simple') {
-    // Logic [FITUR 2] Mode Cepat
-    hppPerUnit = production.yield > 0 ? simpleModal / production.yield : 0;
-  } else {
-    // Logic Detail
-    if (production.yield > 0) {
-      materialPerUnit = totalMaterialCost / production.yield;
-      varOpsPerUnit = totalVariableOps / production.yield;
-      
-      // [FITUR 1] Alokasi Biaya Tetap: Total Biaya Tetap / Target Produksi Bulanan
-      fixedOpsPerUnit = production.monthlyTarget > 0 ? totalFixedOpsMonthly / production.monthlyTarget : 0;
-      
-      hppPerUnit = materialPerUnit + varOpsPerUnit + fixedOpsPerUnit;
-    }
-  }
-
-  // Total Modal Batch (Untuk display chart saja, khusus mode detail)
-  const totalBatchCostDisplay = totalMaterialCost + totalVariableOps;
-
-  const profitAmount = hppPerUnit * (production.margin / 100);
-  const sellingPriceRaw = hppPerUnit + profitAmount;
-
-  const roundUpPrice = (price) => {
-    if (price < 1000) return Math.ceil(price / 100) * 100;
-    return Math.ceil(price / 500) * 500;
-  };
-  const smartPrice = roundUpPrice(sellingPriceRaw);
-
-  const realMargin = marketPrice > 0 && hppPerUnit > 0 
-    ? ((marketPrice - hppPerUnit) / hppPerUnit) * 100 
-    : 0;
-
-  // [FITUR 5] Kalkulasi Target Laba
-  const profitPerPcsReal = marketPrice > 0 ? (marketPrice - hppPerUnit) : profitAmount;
-  const targetQtyPerMonth = profitPerPcsReal > 0 && monthlyProfitTarget > 0 ? Math.ceil(monthlyProfitTarget / profitPerPcsReal) : 0;
-  const targetOmzetDaily = targetQtyPerMonth > 0 ? (targetQtyPerMonth * (marketPrice || smartPrice)) / 30 : 0;
-
-  // --- STORAGE HANDLERS ---
-  const saveRecipe = () => {
-    if (!recipeName) return alert("Beri nama resep dulu!");
-    const newRecipe = {
-      id: Date.now(),
-      name: recipeName,
-      materials,
-      operations,
-      production,
-      savedHpp: hppPerUnit, 
-      savedPrice: smartPrice 
-    };
-    
-    const updatedRecipes = [...savedRecipes, newRecipe];
-    setSavedRecipes(updatedRecipes);
-    localStorage.setItem('hpp_recipes', JSON.stringify(updatedRecipes));
-    alert('Resep berhasil disimpan! Data kini tersedia di menu Kasir.');
-  };
-
-  const loadRecipe = (recipe) => {
-    setRecipeName(recipe.name);
-    setMaterials(recipe.materials);
-    setOperations(recipe.operations || []);
-    setProduction(recipe.production);
-    setShowLoadModal(false);
-  };
-
-  const deleteRecipe = (id) => {
-    const updated = savedRecipes.filter(r => r.id !== id);
-    setSavedRecipes(updated);
-    localStorage.setItem('hpp_recipes', JSON.stringify(updated));
-  };
-
-  const resetForm = () => {
-    if(window.confirm("Reset semua data?")) {
-      setRecipeName('Resep Baru');
-      setMaterials([{ id: 1, name: '', price: 0, unit: 'gram', content: 1000, usage: 0, cost: 0 }]);
-      setOperations([{ id: 1, type: '', price: 0, unit: 'jam', content: 1, usage: 0, cost: 0, costType: 'variable' }]);
-      setProduction({ yield: 0, margin: 30, monthlyTarget: 100 });
-      setMarketPrice(0);
-      setSimpleModal(0);
+  const handleChange = (e) => {
+    const rawValue = e.target.value.replace(/,/g, ''); // Hapus koma untuk logic
+    if (!isNaN(rawValue)) {
+      setDisplayValue(formatDisplay(rawValue));
+      onChange(parseFloat(rawValue) || 0);
     }
   };
 
   return (
-    <div className="pb-24">
-      {/* HEADER */}
-      <header className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-4 shadow-lg sticky top-0 z-20 rounded-b-xl">
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="bg-white/20 p-2 rounded-lg">
-              <Calculator className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-wide leading-tight">
-  Kasih Itung Boss
-</h1>
-<p className="text-[10px] text-blue-200">
-  by Diaz Shandikuy Mpruy
-</p>
-              {/* [FITUR 3] Preset Dropdown */}
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] text-blue-200">Jenis Usaha:</span>
-                <select 
-                  className="bg-blue-800/50 text-xs border border-blue-600 rounded px-2 py-0.5 outline-none"
-                  value={businessType}
-                  onChange={(e) => applyPreset(e.target.value)}
-                >
-                  {Object.entries(BUSINESS_PRESETS).map(([key, val]) => (
-                    <option key={key} value={key}>{val.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex items-center bg-white/10 rounded-full p-1 pl-4 w-full md:w-auto">
-            <input 
-              value={recipeName}
-              onChange={(e) => setRecipeName(e.target.value)}
-              className="bg-transparent border-none outline-none text-white placeholder-blue-200 text-sm w-full md:w-48"
-              placeholder="Nama Resep..."
-            />
-            <div className="flex gap-1 ml-2">
-              <button onClick={() => setShowLoadModal(true)} className="p-2 hover:bg-white/20 rounded-full transition" title="Buka Resep">
-                <FolderOpen className="w-4 h-4" />
-              </button>
-              <button onClick={saveRecipe} className="p-2 hover:bg-white/20 rounded-full transition" title="Simpan Resep">
-                <Save className="w-4 h-4" />
-              </button>
-              <button onClick={resetForm} className="p-2 hover:bg-white/20 rounded-full transition" title="Reset">
-                <RotateCcw className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* LOAD MODAL (Tidak Berubah) */}
-      {showLoadModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-              <h3 className="font-bold">Resep Tersimpan</h3>
-              <button onClick={() => setShowLoadModal(false)} className="text-slate-400 hover:text-red-500">Tutup</button>
-            </div>
-            <div className="p-4 max-h-[60vh] overflow-y-auto space-y-2">
-              {savedRecipes.length === 0 ? (
-                <p className="text-center text-slate-500 py-4">Belum ada resep tersimpan.</p>
-              ) : (
-                savedRecipes.map(recipe => (
-                  <div key={recipe.id} className="flex justify-between items-center p-3 border rounded-lg hover:bg-blue-50 transition cursor-pointer group">
-                    <div onClick={() => loadRecipe(recipe)} className="flex-1">
-                      <p className="font-bold text-slate-700">{recipe.name}</p>
-                      <p className="text-xs text-slate-500">{new Date(recipe.id).toLocaleDateString()}</p>
-                    </div>
-                    <button onClick={() => deleteRecipe(recipe.id)} className="p-2 text-slate-300 hover:text-red-500">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
+    <div className="relative w-full">
+      {prefix && (
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium z-10 pointer-events-none">
+          {prefix}
+        </span>
       )}
-
-      <main className="max-w-5xl mx-auto p-4 space-y-6 mt-4">
-
-        {/* [FITUR 2] TOGGLE MODE SIMPLE/DETAIL */}
-        <div className="flex justify-center mb-2">
-          <div className="bg-white p-1 rounded-full shadow border border-slate-200 flex gap-1">
-            <button 
-              onClick={() => setCalcMode('detail')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition ${calcMode === 'detail' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
-            >
-              Mode Detail
-            </button>
-            <button 
-              onClick={() => setCalcMode('simple')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition ${calcMode === 'simple' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
-            >
-              Mode Cepat
-            </button>
-          </div>
-        </div>
-
-        {/* VISUAL SUMMARY */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
-                <div className="flex items-center gap-2 text-slate-500 mb-2">
-                   <PieChart className="w-4 h-4" /> <span className="text-xs font-bold uppercase">Komposisi (Per Batch)</span>
-                </div>
-                {/* Chart hanya relevan di mode detail */}
-                {calcMode === 'detail' ? (
-                  <>
-                    <div className="relative h-4 bg-slate-100 rounded-full overflow-hidden flex">
-                        <div className="bg-blue-500 h-full transition-all duration-500" style={{ width: `${totalBatchCostDisplay === 0 ? 0 : (totalMaterialCost/totalBatchCostDisplay)*100}%` }}></div>
-                        <div className="bg-amber-500 h-full transition-all duration-500" style={{ width: `${totalBatchCostDisplay === 0 ? 0 : (totalVariableOps/totalBatchCostDisplay)*100}%` }}></div>
-                    </div>
-                    <div className="flex justify-between text-xs mt-2 font-medium">
-                        <span className="text-blue-600">Bahan ({totalBatchCostDisplay > 0 ? Math.round((totalMaterialCost/totalBatchCostDisplay)*100) : 0}%)</span>
-                        <span className="text-amber-600">Biaya Tambahan ({totalBatchCostDisplay > 0 ? Math.round((totalVariableOps/totalBatchCostDisplay)*100) : 0}%)</span>
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-xs text-slate-400 italic text-center py-2">Mode Cepat aktif</p>
-                )}
-            </div>
-
-            <div className="md:col-span-2 bg-indigo-600 rounded-xl shadow-lg p-4 text-white flex flex-col md:flex-row items-center justify-between relative overflow-hidden">
-                <div className="absolute -right-10 -top-10 bg-white/10 w-40 h-40 rounded-full blur-2xl"></div>
-                <div className="z-10">
-                    <p className="text-indigo-200 text-xs font-bold uppercase mb-1">
-                      {calcMode === 'detail' ? 'Total Biaya (Bahan + Var Ops)' : 'Total Modal Diinput'}
-                    </p>
-                    <h2 className="text-3xl font-bold">
-                      {formatIDR(calcMode === 'detail' ? totalBatchCostDisplay : simpleModal)}
-                    </h2>
-                </div>
-                <div className="z-10 mt-4 md:mt-0 text-right">
-                    <p className="text-indigo-200 text-xs font-bold uppercase mb-1">HPP Bersih / Pcs</p>
-                    <div className="flex items-baseline gap-2 justify-end">
-                      <span className="text-sm">Estimasi:</span>
-                      <h2 className="text-2xl font-bold bg-white/20 px-3 py-1 rounded-lg">{formatIDR(hppPerUnit)}</h2>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        {/* INPUT SECTIONS - HANYA TAMPIL JIKA MODE DETAIL */}
-        {calcMode === 'detail' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            
-            {/* BAHAN BAKU */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-full">
-                <div className="p-4 border-b bg-blue-50/50 flex justify-between items-center">
-                    <h2 className="font-bold text-blue-800 flex items-center gap-2"><Package className="w-4 h-4"/> Bahan Baku</h2>
-                    <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-1 rounded">{formatIDR(totalMaterialCost)}</span>
-                </div>
-                <div className="p-4 space-y-3 flex-1">
-                    {materials.map((item, idx) => (
-                        <div key={item.id} className="text-sm border-b border-slate-100 pb-3 last:border-0 relative">
-                             <div className="flex justify-between mb-1">
-                                <input 
-                                    placeholder="Nama Bahan" 
-                                    className="font-medium text-slate-700 w-full outline-none placeholder:font-normal"
-                                    value={item.name}
-                                    onChange={(e) => updateMaterial(item.id, 'name', e.target.value)}
-                                />
-                                <button onClick={() => removeMaterialRow(item.id)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-3 h-3"/></button>
-                             </div>
-                             <div className="grid grid-cols-3 gap-2">
-                                <div>
-                                    <label className="text-[10px] text-slate-400 block">Harga Beli</label>
-                                    <input type="number" className="w-full bg-slate-50 rounded p-1" value={item.price || ''} onChange={(e)=>updateMaterial(item.id, 'price', parseFloat(e.target.value)||0)} />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] text-slate-400 block">Isi ({item.unit})</label>
-                                    <div className="flex">
-                                        <input type="number" className="w-full bg-slate-50 rounded-l p-1" value={item.content || ''} onChange={(e)=>updateMaterial(item.id, 'content', parseFloat(e.target.value)||0)} />
-                                        <select className="bg-slate-200 text-[10px] rounded-r px-1" value={item.unit} onChange={(e)=>updateMaterial(item.id, 'unit', e.target.value)}>
-                                            <option value="gram">gr</option><option value="kg">kg</option><option value="ml">ml</option><option value="liter">ltr</option><option value="pcs">pcs</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] text-slate-400 block">Jumlah Pakai</label>
-                                    <input type="number" className="w-full bg-yellow-50 border border-yellow-100 rounded p-1 font-semibold" value={item.usage || ''} onChange={(e)=>updateMaterial(item.id, 'usage', parseFloat(e.target.value)||0)} />
-                                </div>
-                             </div>
-                        </div>
-                    ))}
-                    <button onClick={addMaterialRow} className="w-full py-2 border border-dashed border-blue-300 text-blue-500 text-xs rounded-lg hover:bg-blue-50">+ Tambah Bahan</button>
-                </div>
-            </div>
-
-            {/* [FITUR 6] RENAME: OPERASIONAL -> BIAYA TAMBAHAN */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-full">
-                <div className="p-4 border-b bg-amber-50/50 flex justify-between items-center">
-                    <h2 className="font-bold text-amber-800 flex items-center gap-2"><Zap className="w-4 h-4"/> Biaya Tambahan</h2>
-                    <span className="text-xs font-bold bg-amber-100 text-amber-700 px-2 py-1 rounded">
-                      {/* Tampilkan total variabel + tetap bulanan untuk info */}
-                      {formatIDR(totalVariableOps + totalFixedOpsMonthly)}
-                    </span>
-                </div>
-                 <div className="p-4 space-y-3 flex-1">
-                    {operations.map((item, idx) => (
-                        <div key={item.id} className="text-sm border-b border-slate-100 pb-3 last:border-0 relative">
-                             <div className="flex justify-between mb-1 gap-2">
-                                <input 
-                                    placeholder="Jenis (Gas, Gaji, Sewa)" 
-                                    className="font-medium text-slate-700 w-full outline-none placeholder:font-normal"
-                                    value={item.type}
-                                    onChange={(e) => updateOperation(item.id, 'type', e.target.value)}
-                                />
-                                
-                                {/* [FITUR 1] TOGGLE TIPE BIAYA DI ROW */}
-                                <select 
-                                  className={`text-[10px] border rounded px-1 font-bold ${item.costType === 'fixed' ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}
-                                  value={item.costType}
-                                  onChange={(e) => updateOperation(item.id, 'costType', e.target.value)}
-                                >
-                                  <option value="variable">Variabel</option>
-                                  <option value="fixed">Tetap (Bulanan)</option>
-                                </select>
-                                
-                                <button onClick={() => removeOperationRow(item.id)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-3 h-3"/></button>
-                             </div>
-
-                             {item.costType === 'variable' ? (
-                               // INPUT VARIABEL (Eksisting)
-                               <div className="grid grid-cols-3 gap-2">
-                                  <div>
-                                      <label className="text-[10px] text-slate-400 block">Biaya</label>
-                                      <input type="number" className="w-full bg-slate-50 rounded p-1" value={item.price || ''} onChange={(e)=>updateOperation(item.id, 'price', parseFloat(e.target.value)||0)} />
-                                  </div>
-                                  <div>
-                                      <label className="text-[10px] text-slate-400 block">Total Isi</label>
-                                      <div className="flex">
-                                          <input type="number" className="w-full bg-slate-50 rounded-l p-1" value={item.content || ''} onChange={(e)=>updateOperation(item.id, 'content', parseFloat(e.target.value)||0)} />
-                                          <select className="bg-slate-200 text-[10px] rounded-r px-1" value={item.unit} onChange={(e)=>updateOperation(item.id, 'unit', e.target.value)}>
-                                              <option value="menit">menit</option><option value="jam">jam</option><option value="hari">hari</option><option value="bulan">bln</option>
-                                          </select>
-                                      </div>
-                                  </div>
-                                  <div>
-                                      <label className="text-[10px] text-slate-400 block">Jumlah Pakai</label>
-                                      <input type="number" className="w-full bg-yellow-50 border border-yellow-100 rounded p-1 font-semibold" value={item.usage || ''} onChange={(e)=>updateOperation(item.id, 'usage', parseFloat(e.target.value)||0)} />
-                                  </div>
-                               </div>
-                             ) : (
-                               // INPUT TETAP (Simple)
-                               <div className="grid grid-cols-1 gap-2">
-                                 <div>
-                                      <label className="text-[10px] text-purple-500 block font-semibold">Biaya Bulanan (Sewa/Wifi/Penyusutan)</label>
-                                      <div className="relative">
-                                        <span className="absolute left-2 top-1.5 text-xs text-slate-400">Rp</span>
-                                        <input type="number" className="w-full bg-purple-50 border border-purple-100 rounded p-1 pl-6 font-semibold text-slate-700" value={item.price || ''} onChange={(e)=>updateOperation(item.id, 'price', parseFloat(e.target.value)||0)} />
-                                      </div>
-                                      <p className="text-[9px] text-slate-400 mt-0.5">Akan dibagi dengan target produksi bulanan.</p>
-                                 </div>
-                               </div>
-                             )}
-                        </div>
-                    ))}
-                    <button onClick={addOperationRow} className="w-full py-2 border border-dashed border-amber-300 text-amber-500 text-xs rounded-lg hover:bg-amber-50">+ Tambah Biaya</button>
-                </div>
-            </div>
-        </div>
-        )}
-
-        {/* [FITUR 2] INPUT SIMPLE MODE */}
-        {calcMode === 'simple' && (
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-200 text-center space-y-4">
-             <h3 className="font-bold text-emerald-800">Mode Hitung Cepat</h3>
-             <div className="max-w-xs mx-auto">
-               <label className="text-xs text-slate-500 font-bold mb-1 block">Total Modal Belanja (Rp)</label>
-               <input 
-                  type="number" 
-                  className="w-full p-3 border border-emerald-300 rounded-lg text-xl font-bold text-center text-slate-700 focus:ring-2 focus:ring-emerald-500 outline-none"
-                  value={simpleModal || ''}
-                  onChange={(e) => setSimpleModal(parseFloat(e.target.value) || 0)}
-                  placeholder="0"
-               />
-             </div>
-             <p className="text-xs text-slate-400">Masukkan total uang yang dikeluarkan untuk satu kali produksi.</p>
-          </div>
-        )}
-
-        {/* ANALYTICS CARD */}
-        <section className="bg-white rounded-xl shadow-lg border border-indigo-100 overflow-hidden">
-             <div className="bg-slate-800 text-white p-3 flex justify-between items-center">
-                 <h2 className="font-bold flex items-center gap-2"><TrendingUp className="w-4 h-4"/> Strategi Harga</h2>
-             </div>
-             
-             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8 divide-y md:divide-y-0 md:divide-x divide-slate-100">
-                
-                {/* LEFT SIDE: HPP & PRICE */}
-                <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-slate-500 uppercase">1. Tentukan Margin</h3>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            {/* [FITUR 6] RENAME: YIELD -> JUMLAH JADI */}
-                            <label className="text-xs text-slate-500 font-bold block mb-1">Jumlah Jadi (Pcs)</label>
-                            <input type="number" className="w-full border p-2 rounded text-center font-bold" value={production.yield||''} onChange={(e)=>setProduction({...production, yield: parseFloat(e.target.value)||0})} />
-                        </div>
-                        <div>
-                            <label className="text-xs text-slate-500 font-bold block mb-1">Margin (%)</label>
-                            <input type="number" className="w-full border p-2 rounded text-center font-bold text-indigo-600" value={production.margin} onChange={(e)=>setProduction({...production, margin: parseFloat(e.target.value)||0})} />
-                        </div>
-                    </div>
-
-                    {/* [FITUR 1] INPUT TARGET PRODUKSI BULANAN (Muncul jika ada biaya tetap) */}
-                    {calcMode === 'detail' && operations.some(op => op.costType === 'fixed') && (
-                      <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
-                        <label className="text-[10px] font-bold text-purple-700 block mb-1">Target Produksi / Bulan (Pcs)</label>
-                        <input 
-                          type="number" 
-                          className="w-full p-1.5 border border-purple-200 rounded text-sm text-center"
-                          value={production.monthlyTarget}
-                          onChange={(e) => setProduction({...production, monthlyTarget: parseFloat(e.target.value) || 1})}
-                        />
-                        <p className="text-[9px] text-purple-500 mt-1">Digunakan untuk membagi biaya tetap (sewa, dll).</p>
-                      </div>
-                    )}
-
-                    {/* [FITUR 4] BREAKDOWN HPP PER PCS */}
-                    {calcMode === 'detail' && hppPerUnit > 0 && (
-                      <div className="text-[10px] text-slate-500 space-y-1 border-t pt-2 mt-2">
-                        <div className="flex justify-between"><span>Bahan Baku/pcs:</span> <span>{formatIDR(materialPerUnit)}</span></div>
-                        <div className="flex justify-between"><span>Ops Variabel/pcs:</span> <span>{formatIDR(varOpsPerUnit)}</span></div>
-                        {fixedOpsPerUnit > 0 && (
-                           <div className="flex justify-between text-purple-600 font-medium"><span>Biaya Tetap/pcs:</span> <span>{formatIDR(fixedOpsPerUnit)}</span></div>
-                        )}
-                        <div className="flex justify-between font-bold text-slate-700 border-t border-dashed pt-1 mt-1"><span>Total HPP Real:</span> <span>{formatIDR(hppPerUnit)}</span></div>
-                      </div>
-                    )}
-
-                    <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 mt-2">
-                        <p className="text-xs text-indigo-800 mb-1 font-bold flex items-center gap-1"><CheckCircle className="w-3 h-3"/> Saran Harga Jual</p>
-                        <p className="text-3xl font-extrabold text-indigo-600">{formatIDR(smartPrice)}</p>
-                        <p className="text-[10px] text-indigo-400 mt-1">*Dibulatkan agar mudah kembalian</p>
-                    </div>
-                </div>
-
-                {/* RIGHT SIDE: REVERSE & TARGET */}
-                <div className="space-y-4 pt-4 md:pt-0">
-                    {/* [FITUR 6] RENAME: REVERSE -> CEK HARGA PASAR */}
-                    <h3 className="text-sm font-bold text-slate-500 uppercase flex items-center gap-2">2. Cek Harga Pasar <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full">Simulasi</span></h3>
-                    
-                    <div>
-                        <label className="text-xs text-slate-500 font-bold">Harga Jual Pesaing</label>
-                        <div className="relative">
-                            <span className="absolute left-3 top-2.5 text-slate-400 text-sm">Rp</span>
-                            <input 
-                                type="number" 
-                                className="w-full pl-10 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-green-500 outline-none"
-                                placeholder="Misal: 3000"
-                                value={marketPrice || ''}
-                                onChange={(e) => setMarketPrice(parseFloat(e.target.value)||0)}
-                            />
-                        </div>
-                    </div>
-
-                    {marketPrice > 0 && (
-                        <div className={`p-4 rounded-xl border ${realMargin > 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm font-medium text-slate-600">Margin Anda:</span>
-                                <span className={`text-2xl font-bold ${realMargin > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {realMargin.toFixed(1)}%
-                                </span>
-                            </div>
-                            <div className="flex justify-between items-center mt-1">
-                                <span className="text-xs text-slate-500">Untung Bersih:</span>
-                                <span className={`text-sm font-bold ${realMargin > 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                    {formatIDR(marketPrice - hppPerUnit)} / pcs
-                                </span>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* [FITUR 5] TARGET LABA BULANAN */}
-                    <div className="border-t pt-4 mt-4">
-                        <label className="text-xs text-slate-500 font-bold flex items-center gap-1"><TrendingUp className="w-3 h-3"/> Target Laba Bersih / Bulan</label>
-                        <input 
-                            type="number" 
-                            className="w-full p-2 mt-1 border border-slate-300 rounded text-sm"
-                            placeholder="Contoh: 5000000"
-                            value={monthlyProfitTarget || ''}
-                            onChange={(e) => setMonthlyProfitTarget(parseFloat(e.target.value)||0)}
-                        />
-                        {monthlyProfitTarget > 0 && (marketPrice > 0 || smartPrice > 0) && (
-                          <div className="mt-2 bg-slate-100 p-2 rounded text-[10px] text-slate-600 space-y-1">
-                             <p>Harus jual minimal: <b className="text-slate-800">{targetQtyPerMonth} pcs</b> / bulan</p>
-                             <p>Atau <b className="text-slate-800">{Math.ceil(targetQtyPerMonth/30)} pcs</b> / hari</p>
-                             <p>Target Omzet Harian: <b className="text-slate-800">{formatIDR(targetOmzetDaily)}</b></p>
-                          </div>
-                        )}
-                    </div>
-                </div>
-
-             </div>
-        </section>
-
-      </main>
+      <input
+        type="text"
+        value={displayValue}
+        onChange={handleChange}
+        placeholder={placeholder}
+        className={`w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-400 focus:border-transparent transition-all placeholder:text-slate-400 ${prefix ? 'pl-9' : 'pl-4'} ${className}`}
+        {...props}
+      />
     </div>
   );
 };
 
-export default CalculatorTab
+// 3. Card Container
+const Card = ({ children, className = "", noPadding = false }) => (
+  <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-colors duration-300 ${noPadding ? '' : 'p-6'} ${className}`}>
+    {children}
+  </div>
+);
+
+// 4. Button
+const Button = ({ children, onClick, variant = 'primary', className = "", icon: Icon }) => {
+  const variants = {
+    primary: "bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200",
+    secondary: "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700",
+    outline: "border border-slate-200 text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-500",
+    ghost: "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800"
+  };
+
+  return (
+    <button 
+      onClick={onClick}
+      className={`px-4 py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${variants[variant]} ${className}`}
+    >
+      {Icon && <Icon className="w-4 h-4" />}
+      {children}
+    </button>
+  );
+};
+
+// ============================================================================
+// 1. CALCULATOR TAB
+// ============================================================================
+
+const CalculatorTab = () => {
+  // State
+  const [productInfo, setProductInfo] = useState({ name: '', type: 'Makanan', image: null });
+  const [materials, setMaterials] = useState([{ id: 1, name: '', price: 0, unit: 'gram', content: 1000, usage: 0, cost: 0 }]);
+  const [variableOps, setVariableOps] = useState([{ id: 1, name: '', price: 0, unit: 'jam', content: 1, usage: 0, cost: 0 }]);
+  const [showFixedCost, setShowFixedCost] = useState(false);
+  const [fixedOps, setFixedOps] = useState([{ id: 1, name: 'Sewa/Wifi', cost: 0 }]); 
+  const [production, setProduction] = useState({ yield: 1, monthlyTarget: 100 }); 
+  const [useSmartRounding, setUseSmartRounding] = useState(true);
+  const [targetMonthlyProfit, setTargetMonthlyProfit] = useState(0);
+  const [customMargin, setCustomMargin] = useState(30);
+  const [savedRecipes, setSavedRecipes] = useState([]);
+  const [showLoadModal, setShowLoadModal] = useState(false);
+
+  // Logic
+  const calculateRowCost = (price, content, usage) => (!content || content === 0) ? 0 : (price / content) * usage;
+
+  const updateMaterial = (id, field, value) => {
+    setMaterials(materials.map(item => item.id === id ? { 
+      ...item, [field]: value, cost: calculateRowCost(field==='price'?value:item.price, field==='content'?value:item.content, field==='usage'?value:item.usage) 
+    } : item));
+  };
+
+  const updateVarOp = (id, field, value) => {
+    setVariableOps(variableOps.map(item => item.id === id ? { 
+      ...item, [field]: value, cost: calculateRowCost(field==='price'?value:item.price, field==='content'?value:item.content, field==='usage'?value:item.usage) 
+    } : item));
+  };
+
+  const updateFixedOp = (id, value) => setFixedOps(fixedOps.map(item => item.id === id ? { ...item, cost: value } : item));
+
+  const addMat = () => setMaterials([...materials, { id: Date.now(), name: '', price: 0, unit: 'gram', content: 1000, usage: 0, cost: 0 }]);
+  const addVarOp = () => setVariableOps([...variableOps, { id: Date.now(), name: '', price: 0, unit: 'jam', content: 1, usage: 0, cost: 0 }]);
+  const addFixedOp = () => setFixedOps([...fixedOps, { id: Date.now(), name: '', cost: 0 }]);
+  const removeRow = (setter, list, id) => list.length > 1 && setter(list.filter(i => i.id !== id));
+
+  // Calculations
+  const totalMaterialCost = materials.reduce((a, b) => a + b.cost, 0);
+  const totalVarOpCost = variableOps.reduce((a, b) => a + b.cost, 0);
+  const totalFixedOpMonthly = fixedOps.reduce((a, b) => a + b.cost, 0);
+  
+  const matPerUnit = totalMaterialCost / (production.yield || 1);
+  const varOpPerUnit = totalVarOpCost / (production.yield || 1);
+  const fixedOpPerUnit = showFixedCost ? (totalFixedOpMonthly / (production.monthlyTarget || 1)) : 0;
+  
+  const hppBersih = matPerUnit + varOpPerUnit + fixedOpPerUnit;
+
+  const roundPrice = (price) => {
+    if (!useSmartRounding) return price;
+    if (price < 1000) return Math.ceil(price / 100) * 100;
+    return Math.ceil(price / 500) * 500;
+  };
+
+  const getPriceTier = (margin) => {
+    const raw = hppBersih + (hppBersih * (margin / 100));
+    return { raw, final: roundPrice(raw), profit: roundPrice(raw) - hppBersih };
+  };
+
+  const tiers = [
+    { name: "Siap Tempur", sub: "Kompetitif", margin: 20 },
+    { name: "Akal Sehat", sub: "Standar", margin: 40 },
+    { name: "Auto Umroh", sub: "Premium", margin: 70 },
+  ];
+
+  // Target Profit Logic
+  const selectedPrice = getPriceTier(customMargin).final;
+  const profitPerPcs = selectedPrice - hppBersih;
+  const targetPcsMonth = profitPerPcs > 0 ? Math.ceil(targetMonthlyProfit / profitPerPcs) : 0;
+  const targetPcsDay = Math.ceil(targetPcsMonth / 30);
+
+  // Storage
+  useEffect(() => {
+    const saved = localStorage.getItem('hpp_master_recipes');
+    if (saved) setSavedRecipes(JSON.parse(saved));
+  }, []);
+
+  const saveRecipe = () => {
+    if(!productInfo.name) return alert("Beri nama produk dulu ya!");
+    const newRecipe = {
+      id: Date.now(), productInfo, materials, variableOps, fixedOps, showFixedCost, production,
+      savedHpp: hppBersih, savedPrice: getPriceTier(customMargin).final
+    };
+    const updated = [...savedRecipes, newRecipe];
+    setSavedRecipes(updated);
+    localStorage.setItem('hpp_master_recipes', JSON.stringify(updated));
+    alert("Resep berhasil disimpan ke Database!");
+  };
+
+  const loadRecipe = (r) => {
+    setProductInfo(r.productInfo); setMaterials(r.materials); setVariableOps(r.variableOps);
+    setFixedOps(r.fixedOps || []); setShowFixedCost(r.showFixedCost); setProduction(r.production);
+    setShowLoadModal(false);
+  };
+
+  const resetAll = () => {
+    if(confirm("Reset data?")) {
+      setProductInfo({ name: '', type: 'Makanan', image: null });
+      setMaterials([{ id: 1, name: '', price: 0, unit: 'gram', content: 1000, usage: 0, cost: 0 }]);
+      setVariableOps([{ id: 1, name: '', price: 0, unit: 'jam', content: 1, usage: 0, cost: 0 }]);
+      setShowFixedCost(false);
+      setProduction({ yield: 1, monthlyTarget: 100 });
+    }
+  };
+
+  return (
+    <div className="space-y-8 animate-fade-in">
+      
+      {/* 1. PRODUCT HEADER */}
+      <Card noPadding className="overflow-hidden">
+        <div className="bg-slate-50 dark:bg-slate-800/50 p-6 flex flex-col sm:flex-row gap-6 items-center">
+          <div className="w-24 h-24 bg-white dark:bg-slate-700 rounded-2xl flex items-center justify-center border border-slate-200 dark:border-slate-600 relative overflow-hidden group cursor-pointer shadow-sm hover:shadow-md transition">
+            {productInfo.image ? <img src={productInfo.image} className="w-full h-full object-cover"/> : <ImageIcon className="w-8 h-8 text-slate-300"/>}
+            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => {
+              if (e.target.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (ev) => setProductInfo({...productInfo, image: ev.target.result});
+                reader.readAsDataURL(e.target.files[0]);
+              }
+            }}/>
+          </div>
+          <div className="flex-1 w-full space-y-3 text-center sm:text-left">
+            <input 
+              className="text-2xl sm:text-3xl font-bold bg-transparent text-slate-800 dark:text-white outline-none placeholder:text-slate-300 w-full"
+              placeholder="Nama Produk..."
+              value={productInfo.name}
+              onChange={(e) => setProductInfo({...productInfo, name: e.target.value})}
+            />
+            <div className="flex justify-center sm:justify-start gap-2">
+              {['Makanan', 'Minuman', 'Jasa', 'Barang'].map(type => (
+                <button 
+                  key={type}
+                  onClick={() => setProductInfo({...productInfo, type})}
+                  className={`px-4 py-1.5 rounded-full text-xs font-semibold transition ${productInfo.type === type ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* 2. COST CALCULATION */}
+      <Card>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2.5 bg-slate-900 dark:bg-white rounded-xl text-white dark:text-slate-900">
+            <Calculator className="w-5 h-5"/>
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-white">Komponen Biaya</h2>
+        </div>
+
+        {/* BAHAN BAKU */}
+        <div className="mb-8">
+          <div className="flex justify-between items-end mb-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">A. Bahan Baku</h3>
+            <button className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 hover:underline">
+              <Upload className="w-3 h-3"/> Import Excel
+            </button>
+          </div>
+          <div className="space-y-3">
+            {materials.map((m) => (
+              <div key={m.id} className="flex flex-col sm:flex-row gap-3 items-start sm:items-center p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 group hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+                <div className="flex-1 w-full">
+                  <span className="text-[10px] text-slate-400 block mb-1">Nama Bahan</span>
+                  <input className="w-full bg-transparent font-semibold text-slate-700 dark:text-slate-200 outline-none placeholder:text-slate-300" placeholder="Contoh: Tepung" value={m.name} onChange={e=>updateMaterial(m.id,'name',e.target.value)} />
+                </div>
+                <div className="w-full sm:w-32">
+                  <span className="text-[10px] text-slate-400 block mb-1">Harga Beli</span>
+                  <NumericInput value={m.price} onChange={v=>updateMaterial(m.id,'price',v)} className="py-1.5 text-xs bg-white dark:bg-slate-900" />
+                </div>
+                <div className="w-full sm:w-40 flex gap-2">
+                  <div className="flex-1">
+                    <span className="text-[10px] text-slate-400 block mb-1">Isi Kemasan</span>
+                    <NumericInput value={m.content} onChange={v=>updateMaterial(m.id,'content',v)} className="py-1.5 text-xs bg-white dark:bg-slate-900" />
+                  </div>
+                  <div className="w-16">
+                    <span className="text-[10px] text-slate-400 block mb-1">Unit</span>
+                    <select className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-1.5 px-1 text-xs outline-none dark:text-white" value={m.unit} onChange={e=>updateMaterial(m.id,'unit',e.target.value)}>
+                      <option value="gram">gr</option><option value="ml">ml</option><option value="pcs">pcs</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="w-full sm:w-24">
+                  <span className="text-[10px] text-slate-400 block mb-1 font-bold text-emerald-600">Pakai</span>
+                  <NumericInput value={m.usage} onChange={v=>updateMaterial(m.id,'usage',v)} className="py-1.5 text-xs bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400" />
+                </div>
+                <button onClick={()=>removeRow(setMaterials,materials,m.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors self-end sm:self-center"><Trash2 className="w-4 h-4"/></button>
+              </div>
+            ))}
+            <Button variant="secondary" onClick={addMat} className="w-full border-dashed border-2 bg-transparent hover:bg-slate-50 dark:hover:bg-slate-800" icon={Plus}>Tambah Bahan</Button>
+          </div>
+        </div>
+
+        {/* OPERASIONAL VARIABEL */}
+        <div>
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">B. Biaya Variabel (Opsional)</h3>
+          <div className="space-y-3">
+            {variableOps.map((op) => (
+              <div key={op.id} className="flex flex-col sm:flex-row gap-3 items-start sm:items-center p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                <div className="flex-1 w-full">
+                  <span className="text-[10px] text-slate-400 block mb-1">Item</span>
+                  <input className="w-full bg-transparent font-semibold text-slate-700 dark:text-slate-200 outline-none" placeholder="Gas / Kemasan" value={op.name} onChange={e=>updateVarOp(op.id,'name',e.target.value)} />
+                </div>
+                <div className="w-full sm:w-32">
+                  <span className="text-[10px] text-slate-400 block mb-1">Biaya</span>
+                  <NumericInput value={op.price} onChange={v=>updateVarOp(op.id,'price',v)} className="py-1.5 text-xs bg-white dark:bg-slate-900" />
+                </div>
+                <div className="w-full sm:w-40 flex gap-2">
+                  <div className="flex-1">
+                    <span className="text-[10px] text-slate-400 block mb-1">Total Isi</span>
+                    <NumericInput value={op.content} onChange={v=>updateVarOp(op.id,'content',v)} className="py-1.5 text-xs bg-white dark:bg-slate-900" />
+                  </div>
+                  <div className="w-16">
+                    <span className="text-[10px] text-slate-400 block mb-1">Unit</span>
+                    <select className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-1.5 px-1 text-xs outline-none dark:text-white" value={op.unit} onChange={e=>updateVarOp(op.id,'unit',e.target.value)}>
+                      <option value="jam">Jam</option><option value="pcs">Pcs</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="w-full sm:w-24">
+                  <span className="text-[10px] text-slate-400 block mb-1 font-bold text-emerald-600">Pakai</span>
+                  <NumericInput value={op.usage} onChange={v=>updateVarOp(op.id,'usage',v)} className="py-1.5 text-xs bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400" />
+                </div>
+                <button onClick={()=>removeRow(setVariableOps,variableOps,op.id)} className="p-2 text-slate-300 hover:text-red-500 self-end sm:self-center"><Trash2 className="w-4 h-4"/></button>
+              </div>
+            ))}
+            <Button variant="secondary" onClick={addVarOp} className="w-full border-dashed border-2 bg-transparent hover:bg-slate-50 dark:hover:bg-slate-800" icon={Plus}>Tambah Ops</Button>
+          </div>
+        </div>
+
+        {/* SUBTOTAL */}
+        <div className="mt-8 p-5 bg-slate-900 dark:bg-slate-800 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4 text-white shadow-lg">
+          <div>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Total Modal Langsung</p>
+            <p className="text-2xl font-bold">{formatIDR(totalMaterialCost + totalVarOpCost)}</p>
+          </div>
+          <div className="flex items-center gap-3 bg-white/10 p-2 pr-4 rounded-xl border border-white/10">
+            <div className="bg-white text-slate-900 px-3 py-2 rounded-lg text-xs font-bold uppercase">Jumlah Jadi</div>
+            <input 
+              type="number" 
+              className="w-20 bg-transparent text-right font-bold text-xl outline-none" 
+              value={production.yield} 
+              onChange={e=>setProduction({...production, yield: parseFloat(e.target.value)||1})} 
+            />
+            <span className="text-sm font-medium text-slate-300">Pcs</span>
+          </div>
+        </div>
+
+        {/* C. BIAYA TETAP */}
+        <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex justify-between items-center cursor-pointer mb-4" onClick={() => setShowFixedCost(!showFixedCost)}>
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              C. Biaya Tetap Bulanan (Opsional)
+            </h3>
+            <div className={`w-12 h-6 rounded-full p-1 transition-colors ${showFixedCost ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`}>
+              <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${showFixedCost ? 'translate-x-6' : ''}`}></div>
+            </div>
+          </div>
+
+          {showFixedCost && (
+            <div className="animate-fade-in space-y-4">
+              <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl text-xs text-indigo-800 dark:text-indigo-200 flex gap-3">
+                <Info className="w-5 h-5 shrink-0"/>
+                <p>Biaya ini akan dibagi dengan <b>Target Produksi Bulanan</b>. Contoh: Sewa Tempat, Gaji Karyawan Tetap, Listrik.</p>
+              </div>
+              
+              <div className="w-full sm:w-1/2">
+                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1.5 block">Target Produksi / Bulan</label>
+                <NumericInput 
+                  value={production.monthlyTarget} 
+                  onChange={v => setProduction({...production, monthlyTarget: v})} 
+                  placeholder="100"
+                  suffix="Pcs"
+                />
+              </div>
+
+              <div className="space-y-2">
+                {fixedOps.map((op) => (
+                  <div key={op.id} className="flex gap-2 items-center">
+                    <input className="flex-1 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-700 dark:text-white outline-none focus:border-indigo-500" placeholder="Nama Biaya" value={op.name} onChange={e=>updateFixedOp(op.id, 'name', e.target.value)} />
+                    <div className="w-40">
+                      <NumericInput value={op.cost} onChange={v=>updateFixedOp(op.id, v)} prefix="Rp" />
+                    </div>
+                    <button onClick={()=>removeRow(setFixedOps,fixedOps,op.id)} className="p-2 text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>
+                  </div>
+                ))}
+                <button onClick={addFixedOp} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline px-2">+ Tambah Biaya</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* 3. RESULTS & STRATEGY */}
+      <Card noPadding className="overflow-hidden">
+        <div className="bg-slate-900 dark:bg-slate-950 p-8 text-center relative overflow-hidden">
+          {/* Decorative Glow */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/20 rounded-full blur-[80px]"></div>
+          
+          <div className="relative z-10">
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em] mb-2">Total HPP Bersih / Pcs</p>
+            <h1 className="text-5xl sm:text-6xl font-black text-white tracking-tight mb-2">{formatIDR(hppBersih)}</h1>
+            <div className="flex justify-center gap-4 text-[10px] font-bold uppercase text-slate-500">
+              <span>Bahan: {formatIDR(matPerUnit)}</span>
+              <span className="text-slate-700">•</span>
+              <span>Ops: {formatIDR(varOpPerUnit)}</span>
+              {showFixedCost && (
+                <>
+                  <span className="text-slate-700">•</span>
+                  <span>Tetap: {formatIDR(fixedOpPerUnit)}</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 sm:p-8">
+          {/* Pricing Tiers */}
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Strategi Harga Jual</h3>
+            <div className="flex items-center gap-2 cursor-pointer" onClick={() => setUseSmartRounding(!useSmartRounding)}>
+              <span className={`text-[10px] font-bold uppercase ${useSmartRounding ? 'text-emerald-600' : 'text-slate-400'}`}>Smart Rounding</span>
+              <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${useSmartRounding ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-700'}`}>
+                <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${useSmartRounding ? 'translate-x-4' : ''}`}></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            {tiers.map((tier, idx) => {
+              const data = getPriceTier(tier.margin);
+              const colors = [
+                "bg-orange-50 text-orange-900 border-orange-100 dark:bg-orange-900/20 dark:text-orange-100 dark:border-orange-800/50",
+                "bg-blue-50 text-blue-900 border-blue-100 dark:bg-blue-900/20 dark:text-blue-100 dark:border-blue-800/50",
+                "bg-purple-50 text-purple-900 border-purple-100 dark:bg-purple-900/20 dark:text-purple-100 dark:border-purple-800/50"
+              ];
+              return (
+                <div 
+                  key={tier.name} 
+                  onClick={() => setCustomMargin(tier.margin)} 
+                  className={`p-5 rounded-2xl border cursor-pointer transition-all hover:-translate-y-1 hover:shadow-md ${colors[idx]} relative group`}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">{tier.sub}</span>
+                    {idx === 2 && <span className="text-[10px] bg-white/50 px-2 rounded-full">👑</span>}
+                  </div>
+                  <h4 className="text-xl font-black mb-1">{formatIDR(data.final)}</h4>
+                  <div className="text-xs font-medium opacity-80 flex justify-between border-t border-black/5 dark:border-white/10 pt-2 mt-2">
+                    <span>Cuan: {formatIDR(data.profit)}</span>
+                    <span>{tier.margin}%</span>
+                  </div>
+                  {/* Selection Ring */}
+                  {customMargin === tier.margin && (
+                    <div className="absolute inset-0 border-2 border-slate-900 dark:border-white rounded-2xl pointer-events-none"></div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Custom Margin */}
+          <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-6 mb-8">
+            <div className="flex justify-between items-end mb-4">
+              <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
+                <Edit3 className="w-4 h-4"/> Custom Margin
+              </label>
+              <div className="text-right">
+                <p className="text-xs text-slate-400 mb-1">Harga Jual Final</p>
+                <p className="text-3xl font-black text-slate-900 dark:text-white">{formatIDR(getPriceTier(customMargin).final)}</p>
+              </div>
+            </div>
+            <input 
+              type="range" min="0" max="150" 
+              className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-slate-900 dark:accent-white"
+              value={customMargin} onChange={(e) => setCustomMargin(parseInt(e.target.value))} 
+            />
+            <div className="text-center mt-2 font-bold text-slate-900 dark:text-white">{customMargin}%</div>
+          </div>
+
+          {/* Target Simulation */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4"/> Target Profit
+              </h3>
+              <NumericInput 
+                value={targetMonthlyProfit} 
+                onChange={setTargetMonthlyProfit}
+                placeholder="5.000.000"
+                prefix="Rp"
+                className="font-bold text-lg"
+              />
+              <p className="text-[10px] text-slate-400 mt-2">Masukkan target laba bersih per bulan yang kamu inginkan.</p>
+            </div>
+            
+            {targetMonthlyProfit > 0 && hppBersih > 0 && (
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded-2xl p-5 flex flex-col justify-center">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-xs text-emerald-700 dark:text-emerald-400 font-bold uppercase">Jual Minimal / Bulan</span>
+                  <span className="text-xl font-black text-emerald-800 dark:text-emerald-300">{targetPcsMonth} pcs</span>
+                </div>
+                <div className="w-full h-px bg-emerald-200 dark:bg-emerald-800 mb-3"></div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-emerald-700 dark:text-emerald-400 font-bold uppercase">Omzet Harian</span>
+                  <span className="text-xl font-black text-emerald-800 dark:text-emerald-300">{formatIDR(targetOmzetDaily)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      {/* 4. ACTION BAR */}
+      <div className="grid grid-cols-2 gap-4 pb-8">
+        <Button variant="outline" onClick={resetAll} icon={RotateCcw} className="py-4">Reset</Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={()=>setShowLoadModal(true)} icon={FolderOpen} className="flex-1 py-4">Load</Button>
+          <Button variant="primary" onClick={saveRecipe} icon={Save} className="flex-1 py-4 shadow-xl shadow-slate-900/20 dark:shadow-none">Simpan</Button>
+        </div>
+      </div>
+
+      {/* MODAL */}
+      {showLoadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+              <h3 className="font-bold text-lg text-slate-800 dark:text-white">Load Resep</h3>
+              <button onClick={()=>setShowLoadModal(false)}><X className="w-6 h-6 text-slate-400"/></button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto p-4 space-y-2">
+              {savedRecipes.length===0 && <p className="text-center py-10 text-slate-400 text-sm">Belum ada data.</p>}
+              {savedRecipes.map(r => (
+                <div key={r.id} onClick={()=>loadRecipe(r)} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer transition flex justify-between items-center group">
+                  <div>
+                    <h4 className="font-bold text-slate-800 dark:text-white">{r.productInfo?.name || "Tanpa Nama"}</h4>
+                    <p className="text-xs text-slate-500 mt-1">{formatIDR(r.savedPrice)} • {new Date(r.id).toLocaleDateString()}</p>
+                  </div>
+                  <button onClick={(e)=>{e.stopPropagation(); 
+                    const updated = savedRecipes.filter(item => item.id !== r.id);
+                    setSavedRecipes(updated);
+                    localStorage.setItem('hpp_master_recipes', JSON.stringify(updated));
+                  }} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"><Trash2 className="w-4 h-4"/></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// 2. POS TAB
+// ============================================================================
+
+const PosTab = () => {
+  const [products, setProducts] = useState([]);
+  const [cart, setCart] = useState([]);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [showCartMobile, setShowCartMobile] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newProd, setNewProd] = useState({ name: '', price: 0, stock: 0, image: null });
+
+  useEffect(() => {
+    const recipes = JSON.parse(localStorage.getItem('hpp_master_recipes') || '[]');
+    const manual = JSON.parse(localStorage.getItem('pos_stock') || '[]');
+    const recipeProds = recipes.map(r => ({ id: r.id, name: r.productInfo?.name||'Resep', price: r.savedPrice||0, image: r.productInfo?.image, stock: 999, type: 'Resep', hpp: r.savedHpp }));
+    setProducts([...recipeProds, ...manual]);
+  }, []);
+
+  const addManualProduct = () => {
+    if(!newProd.name || !newProd.price) return;
+    const item = { id: `m_${Date.now()}`, ...newProd, type: 'Manual', hpp: newProd.price*0.7 };
+    const current = JSON.parse(localStorage.getItem('pos_stock') || '[]');
+    localStorage.setItem('pos_stock', JSON.stringify([...current, item]));
+    setProducts(prev => [...prev, item]);
+    setShowAddModal(false); setNewProd({ name: '', price: 0, stock: 0, image: null });
+  };
+
+  const addToCart = (p) => {
+    const exist = cart.find(c => c.id === p.id);
+    setCart(exist ? cart.map(c => c.id === p.id ? {...c, qty: c.qty + 1} : c) : [...cart, {...p, qty: 1}]);
+  };
+
+  const updateQty = (id, delta) => setCart(cart.map(c => c.id === id ? {...c, qty: Math.max(1, c.qty + delta)} : c));
+  const handleCheckout = () => {
+    const tx = { id: Date.now(), date: new Date().toISOString(), items: cart, total: cart.reduce((a,b)=>a+(b.price*b.qty),0), profit: cart.reduce((a,b)=>a+((b.price-b.hpp)*b.qty),0) };
+    const history = JSON.parse(localStorage.getItem('pos_transactions') || '[]');
+    localStorage.setItem('pos_transactions', JSON.stringify([...history, tx]));
+    setCart([]); setIsSuccess(true); setTimeout(()=>setIsSuccess(false),3000); setShowCartMobile(false);
+  };
+
+  const filtered = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  return (
+    <div className="h-[calc(100vh-100px)] flex flex-col md:flex-row overflow-hidden bg-slate-50 dark:bg-slate-950 rounded-3xl border border-slate-200 dark:border-slate-800">
+      {/* Left: Catalog */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <div className="p-4 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex gap-3 z-10">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-3 w-4 h-4 text-slate-400"/>
+            <input className="w-full bg-slate-50 dark:bg-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium outline-none dark:text-white" placeholder="Cari..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
+          </div>
+          <button onClick={()=>setShowAddModal(true)} className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 p-2.5 rounded-xl hover:scale-105 transition"><Plus className="w-5 h-5"/></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-20">
+            {filtered.map(p => (
+              <div key={p.id} onClick={()=>addToCart(p)} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden cursor-pointer group hover:border-slate-300 dark:hover:border-slate-600 transition-all">
+                <div className="aspect-square bg-slate-100 dark:bg-slate-800 relative">
+                  {p.image ? <img src={p.image} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-slate-300 font-black text-2xl">{p.name[0]}</div>}
+                  <div className="absolute bottom-2 right-2 bg-slate-900/80 backdrop-blur text-white px-2 py-1 rounded-lg text-[10px] font-bold">{formatIDR(p.price)}</div>
+                </div>
+                <div className="p-3">
+                  <h4 className="font-bold text-slate-700 dark:text-slate-200 text-sm truncate">{p.name}</h4>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{p.stock} Stok</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Right: Cart */}
+      <div className={`fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm md:static md:bg-transparent md:w-96 transition-all ${showCartMobile ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto'}`} onClick={()=>setShowCartMobile(false)}>
+        <div className={`absolute right-0 top-0 bottom-0 w-full md:w-96 bg-white dark:bg-slate-900 md:border-l border-slate-100 dark:border-slate-800 flex flex-col transition-transform duration-300 ${showCartMobile ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`} onClick={e=>e.stopPropagation()}>
+          <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+            <h2 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">Order <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs px-2 py-0.5 rounded-full">{cart.length}</span></h2>
+            <button onClick={()=>setShowCartMobile(false)} className="md:hidden"><X className="w-6 h-6"/></button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {cart.map(item => (
+              <div key={item.id} className="flex gap-3 items-center">
+                <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden shrink-0">
+                  {item.image && <img src={item.image} className="w-full h-full object-cover"/>}
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-sm text-slate-700 dark:text-white line-clamp-1">{item.name}</p>
+                  <p className="text-xs text-slate-500">{formatIDR(item.price)}</p>
+                </div>
+                <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 rounded-lg p-1">
+                  <button onClick={()=>updateQty(item.id, -1)} className="w-6 h-6 flex items-center justify-center bg-white dark:bg-slate-700 rounded shadow-sm text-xs font-bold">-</button>
+                  <span className="text-xs font-bold dark:text-white">{item.qty}</span>
+                  <button onClick={()=>updateQty(item.id, 1)} className="w-6 h-6 flex items-center justify-center bg-white dark:bg-slate-700 rounded shadow-sm text-xs font-bold">+</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="p-5 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex justify-between items-center mb-4">
+              <span className="text-slate-500 text-sm font-medium">Total</span>
+              <span className="text-2xl font-black text-slate-900 dark:text-white">{formatIDR(cart.reduce((a,b)=>a+(b.price*b.qty),0))}</span>
+            </div>
+            <Button variant="primary" className="w-full py-4 rounded-xl shadow-xl shadow-slate-900/20 dark:shadow-none" onClick={handleCheckout} disabled={cart.length===0}>Bayar</Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Floating Cart Button Mobile */}
+      <button onClick={()=>setShowCartMobile(true)} className="md:hidden fixed bottom-24 right-4 w-14 h-14 bg-slate-900 text-white rounded-full shadow-xl flex items-center justify-center z-40">
+        <ShoppingCart className="w-6 h-6"/>
+        {cart.length > 0 && <span className="absolute top-0 right-0 w-5 h-5 bg-red-500 rounded-full border-2 border-slate-900 text-[10px] font-bold flex items-center justify-center">{cart.length}</span>}
+      </button>
+
+      {/* Add Stock Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <Card className="w-full max-w-sm">
+            <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Tambah Stok</h3>
+            <div className="space-y-3">
+              <input className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl outline-none dark:text-white" placeholder="Nama Produk" value={newProd.name} onChange={e=>setNewProd({...newProd, name:e.target.value})} />
+              <NumericInput placeholder="Harga Jual" value={newProd.price} onChange={v=>setNewProd({...newProd, price:v})} prefix="Rp" />
+              <NumericInput placeholder="Stok Awal" value={newProd.stock} onChange={v=>setNewProd({...newProd, stock:v})} />
+            </div>
+            <div className="flex gap-3 mt-6">
+              <Button variant="ghost" className="flex-1" onClick={()=>setShowAddModal(false)}>Batal</Button>
+              <Button variant="primary" className="flex-1" onClick={addManualProduct}>Simpan</Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Success Popup */}
+      {isSuccess && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none">
+          <div className="bg-white dark:bg-slate-800 px-8 py-6 rounded-3xl shadow-2xl flex flex-col items-center animate-bounce">
+            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mb-3 text-emerald-600"><CheckCircle className="w-8 h-8"/></div>
+            <h2 className="font-bold text-xl text-slate-800 dark:text-white">Transaksi Berhasil!</h2>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// 3. REPORT TAB
+// ============================================================================
+
+const ReportTab = () => {
+  const [filter, setFilter] = useState('all');
+  const [txs, setTxs] = useState([]);
+
+  useEffect(() => {
+    setTxs(JSON.parse(localStorage.getItem('pos_transactions') || '[]'));
+  }, []);
+
+  const stats = useMemo(() => {
+    const now = new Date();
+    const filtered = txs.filter(t => {
+      const d = new Date(t.date);
+      if(filter === 'today') return d.getDate() === now.getDate() && d.getMonth() === now.getMonth();
+      if(filter === 'month') return d.getMonth() === now.getMonth();
+      return true;
+    });
+    return {
+      revenue: filtered.reduce((a,b)=>a+b.total,0),
+      profit: filtered.reduce((a,b)=>a+b.profit,0),
+      count: filtered.length,
+      list: filtered.reverse()
+    }
+  }, [filter, txs]);
+
+  // SVG Chart
+  const chartData = useMemo(() => {
+    if(stats.list.length < 2) return null;
+    const data = stats.list.slice(0,10).map(t => t.total).reverse();
+    const max = Math.max(...data, 100);
+    const points = data.map((val, i) => `${(i / (data.length - 1)) * 100},${100 - (val / max) * 100}`).join(' ');
+    return { points };
+  }, [stats]);
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 space-y-8 pb-32">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Financial Report</h1>
+          <p className="text-slate-400 text-sm">Realtime Overview</p>
+        </div>
+        <div className="flex bg-white dark:bg-slate-800 p-1 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+          {['Hari Ini', 'Bulan Ini', 'Semua'].map((l, i) => {
+            const val = ['today', 'month', 'all'][i];
+            return (
+              <button key={val} onClick={()=>setFilter(val)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filter===val ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>{l}</button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="relative overflow-hidden group">
+          <div className="relative z-10">
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Total Omzet</p>
+            <h2 className="text-3xl font-black text-slate-900 dark:text-white">{formatIDR(stats.revenue)}</h2>
+          </div>
+          <DollarSign className="absolute -right-4 -bottom-4 w-24 h-24 text-slate-100 dark:text-slate-800 group-hover:scale-110 transition"/>
+        </Card>
+        <Card className="relative overflow-hidden group border-emerald-100 dark:border-emerald-900/30">
+          <div className="relative z-10">
+            <p className="text-emerald-600 dark:text-emerald-400 text-xs font-bold uppercase tracking-wider mb-1">Laba Bersih</p>
+            <h2 className="text-3xl font-black text-slate-900 dark:text-white">{formatIDR(stats.profit)}</h2>
+          </div>
+          <TrendingUp className="absolute -right-4 -bottom-4 w-24 h-24 text-emerald-50 dark:text-emerald-900/20 group-hover:scale-110 transition"/>
+        </Card>
+        <Card className="flex items-center justify-between">
+          <div>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Transaksi</p>
+            <h2 className="text-3xl font-black text-slate-900 dark:text-white">{stats.count}</h2>
+          </div>
+          <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl"><ShoppingCart className="w-6 h-6 text-slate-400"/></div>
+        </Card>
+      </div>
+
+      <Card>
+        <h3 className="font-bold text-slate-800 dark:text-white mb-6">Tren Penjualan</h3>
+        {chartData ? (
+          <div className="h-48 w-full relative">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
+              <defs>
+                <linearGradient id="gradient" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#0f172a" stopOpacity="0.1" />
+                  <stop offset="100%" stopColor="#0f172a" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <polyline fill="none" stroke="#0f172a" strokeWidth="2" points={chartData.points} vectorEffect="non-scaling-stroke" className="dark:stroke-white drop-shadow-md"/>
+              <polygon fill="url(#gradient)" points={`0,100 ${chartData.points} 100,100`} />
+            </svg>
+          </div>
+        ) : <div className="h-40 flex items-center justify-center text-slate-300 text-sm italic">Belum ada data grafik</div>}
+      </Card>
+
+      <div className="space-y-4">
+        <h3 className="font-bold text-slate-800 dark:text-white">Riwayat Terakhir</h3>
+        {stats.list.length === 0 ? <p className="text-center text-slate-400 py-10">Belum ada transaksi.</p> : stats.list.map(t => (
+          <div key={t.id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex justify-between items-center">
+            <div className="flex gap-4 items-center">
+              <div className="w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center font-bold text-xs text-slate-500">#{t.id.toString().slice(-3)}</div>
+              <div>
+                <p className="font-bold text-slate-800 dark:text-white">{formatIDR(t.total)}</p>
+                <p className="text-[10px] text-slate-400">{new Date(t.date).toLocaleString()}</p>
+              </div>
+            </div>
+            <p className="text-xs font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded-lg">+{formatIDR(t.profit)}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// MAIN APP SHELL
+// ============================================================================
+
+const App = () => {
+  const [activeTab, setActiveTab] = useState('calc');
+  const [darkMode, setDarkMode] = useState(false);
+
+  return (
+    <div className={`${darkMode ? 'dark' : ''}`}>
+      <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-200 transition-colors duration-300">
+        
+        {/* Toggle Dark Mode */}
+        <button 
+          onClick={() => setDarkMode(!darkMode)} 
+          className="fixed top-4 right-4 z-50 w-10 h-10 bg-white dark:bg-slate-800 rounded-full shadow-lg flex items-center justify-center text-slate-600 dark:text-white transition hover:scale-110"
+        >
+          {darkMode ? <Sun className="w-5 h-5"/> : <Moon className="w-5 h-5"/>}
+        </button>
+
+        <div className="animate-fade-in pb-20 pt-4">
+          {activeTab === 'calc' && <CalculatorTab />}
+          {activeTab === 'pos' && <PosTab />}
+          {activeTab === 'report' && <ReportTab />}
+        </div>
+
+        {/* Premium Bottom Nav */}
+        <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-200 dark:shadow-black/50 z-40 flex gap-1 border border-slate-200 dark:border-slate-800">
+          {[
+            { id: 'calc', icon: Calculator, label: 'Hitung' },
+            { id: 'pos', icon: ShoppingCart, label: 'Kasir' },
+            { id: 'report', icon: BarChart3, label: 'Laporan' }
+          ].map((item) => (
+            <button 
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`relative px-6 py-3 rounded-full transition-all duration-300 flex items-center justify-center gap-2 ${
+                activeTab === item.id 
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-lg' 
+                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <item.icon className={`w-5 h-5`}/>
+              {activeTab === item.id && <span className="text-xs font-bold whitespace-nowrap">{item.label}</span>}
+            </button>
+          ))}
+        </nav>
+      </div>
+    </div>
+  );
+};
+
+export default CalculatorTab;
 
