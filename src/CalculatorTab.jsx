@@ -409,7 +409,7 @@ const CalculatorTab = () => {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] text-slate-400 block">Pakai</label>
+                                    <label className="text-[10px] text-slate-400 block">Jumlah Pakai</label>
                                     <input type="number" className="w-full bg-yellow-50 border border-yellow-100 rounded p-1 font-semibold" value={item.usage || ''} onChange={(e)=>updateMaterial(item.id, 'usage', parseFloat(e.target.value)||0)} />
                                 </div>
                              </div>
@@ -469,7 +469,7 @@ const CalculatorTab = () => {
                                       </div>
                                   </div>
                                   <div>
-                                      <label className="text-[10px] text-slate-400 block">Pakai</label>
+                                      <label className="text-[10px] text-slate-400 block">Jumlah Pakai</label>
                                       <input type="number" className="w-full bg-yellow-50 border border-yellow-100 rounded p-1 font-semibold" value={item.usage || ''} onChange={(e)=>updateOperation(item.id, 'usage', parseFloat(e.target.value)||0)} />
                                   </div>
                                </div>
