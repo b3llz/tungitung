@@ -848,5 +848,5 @@ const App = () => {
   );
 };
 
-export default CalculatorTab
+export default App;
 
