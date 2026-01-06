@@ -617,9 +617,9 @@ const CalculatorTab = () => {
                         />
                         {monthlyProfitTarget > 0 && (marketPrice > 0 || smartPrice > 0) && (
                           <div className="mt-2 bg-slate-100 p-2 rounded text-[10px] text-slate-600 space-y-1">
-                             <p>• Harus jual minimal: <b className="text-slate-800">{targetQtyPerMonth} pcs</b> / bulan</p>
-                             <p>• Atau <b className="text-slate-800">{Math.ceil(targetQtyPerMonth/30)} pcs</b> / hari</p>
-                             <p>• Target Omzet Harian: <b className="text-slate-800">{formatIDR(targetOmzetDaily)}</b></p>
+                             <p>Harus jual minimal: <b className="text-slate-800">{targetQtyPerMonth} pcs</b> / bulan</p>
+                             <p>Atau <b className="text-slate-800">{Math.ceil(targetQtyPerMonth/30)} pcs</b> / hari</p>
+                             <p>Target Omzet Harian: <b className="text-slate-800">{formatIDR(targetOmzetDaily)}</b></p>
                           </div>
                         )}
                     </div>
