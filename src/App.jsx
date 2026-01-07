@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
-  Save, FolderOpen, RotateCcw, CheckCircle, 
-  TrendingUp, Package, Zap, DollarSign, X, 
-  Edit3, Image as ImageIcon, Search, Sun, Moon, 
-  ArrowRight, HelpCircle, Shield, Crown, Layers, 
-  Download, FileSpreadsheet
+  Save, FolderOpen, RotateCcw, Info, CheckCircle, 
+  TrendingUp, Package, Zap, DollarSign, Menu, X, 
+  ChevronRight, Upload, Edit3, Image as ImageIcon,
+  Search, Sun, Moon, ArrowRight, HelpCircle, Box,
+  Shield, Crown, Rocket, Layers, LayoutGrid, Download, FileSpreadsheet
 } from 'lucide-react';
 
 // ============================================================================
 // 0. UTILS: EXCEL HANDLER (Dynamic Import CDN)
 // ============================================================================
 
+// Fungsi helper untuk memuat library SheetJS (XLSX) secara otomatis tanpa npm install
 const loadXLSX = async () => {
   if (window.XLSX) return window.XLSX;
   return new Promise((resolve, reject) => {
@@ -24,7 +25,7 @@ const loadXLSX = async () => {
 };
 
 // ============================================================================
-// 1. UTILITIES & UI COMPONENTS
+// 1. UTILITIES & UI COMPONENTS (PREMIUM)
 // ============================================================================
 
 const formatIDR = (number) => {
@@ -43,6 +44,7 @@ const formatNumberDisplay = (val) => {
   return num.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
+// Help Box Tooltip
 const HelpBox = ({ text }) => {
   const [isOpen, setIsOpen] = useState(false);
   return (
@@ -67,8 +69,10 @@ const HelpBox = ({ text }) => {
   );
 };
 
+// Input Angka dengan Auto-Resize
 const NumericInput = ({ value, onChange, placeholder, className, prefix, suffix, label }) => {
   const [displayValue, setDisplayValue] = useState('');
+
   useEffect(() => {
     setDisplayValue(formatNumberDisplay(value));
   }, [value]);
@@ -92,7 +96,9 @@ const NumericInput = ({ value, onChange, placeholder, className, prefix, suffix,
       {label && <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 tracking-wider mb-1.5 block whitespace-nowrap">{label}</label>}
       <div className="relative group">
         {prefix && (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium z-10 pointer-events-none">{prefix}</span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium z-10 pointer-events-none">
+            {prefix}
+          </span>
         )}
         <input
           type="text"
@@ -102,13 +108,16 @@ const NumericInput = ({ value, onChange, placeholder, className, prefix, suffix,
           className={`w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-2.5 font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600 ${prefix ? 'pl-9' : 'pl-3'} ${suffix ? 'pr-10' : 'pr-3'} ${className} ${getFontSize(displayValue.length)}`}
         />
         {suffix && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold pointer-events-none">{suffix}</span>
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold pointer-events-none">
+            {suffix}
+          </span>
         )}
       </div>
     </div>
   );
 };
 
+// Card Container
 const Card = ({ children, className = "", title, icon: Icon, action, help }) => (
   <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)] border border-slate-100 dark:border-slate-800 transition-all duration-300 ${className}`}>
     {(title || action) && (
@@ -128,6 +137,7 @@ const Card = ({ children, className = "", title, icon: Icon, action, help }) => 
   </div>
 );
 
+// Button
 const Button = ({ children, onClick, variant = 'primary', className = "", icon: Icon, disabled }) => {
   const styles = {
     primary: "bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/20",
@@ -147,7 +157,7 @@ const Button = ({ children, onClick, variant = 'primary', className = "", icon: 
 // ============================================================================
 
 const CalculatorTab = () => {
-  const [calcMode, setCalcMode] = useState('detail');
+  const [calcMode, setCalcMode] = useState('detail'); 
   const [simpleModal, setSimpleModal] = useState(0);
 
   const [product, setProduct] = useState({ name: '', type: 'Makanan', image: null });
@@ -157,7 +167,7 @@ const CalculatorTab = () => {
   const [showFixed, setShowFixed] = useState(false);
   const [production, setProduction] = useState({ yield: 1, monthlyTarget: 100 });
   const [smartRounding, setSmartRounding] = useState(true);
-  const [customMargin, setCustomMargin] = useState(48.6); // Default ke MASUK AKAL
+  const [customMargin, setCustomMargin] = useState(30);
   const [targetProfit, setTargetProfit] = useState(0);
   const [competitorPrice, setCompetitorPrice] = useState(0);
   const [savedRecipes, setSavedRecipes] = useState([]);
@@ -169,11 +179,12 @@ const CalculatorTab = () => {
   const updateMat = (id, f, v) => setMaterials(prev => prev.map(m => m.id===id ? {...m, [f]:v, cost: calcRow(f==='price'?v:m.price, f==='content'?v:m.content, f==='usage'?v:m.usage)} : m));
   const updateVar = (id, f, v) => setVariableOps(prev => prev.map(o => o.id===id ? {...o, [f]:v, cost: calcRow(f==='price'?v:o.price, f==='content'?v:o.content, f==='usage'?v:o.usage)} : o));
   const updateFix = (id, v) => setFixedOps(prev => prev.map(f => f.id===id ? {...f, cost: v} : f));
+  
   const addMat = () => setMaterials([...materials, { id: Date.now(), name: '', price: 0, unit: 'gram', content: 1000, usage: 0, cost: 0 }]);
   const addVar = () => setVariableOps([...variableOps, { id: Date.now(), name: '', price: 0, unit: 'jam', content: 1, usage: 0, cost: 0 }]);
   const addFix = () => setFixedOps([...fixedOps, { id: Date.now(), name: '', cost: 0 }]);
   const removeRow = (setter, list, id) => list.length > 1 && setter(list.filter(i => i.id !== id));
-  
+
   // Totals
   const totalMat = materials.reduce((a,b) => a + b.cost, 0);
   const totalVar = variableOps.reduce((a,b) => a + b.cost, 0);
@@ -181,6 +192,7 @@ const CalculatorTab = () => {
   
   // HPP Logic Switcher
   let matPerUnit, varPerUnit, fixPerUnit, hppBersih;
+
   if (calcMode === 'simple') {
     matPerUnit = simpleModal / (production.yield || 1); 
     varPerUnit = 0;
@@ -193,53 +205,32 @@ const CalculatorTab = () => {
     hppBersih = matPerUnit + varPerUnit + fixPerUnit;
   }
 
-  // Pricing & Tiers Logic (UPDATED REQUEST)
+  // Pricing
   const round = (p) => smartRounding ? (p < 1000 ? Math.ceil(p/100)*100 : Math.ceil(p/500)*500) : p;
-  
   const getTier = (margin) => {
     const raw = hppBersih + (hppBersih * (margin/100));
     return { raw, final: round(raw), profit: round(raw) - hppBersih };
   };
 
   const tiers = [
-    { 
-      name: "SIAP TEMPUR", 
-      category: "Kompetitif", 
-      desc: "Cocok untuk penetrasi pasar baru", 
-      margin: 22.8, 
-      color: "bg-orange-50", border: "border-orange-200", text: "text-orange-700", icon: Shield 
-    },
-    { 
-      name: "MASUK AKAL", 
-      category: "Standar", 
-      desc: "Margin standar pasar pada umumnya", 
-      margin: 48.6, 
-      color: "bg-blue-50", border: "border-blue-200", text: "text-blue-700", icon: Layers 
-    },
-    { 
-      name: "CEPET NAIK HAJI", 
-      category: "Premium", 
-      desc: "Target pasar sultan / niche market", 
-      margin: 78.4, 
-      color: "bg-purple-50", border: "border-purple-200", text: "text-purple-700", icon: Crown 
-    }
+    { name: "Siap Tempur", category: "Kompetitif", desc: "Cocok untuk penetrasi pasar baru", margin: 15, color: "bg-orange-50", border: "border-orange-200", text: "text-orange-700", icon: Shield },
+    { name: "Akal Sehat", category: "Standar", desc: "Margin standar pasar pada umumnya", margin: 40, color: "bg-blue-50", border: "border-blue-200", text: "text-blue-700", icon: Layers },
+    { name: "Cepet Naik Haji", category: "Premium", desc: "Target pasar sultan / niche market", margin: 80, color: "bg-purple-50", border: "border-purple-200", text: "text-purple-700", icon: Crown }
   ];
 
   // --- LOGIC PROYEKSI LENGKAP ---
-  function getPriceTier(margin) { return getTier(margin); }
-
   const finalPrice = getPriceTier(customMargin).final;
   const profitPerPcs = finalPrice - hppBersih;
+  
   const targetPcsMonth = profitPerPcs > 0 ? Math.ceil(targetProfit / profitPerPcs) : 0;
   
   const projSalesDay = Math.ceil(targetPcsMonth / 30);
   const projOmzetMonth = targetPcsMonth * finalPrice;
-  // Total Biaya Produksi (Variable Cost Total)
   const projVarCostMonth = targetPcsMonth * (matPerUnit + varPerUnit);
-  // Total Biaya Tetap
   const projFixedCostMonth = showFixed ? totalFix : 0;
-  // Net Profit
   const projNetProfitMonth = projOmzetMonth - projVarCostMonth - projFixedCostMonth;
+
+  function getPriceTier(margin) { return getTier(margin); }
 
   // Storage Handlers
   useEffect(() => { setSavedRecipes(JSON.parse(localStorage.getItem('hpp_pro_db') || '[]')); }, []);
@@ -257,9 +248,9 @@ const CalculatorTab = () => {
   };
   const reset = () => {
     if(confirm("Reset semua?")) {
-      setProduct({name:'', type:'Makanan', image:null});
+      setProduct({name:'', type:'Makanan', image:null}); 
       setMaterials([{ id: 1, name: '', price: 0, unit: 'gram', content: 1000, usage: 0, cost: 0 }]);
-      setVariableOps([{ id: 1, name: '', price: 0, unit: 'jam', content: 1, usage: 0, cost: 0 }]);
+      setVariableOps([{ id: 1, name: '', price: 0, unit: 'jam', content: 1, usage: 0, cost: 0 }]); 
       setFixedOps([{ id: 1, name: 'Sewa', cost: 0 }]);
       setProduction({ yield: 1, monthlyTarget: 100 });
       setSimpleModal(0);
@@ -273,6 +264,7 @@ const CalculatorTab = () => {
     try {
       const XLSX = await loadXLSX();
       const wb = XLSX.utils.book_new();
+
       // Sheet 1: Ringkasan
       const summaryData = [
         ["LAPORAN HPP - " + product.name.toUpperCase()],
@@ -303,6 +295,7 @@ const CalculatorTab = () => {
         const matBody = materials.map(m => [m.name, m.price, m.content, m.unit, m.usage, m.cost]);
         const wsMat = XLSX.utils.aoa_to_sheet([matHeader, ...matBody]);
         XLSX.utils.book_append_sheet(wb, wsMat, "Bahan Baku");
+
         const varHeader = ["Operasional", "Biaya", "Kapasitas", "Unit", "Dipakai", "Biaya"];
         const varBody = variableOps.map(v => [v.name, v.price, v.content, v.unit, v.usage, v.cost]);
         const wsVar = XLSX.utils.aoa_to_sheet([varHeader, ...varBody]);
@@ -323,7 +316,7 @@ const CalculatorTab = () => {
       <Card className="overflow-hidden !p-0">
         <div className="p-6 flex flex-col md:flex-row gap-6 items-center">
           <div className="w-24 h-24 shrink-0 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex items-center justify-center relative group cursor-pointer hover:border-indigo-400 transition-colors">
-            {product.image ? <img src={product.image} className="w-full h-full object-cover rounded-2xl" alt="Product"/> : <ImageIcon className="w-8 h-8 text-slate-300"/>}
+            {product.image ? <img src={product.image} className="w-full h-full object-cover rounded-2xl"/> : <ImageIcon className="w-8 h-8 text-slate-300"/>}
             <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {
               if(e.target.files[0]) { const r = new FileReader(); r.onload=v=>setProduct({...product, image:v.target.result}); r.readAsDataURL(e.target.files[0]); }
             }}/>
@@ -412,7 +405,7 @@ const CalculatorTab = () => {
                       <div className="flex gap-0">
                         <NumericInput placeholder="1" value={op.content} onChange={v=>updateVar(op.id,'content',v)} className="rounded-r-none border-r-0 w-full" />
                         <select className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-r-xl px-2 text-xs font-bold text-slate-600 dark:text-slate-300 outline-none w-20 cursor-pointer" value={op.unit} onChange={e=>updateVar(op.id,'unit',e.target.value)}>
-                           <option value="jam">Jam</option><option value="pcs">Pcs</option><option value="kg">Kg</option>
+                          <option value="jam">Jam</option><option value="pcs">Pcs</option><option value="kg">Kg</option>
                         </select>
                       </div>
                     </div>
@@ -575,9 +568,9 @@ const CalculatorTab = () => {
               </div>
             </div>
             <input 
-              type="range" min="0" max="150" step="0.1"
+              type="range" min="0" max="150" 
               className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-              value={customMargin} onChange={(e) => setCustomMargin(parseFloat(e.target.value))} 
+              value={customMargin} onChange={(e) => setCustomMargin(parseInt(e.target.value))} 
             />
             <div className="text-center mt-2 font-bold text-slate-900 dark:text-white">{customMargin}%</div>
           </div>
@@ -586,8 +579,6 @@ const CalculatorTab = () => {
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
                <div>
                  <NumericInput label="Target Laba Bersih (Bulan)" placeholder="5.000.000" prefix="Rp" value={targetProfit} onChange={setTargetProfit} />
-                 
-                 {/* COMPTITIOR CHECK */}
                  <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-2 block">Cek Kompetitor</label>
                     <NumericInput placeholder="Harga Pesaing" prefix="Rp" value={competitorPrice} onChange={setCompetitorPrice} className="py-2 text-sm" />
@@ -607,7 +598,7 @@ const CalculatorTab = () => {
                      
                      <div className="flex justify-between items-center pb-3 border-b border-white/20">
                        <span className="text-xs text-emerald-100 font-bold uppercase opacity-80">Target Jual / Hari</span>
-                       <span className="text-xl font-bold">{projSalesDay} pcs</span>
+                       <span className="text-xl font-bold">{Math.ceil(targetPcsMonth/30)} pcs</span>
                      </div>
 
                      <div className="flex justify-between items-center pb-3 border-b border-white/20">
@@ -616,24 +607,24 @@ const CalculatorTab = () => {
                      </div>
 
                      <div className="flex justify-between items-center text-emerald-50">
-                       <span className="text-xs opacity-80">Potensi Omzet / Bulan</span>
+                       <span className="text-xs opacity-80">Potensi Omzet</span>
                        <span className="text-sm font-semibold">{formatIDR(projOmzetMonth)}</span>
                      </div>
 
                      <div className="flex justify-between items-center text-emerald-50">
-                       <span className="text-xs opacity-80">Total Biaya Produksi / Bulan</span>
+                       <span className="text-xs opacity-80">(-) Biaya Produksi</span>
                        <span className="text-sm font-semibold">{formatIDR(projVarCostMonth)}</span>
                      </div>
 
                      {showFixed && (
                        <div className="flex justify-between items-center text-emerald-50">
-                         <span className="text-xs opacity-80">Total Biaya Tetap / Bulan</span>
+                         <span className="text-xs opacity-80">(-) Biaya Tetap</span>
                          <span className="text-sm font-semibold">{formatIDR(projFixedCostMonth)}</span>
                        </div>
                      )}
 
                      <div className="pt-3 mt-1 border-t-2 border-white/30 flex justify-between items-center">
-                       <span className="text-sm font-black text-white uppercase">Proyeksi Laba Bersih / Bulan</span>
+                       <span className="text-sm font-black text-white uppercase">Proyeksi Laba Bersih</span>
                        <span className="text-2xl font-black text-white">{formatIDR(projNetProfitMonth)}</span>
                      </div>
 
@@ -721,7 +712,7 @@ const CalculatorTab = () => {
               {savedRecipes.map(r => (
                 <div key={r.id} onClick={()=>load(r)} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex gap-4 cursor-pointer hover:border-indigo-500 transition group relative">
                   <div className="w-12 h-12 bg-white dark:bg-slate-700 rounded-xl overflow-hidden shadow-sm shrink-0">
-                    {r.product?.image ? <img src={r.product.image} className="w-full h-full object-cover" alt="Product"/> : <div className="w-full h-full flex items-center justify-center text-xs font-bold text-slate-300">{r.product?.name[0]}</div>}
+                    {r.product?.image ? <img src={r.product.image} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center text-xs font-bold text-slate-300">{r.product?.name[0]}</div>}
                   </div>
                   <div className="flex-1">
                     <h4 className="font-bold text-slate-800 dark:text-white text-sm">{r.product?.name}</h4>
@@ -739,7 +730,7 @@ const CalculatorTab = () => {
 };
 
 // ============================================================================
-// 3. TAB: POS & REPORT
+// 3. TAB: POS & REPORT (FULL FUNCTION)
 // ============================================================================
 
 const PosTab = () => {
@@ -765,18 +756,22 @@ const PosTab = () => {
     setProducts(prev => [...prev, item]);
     setShowAdd(false); setNewProd({ name: '', price: 0, stock: 0, image: null });
   };
+
   const toCart = (p) => setCart(prev => {
     const exist = prev.find(i => i.id === p.id);
     return exist ? prev.map(i => i.id === p.id ? {...i, qty: i.qty+1} : i) : [...prev, {...p, qty: 1}];
   });
+
   const updateQty = (id, d) => setCart(prev => prev.map(i => i.id === id ? {...i, qty: Math.max(1, i.qty + d)} : i));
   const remove = (id) => setCart(prev => prev.filter(i => i.id !== id));
+  
   const checkout = () => {
     const tx = { id: Date.now(), date: new Date().toISOString(), items: cart, total: cart.reduce((a,b)=>a+(b.price*b.qty),0), profit: cart.reduce((a,b)=>a+((b.price-b.hpp)*b.qty),0) };
     const h = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
     localStorage.setItem('pos_history_db', JSON.stringify([...h, tx]));
     setCart([]); setSuccess(true); setTimeout(()=>setSuccess(false), 2000); setShowCart(false);
   };
+
   const filtered = products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -795,7 +790,7 @@ const PosTab = () => {
           {filtered.map(p => (
             <div key={p.id} onClick={()=>toCart(p)} className="bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 cursor-pointer hover:border-indigo-500 transition group">
               <div className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl mb-3 overflow-hidden relative">
-                {p.image ? <img src={p.image} className="w-full h-full object-cover group-hover:scale-110 transition" alt="Product"/> : <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-slate-300">{p.name[0]}</div>}
+                {p.image ? <img src={p.image} className="w-full h-full object-cover group-hover:scale-110 transition"/> : <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-slate-300">{p.name[0]}</div>}
                 <div className="absolute bottom-2 right-2 bg-slate-900/80 backdrop-blur text-white text-[10px] font-bold px-2 py-1 rounded-lg shadow-sm">{p.stock} Stok</div>
               </div>
               <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">{p.name}</h4>
@@ -817,7 +812,7 @@ const PosTab = () => {
             {cart.map(i => (
               <div key={i.id} className="flex gap-3 items-center">
                 <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-lg overflow-hidden shrink-0">
-                  {i.image && <img src={i.image} className="w-full h-full object-cover" alt="Item"/>}
+                  {i.image && <img src={i.image} className="w-full h-full object-cover"/>}
                 </div>
                 <div className="flex-1">
                   <p className="font-bold text-sm text-slate-800 dark:text-white truncate">{i.name}</p>
@@ -855,7 +850,7 @@ const PosTab = () => {
             <div className="space-y-4">
               <div className="flex justify-center">
                 <div className="w-24 h-24 bg-slate-100 rounded-2xl flex items-center justify-center relative overflow-hidden border-2 border-dashed border-slate-300">
-                  {newProd.image ? <img src={newProd.image} className="w-full h-full object-cover" alt="New Prod"/> : <ImageIcon className="w-8 h-8 text-slate-300"/>}
+                  {newProd.image ? <img src={newProd.image} className="w-full h-full object-cover"/> : <ImageIcon className="w-8 h-8 text-slate-300"/>}
                   <input type="file" className="absolute inset-0 opacity-0" onChange={e=>{if(e.target.files[0]){const r=new FileReader();r.onload=v=>setNewProd({...newProd,image:v.target.result});r.readAsDataURL(e.target.files[0]);}}}/>
                 </div>
               </div>
@@ -920,6 +915,7 @@ const ReportTab = () => {
     setIsDownloading(true);
     try {
       const XLSX = await loadXLSX();
+      
       const data = stats.list.map(t => ({
         "ID Transaksi": `#${t.id}`,
         "Tanggal": new Date(t.date).toLocaleString(),
@@ -927,6 +923,7 @@ const ReportTab = () => {
         "Total Profit": t.profit,
         "Items": t.items.map(i => `${i.name} (${i.qty})`).join(', ')
       }));
+
       const ws = XLSX.utils.json_to_sheet(data);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Laporan Keuangan");
@@ -1051,9 +1048,18 @@ const App = () => {
             </button>
           ))}
         </nav>
+
+        {/* Animation Styles & Layout Fixes */}
+        <style>{`
+          @keyframes fade-in-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+          .animate-fade-in-up { animation: fade-in-up 0.3s ease-out forwards; }
+          .animate-fade-in { animation: fade-in-up 0.4s ease-out; }
+          body { overflow-x: hidden; }
+        `}</style>
       </div>
     </div>
   );
 };
 
 export default App;
+
