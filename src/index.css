@@ -6,7 +6,8 @@
    UTILITIES
    ========================================= */
 @layer utilities {
-  /* Menyembunyikan Scrollbar tapi tetap bisa di-scroll */
+  /* Menyembunyikan Scrollbar tapi tetap bisa di-scroll 
+     (Digunakan pada pemilihan tipe biaya variabel) */
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
@@ -47,7 +48,7 @@
   animation: zoom-in 0.2s ease-out forwards;
 }
 
-/* Pulse Animation (Untuk highlight status waiting) */
+/* Pulse Animation (Untuk highlight status 'Menunggu Pembayaran') */
 @keyframes pulse-slow {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.7; }
@@ -71,7 +72,8 @@
   }
 
   /* 3. Tampilkan HANYA elemen modal struk */
-  /* Note: z-[80] adalah class z-index yang digunakan pada modal struk di kode React */
+  /* Note: z-[80] adalah class z-index yang digunakan pada modal struk di kode React.
+     Kita escape kurung siku dengan backslash agar terbaca valid di CSS standard. */
   .fixed.inset-0.z-\[80\], 
   .fixed.inset-0.z-\[80\] * {
     visibility: visible;
@@ -84,7 +86,8 @@
     top: 0;
     width: 100%;
     height: auto;
-    background: white; /* Pastikan background putih */
+    background: white; /* Pastikan background putih saat print */
+    color: black;      /* Pastikan teks hitam pekat */
     display: flex;
     align-items: flex-start; /* Mulai dari atas kertas */
     justify-content: center;
