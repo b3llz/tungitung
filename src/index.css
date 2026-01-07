@@ -6,8 +6,7 @@
    UTILITIES
    ========================================= */
 @layer utilities {
-  /* Menyembunyikan Scrollbar tapi tetap bisa di-scroll 
-     (Digunakan pada pemilihan tipe biaya variabel) */
+  /* Menyembunyikan Scrollbar tapi tetap bisa di-scroll */
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
@@ -61,6 +60,13 @@
    PRINT STYLES (LOGIC CETAK STRUK)
    ========================================= */
 @media print {
+  /* [BARU] Mengatur margin kertas printer menjadi 0 agar tidak ada
+     header/footer browser (URL, Tanggal, Page Number) */
+  @page {
+    margin: 0;
+    size: auto;
+  }
+
   /* 1. Sembunyikan SEMUA elemen body secara default */
   body * {
     visibility: hidden;
@@ -72,8 +78,7 @@
   }
 
   /* 3. Tampilkan HANYA elemen modal struk */
-  /* Note: z-[80] adalah class z-index yang digunakan pada modal struk di kode React.
-     Kita escape kurung siku dengan backslash agar terbaca valid di CSS standard. */
+  /* Target class sesuai dengan yang ada di ReceiptModal App.jsx */
   .fixed.inset-0.z-\[80\], 
   .fixed.inset-0.z-\[80\] * {
     visibility: visible;
@@ -86,15 +91,19 @@
     top: 0;
     width: 100%;
     height: auto;
-    background: white; /* Pastikan background putih saat print */
-    color: black;      /* Pastikan teks hitam pekat */
+    background: white !important; /* Paksa putih, override dark mode */
+    color: black !important;      /* Paksa hitam pekat */
     display: flex;
-    align-items: flex-start; /* Mulai dari atas kertas */
+    align-items: flex-start;      /* Mulai dari atas kertas */
     justify-content: center;
     padding: 0;
     margin: 0;
-    backdrop-filter: none; /* Hilangkan efek blur */
+    backdrop-filter: none;        /* Hilangkan efek blur */
     z-index: 9999;
+    
+    /* Memastikan browser merender warna dengan akurat (high contrast) */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   /* 5. Hilangkan shadow, border radius, dan batasan lebar saat print agar bersih */
@@ -104,7 +113,7 @@
     border-radius: 0 !important;
     max-width: 100% !important;
     width: 100% !important;
-    padding: 0 !important;
+    padding: 10px !important; /* Beri sedikit padding agar tidak terpotong printer */
     margin: 0 !important;
   }
 }
