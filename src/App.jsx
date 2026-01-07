@@ -1,4 +1,4 @@
- import React, { useState, useEffect, useMemo, useRef } from 'react'
+ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
   Save, FolderOpen, RotateCcw, Info, CheckCircle, 
@@ -136,8 +136,6 @@ const Button = ({ children, onClick, variant = 'primary', className = "", icon: 
 // ============================================================================
 // 2. TAB: CALCULATOR (PRESERVED)
 // ============================================================================
-// Logic kalkulator HPP tetap sama persis, hanya komponen dibungkus ulang
-// untuk menjaga kerapian file ini.
 
 const CalculatorTab = () => {
   const [calcMode, setCalcMode] = useState('detail');
@@ -361,7 +359,7 @@ const CalculatorTab = () => {
         </Card>
       )}
 
-      {/* SUBTOTAL MODAL & FIXED COST & PRICING (Sama seperti sebelumnya, disingkat untuk keterbacaan, tapi logika tetap ada) */}
+      {/* SUBTOTAL MODAL & FIXED COST & PRICING */}
       <div className="mt-4 p-5 bg-slate-900 dark:bg-black rounded-2xl flex flex-col justify-between items-center gap-4 text-white shadow-xl shadow-slate-200 dark:shadow-none relative overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
         <div className="w-full flex justify-between items-center relative z-10">
@@ -511,7 +509,7 @@ const CalculatorTab = () => {
 };
 
 // ============================================================================
-// 3. TAB: PROFILE TOKO (BARU)
+// 3. TAB: PROFILE TOKO (PRESERVED)
 // ============================================================================
 
 const ProfileTab = () => {
@@ -718,20 +716,23 @@ const ProfileTab = () => {
 };
 
 // ============================================================================
-// 4. TAB: POS (KASIR) - REFACTORED
+// 4. TAB: POS (KASIR) - UPDATED
 // ============================================================================
 
 const PosTab = () => {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
-  const [activeOrders, setActiveOrders] = useState([]); // "Menunggu Pembayaran"
+  const [activeOrders, setActiveOrders] = useState([]);
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState('shop'); // shop, status
   const [buyerName, setBuyerName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   
+  // Mobile Cart State
+  const [showCart, setShowCart] = useState(false);
+
   // Checkout & Details State
-  const [selectedOrder, setSelectedOrder] = useState(null); // For detail modal
+  const [selectedOrder, setSelectedOrder] = useState(null);
   const [showReceipt, setShowReceipt] = useState(null);
   const [profile, setProfile] = useState({});
 
@@ -742,7 +743,6 @@ const PosTab = () => {
     setActiveOrders(ord);
     const prof = JSON.parse(localStorage.getItem('store_profile') || '{}');
     setProfile(prof);
-    // Cleanup old orders (>48h) simulation would go here
   }, []);
 
   const saveActiveOrders = (ords) => {
@@ -754,7 +754,7 @@ const PosTab = () => {
     if(p.stock <= 0) return alert("Stok habis!");
     setCart(prev => {
         const exist = prev.find(i => i.id === p.id);
-        if(exist && exist.qty >= p.stock) return prev; // Max stock limit
+        if(exist && exist.qty >= p.stock) return prev;
         return exist ? prev.map(i => i.id === p.id ? {...i, qty: i.qty+1} : i) : [...prev, {...p, qty: 1}];
     });
   };
@@ -764,7 +764,7 @@ const PosTab = () => {
         if(i.id !== id) return i;
         const newQty = Math.max(1, i.qty + d);
         const prod = products.find(p => p.id === id);
-        if(prod && newQty > prod.stock) return i; // Stock check
+        if(prod && newQty > prod.stock) return i;
         return {...i, qty: newQty};
     }));
   };
@@ -779,11 +779,11 @@ const PosTab = () => {
         id: `ord_${Date.now()}`,
         date: new Date().toISOString(),
         buyer: buyerName,
-        paymentMethod: paymentMethod, // 'Cash', 'Gopay', 'QRIS', etc
+        paymentMethod: paymentMethod,
         items: cart,
         total: cart.reduce((a,b)=>a+(b.price*b.qty),0),
-        status: 'pending', // pending, paid, cancelled
-        deadline: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString() // 48h
+        status: 'pending',
+        deadline: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
     };
 
     saveActiveOrders([newOrder, ...activeOrders]);
@@ -798,25 +798,23 @@ const PosTab = () => {
 
     // Reset Cart
     setCart([]); setBuyerName(''); setPaymentMethod('');
+    setShowCart(false);
     alert("Order dibuat! Silahkan cek Status Pesanan.");
     setViewMode('status');
   };
 
   const confirmPayment = (order) => {
-      // Move to history
       const history = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
       const completedOrder = { ...order, status: 'paid', paidAt: new Date().toISOString() };
       localStorage.setItem('pos_history_db', JSON.stringify([...history, completedOrder]));
       
-      // Update local state to show success
       const updated = activeOrders.map(o => o.id === order.id ? completedOrder : o);
       saveActiveOrders(updated);
-      setSelectedOrder(completedOrder); // Update modal view
+      setSelectedOrder(completedOrder);
   };
 
   const cancelOrder = (order) => {
       if(confirm("Batalkan pesanan? Stok akan dikembalikan.")) {
-          // Restore Stock
           const newStock = products.map(p => {
             const inOrder = order.items.find(i => i.id === p.id);
             return inOrder ? {...p, stock: p.stock + inOrder.qty} : p;
@@ -829,7 +827,7 @@ const PosTab = () => {
       }
   };
 
-  // Helper for Payment Method display in Detail Modal
+  // Helper for Payment Info
   const getPaymentInfo = (method) => {
       if(method === 'Cash') return <div className="p-3 bg-slate-100 rounded-lg text-center font-bold text-slate-600">Bayar Tunai di Kasir</div>;
       if(method === 'QRIS') return (
@@ -838,7 +836,6 @@ const PosTab = () => {
               <p className="text-xs mt-2 text-slate-500">Scan untuk membayar</p>
           </div>
       );
-      // E-Wallet or Bank
       const wallet = profile.payment?.ewallets?.find(w => w.type === method);
       if(wallet) return <div className="p-4 bg-slate-100 rounded-lg text-center"><p className="font-bold text-indigo-600">{method}</p><p className="text-xl font-black mt-1 select-all">{wallet.number}</p><p className="text-xs text-slate-400 mt-1">Klik nomor untuk salin</p></div>;
       const bank = profile.payment?.bank?.find(b => b.bank === method);
@@ -846,7 +843,6 @@ const PosTab = () => {
       return null;
   };
 
-  // Receipt Modal Component
   const ReceiptModal = ({ order, onClose }) => (
       <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in zoom-in duration-300">
           <div className="bg-white w-full max-w-xs p-6 shadow-2xl relative">
@@ -878,13 +874,60 @@ const PosTab = () => {
               </div>
               <div className="mt-6 text-center text-[10px] text-slate-400">
                   <p>Terima kasih telah berbelanja</p>
-                  <p className="mt-1">Link Kritik & Saran:</p>
-                  <p>bit.ly/feedback-toko</p>
+                  <button onClick={onClose} className="mt-6 w-full bg-slate-900 text-white py-2 rounded font-bold text-xs no-print">Tutup</button>
+                  <button onClick={()=>window.print()} className="mt-2 w-full border border-slate-900 text-slate-900 py-2 rounded font-bold text-xs no-print flex items-center justify-center gap-2"><Printer className="w-3 h-3"/> Cetak / Simpan PDF</button>
               </div>
-              <button onClick={onClose} className="mt-6 w-full bg-slate-900 text-white py-2 rounded font-bold text-xs no-print">Tutup</button>
-              <button onClick={()=>window.print()} className="mt-2 w-full border border-slate-900 text-slate-900 py-2 rounded font-bold text-xs no-print flex items-center justify-center gap-2"><Printer className="w-3 h-3"/> Cetak / Simpan PDF</button>
           </div>
       </div>
+  );
+
+  // Cart Component
+  const CartSidebar = () => (
+    <div className={`fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm md:static md:bg-transparent md:w-80 transition-all ${showCart ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto'}`} onClick={()=>setShowCart(false)}>
+        <div className={`absolute right-0 top-0 h-full w-full md:w-80 bg-white dark:bg-slate-900 shadow-2xl md:border-l border-slate-100 dark:border-slate-800 flex flex-col transition-transform duration-300 ${showCart ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`} onClick={e=>e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                <div className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Keranjang</div>
+                <button onClick={()=>setShowCart(false)} className="md:hidden"><X className="w-5 h-5"/></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {cart.length===0 && <div className="text-center text-slate-400 text-xs py-10">Keranjang kosong</div>}
+                {cart.map(i => (
+                    <div key={i.id} className="flex gap-3 items-center">
+                        <div className="w-10 h-10 bg-slate-100 rounded-lg overflow-hidden shrink-0">{i.image && <img src={i.image} className="w-full h-full object-cover"/>}</div>
+                        <div className="flex-1 min-w-0">
+                            <p className="font-bold text-xs truncate dark:text-white">{i.name}</p>
+                            <p className="text-[10px] text-slate-500">{formatIDR(i.price)}</p>
+                        </div>
+                        <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-1 rounded-lg">
+                            <button onClick={()=>updateQty(i.id,-1)} className="w-5 h-5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">-</button>
+                            <span className="text-[10px] font-bold w-3 text-center dark:text-white">{i.qty}</span>
+                            <button onClick={()=>updateQty(i.id,1)} className="w-5 h-5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">+</button>
+                        </div>
+                        <button onClick={()=>removeFromCart(i.id)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5"/></button>
+                    </div>
+                ))}
+            </div>
+            <div className="p-4 bg-slate-50 dark:bg-slate-950 space-y-3 border-t border-slate-100 dark:border-slate-800">
+                <input className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none dark:bg-slate-800 dark:text-white" placeholder="Nama Pembeli" value={buyerName} onChange={e=>setBuyerName(e.target.value)}/>
+                
+                {/* PAYMENT OPTIONS - EXPANDED */}
+                <div className="space-y-2">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Metode Pembayaran</p>
+                    <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto pr-1">
+                        {['Cash','QRIS', ...(profile.payment?.ewallets?.map(w=>w.type)||[]), ...(profile.payment?.bank?.map(b=>b.bank)||[])].map(m => (
+                            <button key={m} onClick={()=>setPaymentMethod(m)} className={`p-2 rounded-lg text-[10px] font-bold border transition truncate ${paymentMethod===m ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-400'}`}>{m}</button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="flex justify-between items-center pt-2">
+                    <span className="text-slate-500 text-xs font-bold">Total</span>
+                    <span className="text-xl font-black text-slate-900 dark:text-white">{formatIDR(cart.reduce((a,b)=>a+(b.price*b.qty),0))}</span>
+                </div>
+                <button onClick={handleCheckout} disabled={cart.length===0} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 disabled:shadow-none transition text-sm">Buat Pesanan</button>
+            </div>
+        </div>
+    </div>
   );
 
   return (
@@ -908,7 +951,7 @@ const PosTab = () => {
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-20">
                     {products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())).map(p => (
-                        <div key={p.id} onClick={()=>addToCart(p)} className={`bg-white dark:bg-slate-900 p-2.5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition group ${p.stock>0 ? 'cursor-pointer hover:border-indigo-500' : 'opacity-60 grayscale cursor-not-allowed'}`}>
+                        <div key={p.id} onClick={()=>addToCart(p)} className={`bg-white dark:bg-slate-900 p-2.5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition group ${p.stock>0 ? 'cursor-pointer hover:border-indigo-500 hover:scale-[1.02]' : 'opacity-60 grayscale cursor-not-allowed'}`}>
                             <div className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl mb-2.5 overflow-hidden relative">
                                 {p.image ? <img src={p.image} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-slate-300">{p.name[0]}</div>}
                                 <div className={`absolute bottom-1 right-1 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md shadow-sm ${p.stock>0?'bg-slate-900/80':'bg-red-500'}`}>{p.stock > 0 ? `${p.stock} Stok` : 'Habis'}</div>
@@ -920,54 +963,25 @@ const PosTab = () => {
                 </div>
             </div>
 
-            {/* Cart Sidebar */}
-            <div className="w-full md:w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-xl flex flex-col border border-slate-100 dark:border-slate-800 h-full overflow-hidden">
-                <div className="p-4 border-b border-slate-100 dark:border-slate-800 font-bold text-slate-800 dark:text-white flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Keranjang</div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {cart.length===0 && <div className="text-center text-slate-400 text-xs py-10">Keranjang kosong</div>}
-                    {cart.map(i => (
-                        <div key={i.id} className="flex gap-3 items-center">
-                            <div className="w-10 h-10 bg-slate-100 rounded-lg overflow-hidden shrink-0">{i.image && <img src={i.image} className="w-full h-full object-cover"/>}</div>
-                            <div className="flex-1 min-w-0">
-                                <p className="font-bold text-xs truncate dark:text-white">{i.name}</p>
-                                <p className="text-[10px] text-slate-500">{formatIDR(i.price)}</p>
-                            </div>
-                            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-1 rounded-lg">
-                                <button onClick={()=>updateQty(i.id,-1)} className="w-5 h-5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">-</button>
-                                <span className="text-[10px] font-bold w-3 text-center dark:text-white">{i.qty}</span>
-                                <button onClick={()=>updateQty(i.id,1)} className="w-5 h-5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">+</button>
-                            </div>
-                            <button onClick={()=>removeFromCart(i.id)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5"/></button>
-                        </div>
-                    ))}
-                </div>
-                <div className="p-4 bg-slate-50 dark:bg-slate-950 space-y-3 border-t border-slate-100 dark:border-slate-800">
-                    <input className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none dark:bg-slate-800 dark:text-white" placeholder="Nama Pembeli" value={buyerName} onChange={e=>setBuyerName(e.target.value)}/>
-                    <div className="grid grid-cols-2 gap-2">
-                        {['Cash','QRIS', ...(profile.payment?.ewallets?.map(w=>w.type)||[]), ...(profile.payment?.bank?.map(b=>b.bank)||[])].map(m => (
-                            <button key={m} onClick={()=>setPaymentMethod(m)} className={`p-2 rounded-lg text-[10px] font-bold border transition ${paymentMethod===m ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-400'}`}>{m}</button>
-                        ))}
-                    </div>
-                    <div className="flex justify-between items-center pt-2">
-                        <span className="text-slate-500 text-xs font-bold">Total</span>
-                        <span className="text-xl font-black text-slate-900 dark:text-white">{formatIDR(cart.reduce((a,b)=>a+(b.price*b.qty),0))}</span>
-                    </div>
-                    <button onClick={handleCheckout} disabled={cart.length===0} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 disabled:shadow-none transition text-sm">Checkout</button>
-                </div>
-            </div>
+            {/* Cart Sidebar (Desktop) & Drawer (Mobile) */}
+            <CartSidebar />
+            
+            {/* Floating Cart Button (Mobile Only) */}
+            <button onClick={()=>setShowCart(true)} className="md:hidden fixed bottom-24 right-4 bg-slate-900 text-white w-12 h-12 rounded-full shadow-xl flex items-center justify-center z-40 transition hover:scale-110 active:scale-90">
+                <ShoppingCart className="w-5 h-5"/>
+                {cart.length>0 && <span className="absolute top-0 right-0 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-bold flex items-center justify-center border-2 border-slate-900">{cart.length}</span>}
+            </button>
         </div>
       )}
 
       {viewMode === 'status' && (
-        <div className="space-y-4 pb-20">
+        <div className="space-y-4 pb-20 overflow-y-auto h-full">
             {activeOrders.length === 0 && <div className="text-center py-20 text-slate-400 text-sm font-bold flex flex-col items-center"><Clock className="w-12 h-12 mb-3 opacity-20"/>Belum ada pesanan aktif</div>}
             {activeOrders.map(order => (
                 <div key={order.id} onClick={()=>setSelectedOrder(order)} className={`relative bg-white dark:bg-slate-900 rounded-2xl p-4 border transition cursor-pointer hover:scale-[1.01] active:scale-[0.99] shadow-sm ${order.status === 'pending' ? 'border-amber-200 dark:border-amber-900' : 'border-emerald-200 dark:border-emerald-900'}`}>
-                    {/* Highlight Box Status */}
                     <div className={`absolute top-4 right-4 px-3 py-1 rounded-full text-[10px] font-bold uppercase flex items-center gap-1.5 ${order.status==='pending' ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
                         {order.status==='pending' ? <><Clock className="w-3 h-3"/> Menunggu Pembayaran</> : <><CheckCircle className="w-3 h-3"/> Pembayaran Berhasil</>}
                     </div>
-                    
                     <div className="flex gap-4 items-center">
                         <div className="w-16 h-16 bg-slate-100 rounded-xl overflow-hidden shrink-0">
                             {order.items[0]?.image ? <img src={order.items[0].image} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-slate-300">Img</div>}
@@ -1047,7 +1061,7 @@ const PosTab = () => {
 };
 
 // ============================================================================
-// 5. TAB: REPORT (GRAFIK & INTEGRASI)
+// 5. TAB: REPORT (PRESERVED)
 // ============================================================================
 
 const ReportTab = () => {
