@@ -8,7 +8,7 @@ import {
   Shield, Crown, Rocket, Layers, LayoutGrid, Download, 
   FileSpreadsheet, Clock, Truck, Users, Briefcase,
   Store, CreditCard, Wallet, Smartphone, Printer, Receipt,
-  AlertCircle, Check
+  AlertCircle, Check, Settings, RefreshCw, User
 } from 'lucide-react';
 
 // ============================================================================
@@ -133,8 +133,32 @@ const Button = ({ children, onClick, variant = 'primary', className = "", icon: 
   );
 };
 
+const CountdownTimer = ({ deadline }) => {
+  const [timeLeft, setTimeLeft] = useState('');
+
+  useEffect(() => {
+    const calculateTimeLeft = () => {
+      const difference = +new Date(deadline) - +new Date();
+      if (difference > 0) {
+        const hours = Math.floor((difference / (1000 * 60 * 60)));
+        const minutes = Math.floor((difference / 1000 / 60) % 60);
+        const seconds = Math.floor((difference / 1000) % 60);
+        setTimeLeft(`${hours}h ${minutes}m ${seconds}s`);
+      } else {
+        setTimeLeft('Expired');
+      }
+    };
+
+    calculateTimeLeft();
+    const timer = setInterval(calculateTimeLeft, 1000);
+    return () => clearInterval(timer);
+  }, [deadline]);
+
+  return <span>{timeLeft}</span>;
+};
+
 // ============================================================================
-// 2. TAB: CALCULATOR (PRESERVED)
+// 2. TAB: CALCULATOR
 // ============================================================================
 
 const CalculatorTab = () => {
@@ -197,11 +221,11 @@ const CalculatorTab = () => {
   const finalPrice = getTier(customMargin).final;
   const profitPerPcs = finalPrice - hppBersih;
   
-  // Projection
+  // Projection Logic (Restored full detail)
   const targetPcsMonth = profitPerPcs > 0 ? Math.ceil(targetProfit / profitPerPcs) : 0;
   const targetPcsDay = Math.ceil(targetPcsMonth / 30);
   const projOmzetMonth = targetPcsMonth * finalPrice;
-  const projProdCostMonth = targetPcsMonth * (matPerUnit + varPerUnit);
+  const projProdCostMonth = targetPcsMonth * (matPerUnit + varPerUnit); // Total variable cost for production
   const projFixedCostMonth = showFixed ? totalFix : 0;
   const projNetProfitMonth = projOmzetMonth - projProdCostMonth - projFixedCostMonth;
 
@@ -217,7 +241,7 @@ const CalculatorTab = () => {
     setProduction(r.production); setShowLoad(false);
   };
   const reset = () => {
-    if(confirm("Reset semua?")) {
+    if(confirm("Reset formulir?")) {
       setProduct({name:'', type:'Makanan', image:null});
       setMaterials([{ id: 1, name: '', price: 0, unit: 'gr', content: 1000, usage: 0, cost: 0 }]);
       setVariableOps([{ id: 1, type: 'Kemasan', name: '', price: 0, unit: 'pcs', content: 1, usage: 0, cost: 0 }]);
@@ -450,9 +474,12 @@ const CalculatorTab = () => {
             <input type="range" min="0" max="150" step="0.1" className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600" value={customMargin} onChange={(e) => setCustomMargin(parseFloat(e.target.value))} />
             <div className="text-center mt-1 font-bold text-slate-900 dark:text-white text-xs">{customMargin}%</div>
           </div>
+          
+          {/* TARGET & PROYEKSI (RESTORED COMPLETE VIEW) */}
           <Card title="Target & Proyeksi" icon={TrendingUp} help="Hitung berapa banyak harus jual biar dapet target cuan segitu." className="bg-white border-0 shadow-none !p-0">
              <div className="mt-2">
                  <NumericInput label="Target Laba Bersih (Bulan)" placeholder="5.000.000" prefix="Rp" value={targetProfit} onChange={setTargetProfit} />
+                 
                  <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-2 block">Cek Kompetitor</label>
                     <NumericInput placeholder="Harga Pesaing" prefix="Rp" value={competitorPrice} onChange={setCompetitorPrice} className="py-2 text-sm" />
@@ -463,6 +490,45 @@ const CalculatorTab = () => {
                       </div>
                     )}
                  </div>
+
+                 {targetProfit > 0 && hppBersih > 0 && (
+                     <div className="mt-4 bg-emerald-600 text-white rounded-xl p-5 relative overflow-hidden shadow-lg shadow-emerald-500/20">
+                     <div className="relative z-10 space-y-3">
+                       
+                       <div className="flex justify-between items-center pb-2 border-b border-white/20">
+                          <span className="text-[10px] text-emerald-100 font-bold uppercase opacity-80">Target Jual / Hari</span>
+                         <span className="text-lg font-bold">{targetPcsDay} <span className="text-xs font-normal">pcs</span></span>
+                       </div>
+
+                       <div className="flex justify-between items-center pb-2 border-b border-white/20">
+                         <span className="text-[10px] text-emerald-100 font-bold uppercase opacity-80">Total Jual / Bulan</span>
+                         <span className="text-lg font-bold">{targetPcsMonth} <span className="text-xs font-normal">pcs</span></span>
+                       </div>
+ 
+                       <div className="flex justify-between items-center text-emerald-50">
+                          <span className="text-[10px] opacity-80 uppercase font-bold">Potensi Omzet / Bulan</span>
+                          <span className="text-sm font-semibold">{formatIDR(projOmzetMonth)}</span>
+                       </div>
+
+                       <div className="flex justify-between items-center text-emerald-50">
+                          <span className="text-[10px] opacity-80 uppercase font-bold">Total Biaya Produksi / Bulan</span>
+                          <span className="text-sm font-semibold">{formatIDR(projProdCostMonth)}</span>
+                       </div>
+
+                       {showFixed && (
+                          <div className="flex justify-between items-center text-emerald-50">
+                              <span className="text-[10px] opacity-80 uppercase font-bold">Total Biaya Tetap / Bulan</span>
+                              <span className="text-sm font-semibold">{formatIDR(projFixedCostMonth)}</span>
+                          </div>
+                       )}
+    
+                       <div className="pt-2 mt-2 border-t border-white/30 flex justify-between items-center">
+                          <span className="text-xs font-black text-white uppercase">Proyeksi Laba Bersih / Bulan</span>
+                          <span className="text-xl font-black text-white">{formatIDR(projNetProfitMonth)}</span>
+                       </div>
+                     </div>
+                   </div>
+                 )}
              </div>
           </Card>
         </div>
@@ -509,18 +575,18 @@ const CalculatorTab = () => {
 };
 
 // ============================================================================
-// 3. TAB: PROFILE TOKO (PRESERVED)
+// 3. TAB: PROFILE TOKO
 // ============================================================================
 
 const ProfileTab = () => {
   const [profile, setProfile] = useState({
-    name: '', address: '', wa: '', logo: null,
+    name: '', address: '', wa: '', logo: null, adminName: '',
     payment: { qris: null, ewallets: [], bank: [] }
   });
-  const [products, setProducts] = useState([]); // Stock Management
+  const [products, setProducts] = useState([]); 
   const [newProd, setNewProd] = useState({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
   const [showAdd, setShowAdd] = useState(false);
-  const [activeSec, setActiveSec] = useState('info'); // info, payment, stock
+  const [activeSec, setActiveSec] = useState('info'); 
   const [newWallet, setNewWallet] = useState({ type: 'Gopay', number: '' });
   const [newBank, setNewBank] = useState({ bank: '', number: '' });
 
@@ -543,7 +609,7 @@ const ProfileTab = () => {
 
   const addProduct = () => {
     if(!newProd.name) return alert("Nama produk wajib diisi");
-    const item = { id: `p_${Date.now()}`, ...newProd, hpp: newProd.price*0.7 }; // Simple assumption for manual product HPP
+    const item = { id: `p_${Date.now()}`, ...newProd, hpp: newProd.price*0.7 }; 
     saveProducts([...products, item]);
     setShowAdd(false);
     setNewProd({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
@@ -566,7 +632,6 @@ const ProfileTab = () => {
 
   return (
     <div className="max-w-xl mx-auto pb-24 px-4 space-y-4">
-      {/* Header Tabs */}
       <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
         {[
             {id:'info', l:'Identitas', i:Store}, 
@@ -593,6 +658,7 @@ const ProfileTab = () => {
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Nama Toko</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-sm outline-none" value={profile.name} onChange={e=>saveProfile({...profile, name:e.target.value})} placeholder="Contoh: Kopi Kenangan Mantan"/></div>
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Alamat Lengkap</label><textarea className="w-full bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-sm outline-none h-20" value={profile.address} onChange={e=>saveProfile({...profile, address:e.target.value})} placeholder="Jl. Mawar No. 12, Jakarta..."/></div>
                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">WhatsApp Admin</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-sm outline-none font-bold" value={profile.wa} onChange={e=>saveProfile({...profile, wa:e.target.value})} placeholder="0812..."/></div>
+                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Nama Admin (Kasir)</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-sm outline-none font-bold" value={profile.adminName} onChange={e=>saveProfile({...profile, adminName:e.target.value})} placeholder="Nama Anda"/></div>
                 </div>
             </div>
         </Card>
@@ -610,15 +676,15 @@ const ProfileTab = () => {
                 <div className="space-y-4">
                     <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl space-y-2">
                         <label className="text-[10px] font-bold text-slate-400 uppercase">Tambah E-Wallet</label>
-                        <div className="flex gap-2">
-                            <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold px-2 py-2 outline-none" value={newWallet.type} onChange={e=>setNewWallet({...newWallet, type:e.target.value})}>{WALLET_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
-                            <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 text-xs outline-none" placeholder="Nomor HP" value={newWallet.number} onChange={e=>setNewWallet({...newWallet, number:e.target.value})}/>
-                            <Button onClick={addWallet} className="py-1">Add</Button>
+                        <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+                            <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold px-2 py-2 outline-none w-full sm:w-auto" value={newWallet.type} onChange={e=>setNewWallet({...newWallet, type:e.target.value})}>{WALLET_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
+                            <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs outline-none w-full sm:w-auto" placeholder="Nomor HP" value={newWallet.number} onChange={e=>setNewWallet({...newWallet, number:e.target.value})}/>
+                            <Button onClick={addWallet} className="py-2 px-4 shrink-0">Add</Button>
                         </div>
                         <div className="flex flex-wrap gap-2 mt-2">
                             {profile.payment.ewallets.map((w,i) => (
                                 <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-xs font-bold shadow-sm">
-                                    <span className="text-indigo-600">{w.type}</span> <span>{w.number}</span>
+                                    <span className="text-indigo-600">{w.type}</span> <span className="text-slate-700 dark:text-slate-300">{w.number}</span>
                                     <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, ewallets: profile.payment.ewallets.filter((_,x)=>x!==i)}})}><X className="w-3 h-3 text-red-500"/></button>
                                 </div>
                             ))}
@@ -626,15 +692,15 @@ const ProfileTab = () => {
                     </div>
                      <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl space-y-2">
                         <label className="text-[10px] font-bold text-slate-400 uppercase">Tambah Bank</label>
-                         <div className="flex gap-2">
-                            <input className="w-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 text-xs font-bold outline-none" placeholder="Bank" value={newBank.bank} onChange={e=>setNewBank({...newBank, bank:e.target.value})}/>
-                            <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 text-xs outline-none" placeholder="No. Rekening" value={newBank.number} onChange={e=>setNewBank({...newBank, number:e.target.value})}/>
-                            <Button onClick={addBank} className="py-1">Add</Button>
+                         <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+                            <input className="w-full sm:w-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2 text-xs font-bold outline-none" placeholder="Bank" value={newBank.bank} onChange={e=>setNewBank({...newBank, bank:e.target.value})}/>
+                            <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs outline-none w-full sm:w-auto" placeholder="No. Rekening" value={newBank.number} onChange={e=>setNewBank({...newBank, number:e.target.value})}/>
+                            <Button onClick={addBank} className="py-2 px-4 shrink-0">Add</Button>
                         </div>
                          <div className="flex flex-wrap gap-2 mt-2">
                             {profile.payment.bank.map((b,i) => (
                                 <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-xs font-bold shadow-sm">
-                                    <span className="text-emerald-600 uppercase">{b.bank}</span> <span>{b.number}</span>
+                                    <span className="text-emerald-600 uppercase">{b.bank}</span> <span className="text-slate-700 dark:text-slate-300">{b.number}</span>
                                     <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, bank: profile.payment.bank.filter((_,x)=>x!==i)}})}><X className="w-3 h-3 text-red-500"/></button>
                                 </div>
                             ))}
@@ -702,7 +768,8 @@ const ProfileTab = () => {
                    </div>
                    <div className="w-24">
                        <label className="text-[10px] font-bold text-slate-400 uppercase">Stok Awal</label>
-                       <input type="number" className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg outline-none border border-slate-200 dark:border-slate-700 text-sm font-bold" value={newProd.stock} onChange={e=>setNewProd({...newProd, stock:parseInt(e.target.value)||0})} />
+                       {/* FIX: Using NumericInput logic logic for stock so we don't have to delete 0 manually */}
+                       <NumericInput value={newProd.stock} onChange={v=>setNewProd({...newProd, stock:v})} className="bg-slate-50 dark:bg-slate-800" />
                    </div>
               </div>
               <NumericInput placeholder="Harga Jual" value={newProd.price} onChange={v=>setNewProd({...newProd, price:v})} prefix="Rp" label="Harga Jual" />
@@ -716,22 +783,66 @@ const ProfileTab = () => {
 };
 
 // ============================================================================
-// 4. TAB: POS (KASIR) - UPDATED
+// 4. TAB: POS (KASIR)
 // ============================================================================
+
+// COMPONENT: Cart (Moved outside to prevent re-render focus loss)
+const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile }) => (
+    <div className={`fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm md:static md:bg-transparent md:w-80 transition-all ${showCart ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto'}`} onClick={()=>setShowCart(false)}>
+        <div className={`absolute right-0 top-0 h-full w-full md:w-80 bg-white dark:bg-slate-900 shadow-2xl md:border-l border-slate-100 dark:border-slate-800 flex flex-col transition-transform duration-300 ${showCart ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`} onClick={e=>e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                <div className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Keranjang</div>
+                <button onClick={()=>setShowCart(false)} className="md:hidden"><X className="w-5 h-5"/></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {cart.length===0 && <div className="text-center text-slate-400 text-xs py-10">Keranjang kosong</div>}
+                {cart.map(i => (
+                    <div key={i.id} className="flex gap-3 items-center">
+                        <div className="w-10 h-10 bg-slate-100 rounded-lg overflow-hidden shrink-0">{i.image && <img src={i.image} className="w-full h-full object-cover"/>}</div>
+                        <div className="flex-1 min-w-0">
+                            <p className="font-bold text-xs truncate dark:text-white">{i.name}</p>
+                            <p className="text-[10px] text-slate-500">{formatIDR(i.price)}</p>
+                        </div>
+                        <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-1 rounded-lg">
+                            <button onClick={()=>updateQty(i.id,-1)} className="w-5 h-5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">-</button>
+                            <span className="text-[10px] font-bold w-3 text-center dark:text-white">{i.qty}</span>
+                            <button onClick={()=>updateQty(i.id,1)} className="w-5 h-5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">+</button>
+                        </div>
+                        <button onClick={()=>removeFromCart(i.id)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5"/></button>
+                    </div>
+                ))}
+            </div>
+            <div className="p-4 bg-slate-50 dark:bg-slate-950 space-y-3 border-t border-slate-100 dark:border-slate-800">
+                <input className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none dark:bg-slate-800 dark:text-white" placeholder="Nama Pembeli" value={buyerName} onChange={e=>setBuyerName(e.target.value)}/>
+                
+                <div className="space-y-2">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Metode Pembayaran</p>
+                    <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto pr-1">
+                        {['Cash','QRIS', ...(profile.payment?.ewallets?.map(w=>w.type)||[]), ...(profile.payment?.bank?.map(b=>b.bank)||[])].map(m => (
+                            <button key={m} onClick={()=>setPaymentMethod(m)} className={`p-2 rounded-lg text-[10px] font-bold border transition truncate ${paymentMethod===m ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-400'}`}>{m}</button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="flex justify-between items-center pt-2">
+                    <span className="text-slate-500 text-xs font-bold">Total</span>
+                    <span className="text-xl font-black text-slate-900 dark:text-white">{formatIDR(cart.reduce((a,b)=>a+(b.price*b.qty),0))}</span>
+                </div>
+                <button onClick={handleCheckout} disabled={cart.length===0} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 disabled:shadow-none transition text-sm">Buat Pesanan</button>
+            </div>
+        </div>
+    </div>
+);
 
 const PosTab = () => {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState('shop'); // shop, status
+  const [viewMode, setViewMode] = useState('shop'); 
   const [buyerName, setBuyerName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
-  
-  // Mobile Cart State
   const [showCart, setShowCart] = useState(false);
-
-  // Checkout & Details State
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showReceipt, setShowReceipt] = useState(null);
   const [profile, setProfile] = useState({});
@@ -787,8 +898,6 @@ const PosTab = () => {
     };
 
     saveActiveOrders([newOrder, ...activeOrders]);
-    
-    // Reduce Stock Logic
     const newStock = products.map(p => {
         const inCart = cart.find(c => c.id === p.id);
         return inCart ? {...p, stock: p.stock - inCart.qty} : p;
@@ -796,7 +905,6 @@ const PosTab = () => {
     setProducts(newStock);
     localStorage.setItem('product_stock_db', JSON.stringify(newStock));
 
-    // Reset Cart
     setCart([]); setBuyerName(''); setPaymentMethod('');
     setShowCart(false);
     alert("Order dibuat! Silahkan cek Status Pesanan.");
@@ -827,9 +935,8 @@ const PosTab = () => {
       }
   };
 
-  // Helper for Payment Info
   const getPaymentInfo = (method) => {
-      if(method === 'Cash') return <div className="p-3 bg-slate-100 rounded-lg text-center font-bold text-slate-600">Bayar Tunai di Kasir</div>;
+      if(method === 'Cash') return <div className="p-3 bg-slate-100 rounded-lg text-center font-bold text-slate-800">Bayar Tunai di Kasir</div>;
       if(method === 'QRIS') return (
           <div className="flex flex-col items-center">
               {profile.payment?.qris ? <img src={profile.payment.qris} className="w-48 h-48 object-contain bg-white p-2 rounded-lg border"/> : <p>Belum ada QRIS</p>}
@@ -837,97 +944,48 @@ const PosTab = () => {
           </div>
       );
       const wallet = profile.payment?.ewallets?.find(w => w.type === method);
-      if(wallet) return <div className="p-4 bg-slate-100 rounded-lg text-center"><p className="font-bold text-indigo-600">{method}</p><p className="text-xl font-black mt-1 select-all">{wallet.number}</p><p className="text-xs text-slate-400 mt-1">Klik nomor untuk salin</p></div>;
+      if(wallet) return <div className="p-4 bg-slate-100 rounded-lg text-center"><p className="font-bold text-indigo-600">{method}</p><p className="text-xl font-black mt-1 select-all text-slate-900">{wallet.number}</p><p className="text-xs text-slate-400 mt-1">Klik nomor untuk salin</p></div>;
       const bank = profile.payment?.bank?.find(b => b.bank === method);
-      if(bank) return <div className="p-4 bg-slate-100 rounded-lg text-center"><p className="font-bold text-emerald-600 uppercase">{method}</p><p className="text-xl font-black mt-1 select-all">{bank.number}</p></div>;
+      if(bank) return <div className="p-4 bg-slate-100 rounded-lg text-center"><p className="font-bold text-emerald-600 uppercase">{method}</p><p className="text-xl font-black mt-1 select-all text-slate-900">{bank.number}</p></div>;
       return null;
   };
 
   const ReceiptModal = ({ order, onClose }) => (
       <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in zoom-in duration-300">
-          <div className="bg-white w-full max-w-xs p-6 shadow-2xl relative">
-              <div className="text-center border-b-2 border-dashed border-slate-300 pb-4 mb-4">
+          <div className="bg-white w-full max-w-xs p-6 shadow-2xl relative text-slate-900">
+              <div className="text-center border-b-2 border-dashed border-slate-900 pb-4 mb-4">
                   {profile.logo && <img src={profile.logo} className="w-16 h-16 mx-auto mb-2 object-contain grayscale"/>}
-                  <h2 className="font-bold text-xl uppercase tracking-wider">{profile.name || "Nama Toko"}</h2>
-                  <p className="text-xs text-slate-500 mt-1">{profile.address}</p>
-                  <p className="text-xs text-slate-500">{profile.wa}</p>
-                  <p className="text-[10px] text-slate-400 mt-2">{order.id} • {new Date(order.date).toLocaleString()}</p>
+                  <h2 className="font-black text-xl uppercase tracking-wider text-slate-900">{profile.name || "Nama Toko"}</h2>
+                  <p className="text-xs font-bold text-slate-800 mt-1">{profile.address}</p>
+                  <p className="text-xs font-bold text-slate-800">{profile.wa}</p>
+                  <p className="text-[10px] font-bold text-slate-600 mt-2">{order.id} • {new Date(order.date).toLocaleString()}</p>
               </div>
-              <div className="text-xs mb-4">
-                  <div className="flex justify-between mb-1"><span>Pembeli:</span><span className="font-bold">{order.buyer}</span></div>
-                  <div className="flex justify-between"><span>Admin:</span><span>Karis/Sheila</span></div>
+              <div className="text-xs mb-4 text-slate-900 font-bold">
+                  <div className="flex justify-between mb-1"><span>Pembeli:</span><span className="font-black">{order.buyer}</span></div>
+                  <div className="flex justify-between"><span>Admin:</span><span>{profile.adminName || 'Admin'}</span></div>
               </div>
-              <div className="border-b-2 border-dashed border-slate-300 pb-4 mb-4 space-y-2">
+              <div className="border-b-2 border-dashed border-slate-900 pb-4 mb-4 space-y-2">
                   {order.items.map((item, idx) => (
-                      <div key={idx} className="text-xs">
-                          <p className="font-bold">{item.name}</p>
-                          <div className="flex justify-between text-slate-600">
+                      <div key={idx} className="text-xs text-slate-900">
+                          <p className="font-black">{item.name}</p>
+                          <div className="flex justify-between font-bold">
                               <span>{item.qty} x {formatIDR(item.price)}</span>
                               <span>{formatIDR(item.qty * item.price)}</span>
                           </div>
                       </div>
                   ))}
               </div>
-              <div className="space-y-1 text-sm">
-                   <div className="flex justify-between font-bold"><span>Total</span><span>{formatIDR(order.total)}</span></div>
-                   <div className="flex justify-between text-xs text-slate-500"><span>Bayar ({order.paymentMethod})</span><span>{formatIDR(order.total)}</span></div>
+              <div className="space-y-1 text-sm text-slate-900">
+                   <div className="flex justify-between font-black"><span>Total</span><span>{formatIDR(order.total)}</span></div>
+                   <div className="flex justify-between text-xs font-bold"><span>Bayar ({order.paymentMethod})</span><span>{formatIDR(order.total)}</span></div>
               </div>
-              <div className="mt-6 text-center text-[10px] text-slate-400">
+              <div className="mt-6 text-center text-[10px] text-slate-900 font-bold">
                   <p>Terima kasih telah berbelanja</p>
                   <button onClick={onClose} className="mt-6 w-full bg-slate-900 text-white py-2 rounded font-bold text-xs no-print">Tutup</button>
                   <button onClick={()=>window.print()} className="mt-2 w-full border border-slate-900 text-slate-900 py-2 rounded font-bold text-xs no-print flex items-center justify-center gap-2"><Printer className="w-3 h-3"/> Cetak / Simpan PDF</button>
               </div>
           </div>
       </div>
-  );
-
-  // Cart Component
-  const CartSidebar = () => (
-    <div className={`fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm md:static md:bg-transparent md:w-80 transition-all ${showCart ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto'}`} onClick={()=>setShowCart(false)}>
-        <div className={`absolute right-0 top-0 h-full w-full md:w-80 bg-white dark:bg-slate-900 shadow-2xl md:border-l border-slate-100 dark:border-slate-800 flex flex-col transition-transform duration-300 ${showCart ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`} onClick={e=>e.stopPropagation()}>
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                <div className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Keranjang</div>
-                <button onClick={()=>setShowCart(false)} className="md:hidden"><X className="w-5 h-5"/></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {cart.length===0 && <div className="text-center text-slate-400 text-xs py-10">Keranjang kosong</div>}
-                {cart.map(i => (
-                    <div key={i.id} className="flex gap-3 items-center">
-                        <div className="w-10 h-10 bg-slate-100 rounded-lg overflow-hidden shrink-0">{i.image && <img src={i.image} className="w-full h-full object-cover"/>}</div>
-                        <div className="flex-1 min-w-0">
-                            <p className="font-bold text-xs truncate dark:text-white">{i.name}</p>
-                            <p className="text-[10px] text-slate-500">{formatIDR(i.price)}</p>
-                        </div>
-                        <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-1 rounded-lg">
-                            <button onClick={()=>updateQty(i.id,-1)} className="w-5 h-5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">-</button>
-                            <span className="text-[10px] font-bold w-3 text-center dark:text-white">{i.qty}</span>
-                            <button onClick={()=>updateQty(i.id,1)} className="w-5 h-5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">+</button>
-                        </div>
-                        <button onClick={()=>removeFromCart(i.id)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5"/></button>
-                    </div>
-                ))}
-            </div>
-            <div className="p-4 bg-slate-50 dark:bg-slate-950 space-y-3 border-t border-slate-100 dark:border-slate-800">
-                <input className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none dark:bg-slate-800 dark:text-white" placeholder="Nama Pembeli" value={buyerName} onChange={e=>setBuyerName(e.target.value)}/>
-                
-                {/* PAYMENT OPTIONS - EXPANDED */}
-                <div className="space-y-2">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Metode Pembayaran</p>
-                    <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto pr-1">
-                        {['Cash','QRIS', ...(profile.payment?.ewallets?.map(w=>w.type)||[]), ...(profile.payment?.bank?.map(b=>b.bank)||[])].map(m => (
-                            <button key={m} onClick={()=>setPaymentMethod(m)} className={`p-2 rounded-lg text-[10px] font-bold border transition truncate ${paymentMethod===m ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-400'}`}>{m}</button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="flex justify-between items-center pt-2">
-                    <span className="text-slate-500 text-xs font-bold">Total</span>
-                    <span className="text-xl font-black text-slate-900 dark:text-white">{formatIDR(cart.reduce((a,b)=>a+(b.price*b.qty),0))}</span>
-                </div>
-                <button onClick={handleCheckout} disabled={cart.length===0} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 disabled:shadow-none transition text-sm">Buat Pesanan</button>
-            </div>
-        </div>
-    </div>
   );
 
   return (
@@ -943,7 +1001,6 @@ const PosTab = () => {
 
       {viewMode === 'shop' && (
         <div className="flex flex-col md:flex-row gap-4 h-[calc(100vh-180px)]">
-            {/* Product Grid */}
             <div className="flex-1 overflow-y-auto">
                 <div className="relative mb-4">
                     <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
@@ -963,10 +1020,20 @@ const PosTab = () => {
                 </div>
             </div>
 
-            {/* Cart Sidebar (Desktop) & Drawer (Mobile) */}
-            <CartSidebar />
+            <CartSidebar 
+                showCart={showCart} 
+                setShowCart={setShowCart} 
+                cart={cart} 
+                updateQty={updateQty} 
+                removeFromCart={removeFromCart} 
+                buyerName={buyerName} 
+                setBuyerName={setBuyerName} 
+                paymentMethod={paymentMethod} 
+                setPaymentMethod={setPaymentMethod} 
+                handleCheckout={handleCheckout} 
+                profile={profile}
+            />
             
-            {/* Floating Cart Button (Mobile Only) */}
             <button onClick={()=>setShowCart(true)} className="md:hidden fixed bottom-24 right-4 bg-slate-900 text-white w-12 h-12 rounded-full shadow-xl flex items-center justify-center z-40 transition hover:scale-110 active:scale-90">
                 <ShoppingCart className="w-5 h-5"/>
                 {cart.length>0 && <span className="absolute top-0 right-0 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-bold flex items-center justify-center border-2 border-slate-900">{cart.length}</span>}
@@ -997,13 +1064,11 @@ const PosTab = () => {
         </div>
       )}
 
-      {/* Order Detail Modal */}
       {selectedOrder && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
               <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative overflow-hidden">
                   <button onClick={()=>setSelectedOrder(null)} className="absolute top-4 right-4 p-1 bg-slate-100 rounded-full hover:bg-slate-200"><X className="w-5 h-5"/></button>
                   
-                  {/* Status Header */}
                   <div className="text-center mb-6">
                       {selectedOrder.status === 'pending' ? (
                           <div className="inline-flex items-center gap-2 bg-yellow-50 text-yellow-700 px-4 py-2 rounded-full font-bold text-xs border border-yellow-200 mb-2 animate-pulse">
@@ -1016,10 +1081,9 @@ const PosTab = () => {
                               <p className="text-xs text-slate-400">Silahkan menunggu pesanan disiapkan.</p>
                           </div>
                       )}
-                      {selectedOrder.status === 'pending' && <p className="text-[10px] text-slate-400">Batas Waktu: {new Date(selectedOrder.deadline).toLocaleString()}</p>}
+                      {selectedOrder.status === 'pending' && <p className="text-[10px] text-slate-400 font-bold">Batas Waktu: <CountdownTimer deadline={selectedOrder.deadline} /></p>}
                   </div>
 
-                  {/* Product List */}
                   <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 mb-4 space-y-2 max-h-40 overflow-y-auto">
                       {selectedOrder.items.map((item, i) => (
                           <div key={i} className="flex justify-between text-xs">
@@ -1032,7 +1096,6 @@ const PosTab = () => {
                       </div>
                   </div>
 
-                  {/* Payment Details (Only if Pending) */}
                   {selectedOrder.status === 'pending' && (
                       <div className="mb-6">
                           <p className="text-[10px] font-bold uppercase text-slate-400 mb-2 text-center">Transfer ke:</p>
@@ -1040,7 +1103,6 @@ const PosTab = () => {
                       </div>
                   )}
 
-                  {/* Action Buttons */}
                   <div className="space-y-2">
                       {selectedOrder.status === 'pending' ? (
                           <>
@@ -1061,7 +1123,7 @@ const PosTab = () => {
 };
 
 // ============================================================================
-// 5. TAB: REPORT (PRESERVED)
+// 5. TAB: REPORT
 // ============================================================================
 
 const ReportTab = () => {
@@ -1081,7 +1143,7 @@ const ReportTab = () => {
         return true; 
     });
     
-    // Simple Graph Data (Group by date)
+    // Graph Data Logic (Existing Traffic)
     const graphData = {};
     f.forEach(t => {
         const key = new Date(t.date).getDate();
@@ -1090,11 +1152,28 @@ const ReportTab = () => {
     const maxVal = Math.max(...Object.values(graphData), 1000);
     const points = Object.keys(graphData).map(k => {
         const x = (k / 31) * 100; 
-        const y = 100 - ((graphData[k] / maxVal) * 80); // leave space
+        const y = 100 - ((graphData[k] / maxVal) * 80); 
         return `${x},${y}`;
     }).join(' ');
 
-    return { rev: f.reduce((a,b)=>a+b.total,0), prof: f.reduce((a,b)=>a+(b.profit||0),0), count: f.length, list: f.reverse(), graph: points };
+    // 30-Day Trend Data Logic (New Line Chart)
+    const trendData = [];
+    for(let i=29; i>=0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dayStr = d.toISOString().split('T')[0];
+        const dayTotal = txs.filter(t => t.date.startsWith(dayStr)).reduce((a,b) => a+b.total, 0);
+        trendData.push(dayTotal);
+    }
+    const maxTrend = Math.max(...trendData, 1000);
+    const trendPoints = trendData.map((val, i) => {
+        const x = (i / 29) * 100;
+        const y = 100 - ((val / maxTrend) * 80);
+        return `${x},${y}`;
+    }).join(' ');
+
+
+    return { rev: f.reduce((a,b)=>a+b.total,0), prof: f.reduce((a,b)=>a+(b.profit||0),0), count: f.length, list: f.reverse(), graph: points, trendGraph: trendPoints };
   }, [filter, txs]);
 
   const handleDownloadReport = async () => {
@@ -1129,7 +1208,7 @@ const ReportTab = () => {
         </Card>
       </div>
 
-      {/* Traffic Graph */}
+      {/* Traffic Graph (Original) */}
       <Card title="Traffic Penjualan" icon={TrendingUp}>
           <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
               <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
@@ -1138,6 +1217,16 @@ const ReportTab = () => {
                  <defs><linearGradient id="grad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#4f46e5"/><stop offset="100%" stopColor="white" stopOpacity="0"/></linearGradient></defs>
               </svg>
               {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data grafik</div>}
+          </div>
+      </Card>
+
+      {/* 30-Day Trend Graph (New) */}
+      <Card title="Tren Penjualan 30 Hari Terakhir" icon={BarChart3}>
+          <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
+              <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
+                 <polyline points={stats.trendGraph} fill="none" stroke="#10b981" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
+              </svg>
+              {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data tren</div>}
           </div>
       </Card>
 
@@ -1176,6 +1265,34 @@ const ReportTab = () => {
 };
 
 // ============================================================================
+// 6. TAB: SETTINGS (NEW)
+// ============================================================================
+
+const SettingsTab = () => {
+    const handleResetAll = () => {
+        if(confirm("PERINGATAN: Tindakan ini akan menghapus SELURUH data aplikasi (Resep, Stok, Profile, Riwayat Transaksi). Data tidak dapat dikembalikan. Lanjutkan?")) {
+            localStorage.clear();
+            alert("Aplikasi berhasil di-reset. Halaman akan dimuat ulang.");
+            window.location.reload();
+        }
+    };
+
+    return (
+        <div className="max-w-xl mx-auto p-4 sm:p-6 pb-32">
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-6">Pengaturan</h1>
+            <Card title="Zona Bahaya" icon={AlertCircle} className="border-red-100 dark:border-red-900">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                    Gunakan tombol di bawah ini jika terjadi error fatal atau Anda ingin memulai dari awal.
+                </p>
+                <Button onClick={handleResetAll} variant="danger" icon={RefreshCw} className="w-full">
+                    Reset Seluruh Data Aplikasi
+                </Button>
+            </Card>
+        </div>
+    );
+};
+
+// ============================================================================
 // APP SHELL
 // ============================================================================
 
@@ -1198,17 +1315,19 @@ const App = () => {
           {active==='pos' && <PosTab/>}
           {active==='report' && <ReportTab/>}
           {active==='profile' && <ProfileTab/>}
+          {active==='settings' && <SettingsTab/>}
         </div>
         <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-200/50 dark:shadow-black/50 z-40 flex gap-1 border border-white/20 dark:border-white/10">
           {[
             { id: 'calc', icon: Calculator, l: 'Hitung' },
             { id: 'pos', icon: ShoppingCart, l: 'Kasir' },
             { id: 'report', icon: BarChart3, l: 'Laporan' },
-            { id: 'profile', icon: Store, l: 'Toko' }
+            { id: 'profile', icon: Store, l: 'Toko' },
+            { id: 'settings', icon: Settings, l: 'Setting' }
           ].map(i => (
-            <button key={i.id} onClick={()=>setActive(i.id)} className={`relative px-5 py-2.5 rounded-full transition-all duration-300 flex items-center justify-center gap-2 ${active===i.id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-lg' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>
+            <button key={i.id} onClick={()=>setActive(i.id)} className={`relative px-4 py-2.5 rounded-full transition-all duration-300 flex items-center justify-center gap-2 ${active===i.id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-lg' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>
               <i.icon className="w-4 h-4"/>
-              {active===i.id && <span className="text-[10px] font-bold whitespace-nowrap">{i.l}</span>}
+              {active===i.id && <span className="text-[10px] font-bold whitespace-nowrap hidden sm:inline">{i.l}</span>}
             </button>
           ))}
         </nav>
