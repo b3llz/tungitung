@@ -1123,7 +1123,7 @@ const PosTab = () => {
 };
 
 // ============================================================================
-// 5. TAB: REPORT
+// 5. TAB: REPORT (UPDATED WITH DATE LABELS)
 // ============================================================================
 
 const ReportTab = () => {
@@ -1134,6 +1134,11 @@ const ReportTab = () => {
 
   useEffect(() => { setTxs(JSON.parse(localStorage.getItem('pos_history_db') || '[]')); }, []);
 
+  // Helper untuk format tanggal Indonesia
+  const formatDateIndo = (dateObj) => {
+    return new Date(dateObj).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+  };
+
   const stats = useMemo(() => {
     const now = new Date();
     const f = txs.filter(t => { 
@@ -1143,7 +1148,7 @@ const ReportTab = () => {
         return true; 
     });
     
-    // Graph Data Logic (Existing Traffic)
+    // Graph Data Logic (Existing Traffic - Monthly)
     const graphData = {};
     f.forEach(t => {
         const key = new Date(t.date).getDate();
@@ -1156,12 +1161,19 @@ const ReportTab = () => {
         return `${x},${y}`;
     }).join(' ');
 
-    // 30-Day Trend Data Logic (New Line Chart)
+    // 30-Day Trend Data Logic
     const trendData = [];
+    const trendDates = []; // Menyimpan tanggal untuk label
     for(let i=29; i>=0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
         const dayStr = d.toISOString().split('T')[0];
+        
+        // Simpan tanggal untuk keperluan label grafik
+        if (i === 29 || i === 15 || i === 0) {
+           trendDates.push(d);
+        }
+
         const dayTotal = txs.filter(t => t.date.startsWith(dayStr)).reduce((a,b) => a+b.total, 0);
         trendData.push(dayTotal);
     }
@@ -1172,10 +1184,9 @@ const ReportTab = () => {
         return `${x},${y}`;
     }).join(' ');
 
-    // Best Selling Products Logic (30 Days) - NEW
+    // Best Selling Products Logic (30 Days)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(now.getDate() - 30);
-    
     const recentTxs = txs.filter(t => new Date(t.date) >= thirtyDaysAgo);
     const productSales = {};
     recentTxs.forEach(t => {
@@ -1186,8 +1197,7 @@ const ReportTab = () => {
     const topProducts = Object.entries(productSales)
         .map(([name, qty]) => ({ name, qty }))
         .sort((a, b) => b.qty - a.qty)
-        .slice(0, 5); // Take Top 5
-
+        .slice(0, 5);
 
     return { 
         rev: f.reduce((a,b)=>a+b.total,0), 
@@ -1196,6 +1206,7 @@ const ReportTab = () => {
         list: f.reverse(), 
         graph: points, 
         trendGraph: trendPoints,
+        trendDates: trendDates, // Mengirim data tanggal ke UI
         topProducts: topProducts
     };
   }, [filter, txs]);
@@ -1232,19 +1243,32 @@ const ReportTab = () => {
         </Card>
       </div>
 
-      {/* Traffic Graph (Original) */}
-      <Card title="Traffic Penjualan" icon={TrendingUp}>
+      {/* Traffic Graph (Original - With Date Labels) */}
+      <Card title="Traffic Penjualan (Bulanan)" icon={TrendingUp}>
           <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
+             <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
                  <polyline points={`0,100 ${stats.graph} 100,100`} fill="none" stroke="#4f46e5" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
                  <polygon points={`0,100 ${stats.graph} 100,100 0,100`} fill="url(#grad)" opacity="0.2"/>
                  <defs><linearGradient id="grad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#4f46e5"/><stop offset="100%" stopColor="white" stopOpacity="0"/></linearGradient></defs>
               </svg>
               {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data grafik</div>}
           </div>
+          {/* NEW: Date Labels for Traffic */}
+          <div className="mt-2">
+            <div className="flex justify-between px-1">
+                {[1, 5, 10, 15, 20, 25, 30].map(d => (
+                    <span key={d} className="text-[9px] text-slate-400 font-medium font-mono">{d}</span>
+                ))}
+            </div>
+            <div className="text-center mt-1 border-t border-slate-100 dark:border-slate-800 pt-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    {new Date().toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
+                </span>
+            </div>
+          </div>
       </Card>
 
-      {/* 30-Day Trend Graph */}
+      {/* 30-Day Trend Graph (With Date Labels) */}
       <Card title="Tren Penjualan 30 Hari Terakhir" icon={BarChart3}>
           <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
               <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
@@ -1252,9 +1276,30 @@ const ReportTab = () => {
               </svg>
               {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data tren</div>}
           </div>
+          {/* NEW: Date Labels for Trend */}
+          <div className="mt-2 flex justify-between items-center px-1 border-t border-slate-100 dark:border-slate-800 pt-2">
+             {stats.trendDates.length > 0 ? (
+                 <>
+                    <div className="text-left">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase">Mulai</p>
+                        <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{formatDateIndo(stats.trendDates[0])}</p>
+                    </div>
+                    <div className="text-center hidden sm:block">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase">Pertengahan</p>
+                        <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{formatDateIndo(stats.trendDates[1])}</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase">Hari Ini</p>
+                        <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{formatDateIndo(stats.trendDates[2])}</p>
+                    </div>
+                 </>
+             ) : (
+                <p className="text-[9px] text-slate-400 w-full text-center">Menunggu data...</p>
+             )}
+          </div>
       </Card>
 
-      {/* NEW: Top Selling Products Card */}
+      {/* Top Selling Products Card */}
       <Card title="Produk Terlaris (30 Hari Terakhir)" icon={Award}>
           <div className="space-y-3">
               {stats.topProducts.length === 0 ? (
