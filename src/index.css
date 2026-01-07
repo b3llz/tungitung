@@ -5,6 +5,7 @@
 @layer base {
   body {
     overflow-x: hidden;
+    width: 100vw;
   }
 }
 
@@ -15,6 +16,15 @@
 
   .animate-fade-in-up {
     animation: fade-in-up 0.3s ease-out forwards;
+  }
+  
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }
 
@@ -28,3 +38,4 @@
     transform: translateY(0);
   }
 }
+
