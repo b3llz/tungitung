@@ -1,5 +1,5 @@
-[cite_start][cite: 1] import React, { useState, useEffect, useMemo, useRef } from 'react';
-[cite_start][cite: 2] import { 
+ import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { 
   Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
   Save, FolderOpen, RotateCcw, Info, CheckCircle, 
   TrendingUp, Package, Zap, DollarSign, Menu, X, 
