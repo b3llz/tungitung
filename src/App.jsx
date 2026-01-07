@@ -8,7 +8,7 @@ import {
   Shield, Crown, Rocket, Layers, LayoutGrid, Download, 
   FileSpreadsheet, Clock, Truck, Users, Briefcase,
   Store, CreditCard, Wallet, Smartphone, Printer, Receipt,
-  AlertCircle, Check, Settings, RefreshCw, User
+  AlertCircle, Check, Settings, RefreshCw, User, Award
 } from 'lucide-react';
 
 // ============================================================================
@@ -221,7 +221,7 @@ const CalculatorTab = () => {
   const finalPrice = getTier(customMargin).final;
   const profitPerPcs = finalPrice - hppBersih;
   
-  // Projection Logic (Restored full detail)
+  // Projection Logic
   const targetPcsMonth = profitPerPcs > 0 ? Math.ceil(targetProfit / profitPerPcs) : 0;
   const targetPcsDay = Math.ceil(targetPcsMonth / 30);
   const projOmzetMonth = targetPcsMonth * finalPrice;
@@ -1172,8 +1172,32 @@ const ReportTab = () => {
         return `${x},${y}`;
     }).join(' ');
 
+    // Best Selling Products Logic (30 Days) - NEW
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(now.getDate() - 30);
+    
+    const recentTxs = txs.filter(t => new Date(t.date) >= thirtyDaysAgo);
+    const productSales = {};
+    recentTxs.forEach(t => {
+        t.items.forEach(item => {
+            productSales[item.name] = (productSales[item.name] || 0) + item.qty;
+        });
+    });
+    const topProducts = Object.entries(productSales)
+        .map(([name, qty]) => ({ name, qty }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5); // Take Top 5
 
-    return { rev: f.reduce((a,b)=>a+b.total,0), prof: f.reduce((a,b)=>a+(b.profit||0),0), count: f.length, list: f.reverse(), graph: points, trendGraph: trendPoints };
+
+    return { 
+        rev: f.reduce((a,b)=>a+b.total,0), 
+        prof: f.reduce((a,b)=>a+(b.profit||0),0), 
+        count: f.length, 
+        list: f.reverse(), 
+        graph: points, 
+        trendGraph: trendPoints,
+        topProducts: topProducts
+    };
   }, [filter, txs]);
 
   const handleDownloadReport = async () => {
@@ -1220,13 +1244,39 @@ const ReportTab = () => {
           </div>
       </Card>
 
-      {/* 30-Day Trend Graph (New) */}
+      {/* 30-Day Trend Graph */}
       <Card title="Tren Penjualan 30 Hari Terakhir" icon={BarChart3}>
           <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
               <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
                  <polyline points={stats.trendGraph} fill="none" stroke="#10b981" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
               </svg>
               {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data tren</div>}
+          </div>
+      </Card>
+
+      {/* NEW: Top Selling Products Card */}
+      <Card title="Produk Terlaris (30 Hari Terakhir)" icon={Award}>
+          <div className="space-y-3">
+              {stats.topProducts.length === 0 ? (
+                  <p className="text-center text-slate-400 text-xs py-4">Belum ada penjualan bulan ini.</p>
+              ) : (
+                  stats.topProducts.map((prod, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${i===0 ? 'bg-yellow-100 text-yellow-700' : i===1 ? 'bg-slate-100 text-slate-600' : i===2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-50 text-slate-500'}`}>
+                              #{i+1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                              <div className="flex justify-between mb-1">
+                                  <span className="text-sm font-bold text-slate-800 dark:text-white truncate">{prod.name}</span>
+                                  <span className="text-xs font-bold text-slate-500">{prod.qty} Terjual</span>
+                              </div>
+                              <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                  <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${(prod.qty / stats.topProducts[0].qty) * 100}%` }}></div>
+                              </div>
+                          </div>
+                      </div>
+                  ))
+              )}
           </div>
       </Card>
 
@@ -1265,7 +1315,7 @@ const ReportTab = () => {
 };
 
 // ============================================================================
-// 6. TAB: SETTINGS (NEW)
+// 6. TAB: SETTINGS
 // ============================================================================
 
 const SettingsTab = () => {
@@ -1300,7 +1350,32 @@ const App = () => {
   const [active, setActive] = useState('calc');
   const [dark, setDark] = useState(false);
 
+  // LOGIC FIX: Check LocalStorage & System Preference on Mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      setDark(true);
+    } else {
+      setDark(false);
+    }
+  }, []);
+
+  // LOGIC FIX: Toggle Function that saves to LocalStorage
+  const toggleDarkMode = () => {
+      const newMode = !dark;
+      setDark(newMode);
+      localStorage.setItem('theme', newMode ? 'dark' : 'light');
+      
+      // Optional: Add/Remove class directly to document element as fallback
+      if(newMode) {
+          document.documentElement.classList.add('dark');
+      } else {
+          document.documentElement.classList.remove('dark');
+      }
+  };
+
   return (
+    // Wrapper 'dark' class applied conditionally
     <div className={dark ? 'dark' : ''}>
       <div className="min-h-screen w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-200 transition-colors duration-300">
         <div className="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex justify-between items-center max-w-screen-xl mx-auto">
@@ -1308,7 +1383,10 @@ const App = () => {
             <div className="bg-indigo-600 p-1.5 rounded-lg text-white"><Calculator className="w-4 h-4"/></div>
             <h1 className="font-bold text-base tracking-tight text-slate-900 dark:text-white">HPP Master Pro</h1>
           </div>
-          <button onClick={()=>setDark(!dark)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition">{dark ? <Sun className="w-4 h-4"/> : <Moon className="w-4 h-4"/>}</button>
+          {/* Button Trigger Updated */}
+          <button onClick={toggleDarkMode} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition">
+            {dark ? <Sun className="w-4 h-4"/> : <Moon className="w-4 h-4"/>}
+          </button>
         </div>
         <div className="animate-fade-in pt-4 pb-24">
           {active==='calc' && <CalculatorTab/>}
