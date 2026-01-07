@@ -214,9 +214,9 @@ const CalculatorTab = () => {
   const round = (p) => smartRounding ? (p < 1000 ? Math.ceil(p/100)*100 : Math.ceil(p/500)*500) : p;
   const getTier = (margin) => { const raw = hppBersih + (hppBersih * (margin/100)); return { raw, final: round(raw), profit: round(raw) - hppBersih }; };
   const tiers = [
-    { name: "SIAP TEMPUR", label: "kompetitif", desc: "Penetrasi pasar", margin: 22.8, color: "bg-orange-50", border: "border-orange-200", text: "text-orange-700", icon: Shield },
+    { name: "YANG PENTING LAKU", label: "kompetitif", desc: "Penetrasi pasar", margin: 22.8, color: "bg-orange-50", border: "border-orange-200", text: "text-orange-700", icon: Shield },
     { name: "MASUK AKAL", label: "standar", desc: "Margin umum", margin: 48.6, color: "bg-blue-50", border: "border-blue-200", text: "text-blue-700", icon: Layers },
-    { name: "CEPET NAIK HAJI", label: "premium", desc: "Niche market", margin: 78.4, color: "bg-purple-50", border: "border-purple-200", text: "text-purple-700", icon: Crown }
+    { name: "CEPAT NAIK HAJI", label: "premium", desc: "Niche market", margin: 78.4, color: "bg-purple-50", border: "border-purple-200", text: "text-purple-700", icon: Crown }
   ];
   const finalPrice = getTier(customMargin).final;
   const profitPerPcs = finalPrice - hppBersih;
