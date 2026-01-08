@@ -240,21 +240,47 @@ const LockScreen = ({ onUnlock, id }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Di dalam komponen LockScreen...
   const handleActivation = () => {
     setLoading(true); setError('');
-    setTimeout(() => {
+    
+    // Gunakan async/await agar bisa cek online
+    setTimeout(async () => {
       try {
-        const SECRET_KEY = "RAHASIA_DAPUR_123"; 
+        const SECRET_KEY = "RAHASIA_DAPUR_123"; // Pastikan sama dengan Admin
         if (!window.CryptoJS) throw new Error("Koneksi internet diperlukan.");
         
+        // 1. DEKRIPSI KODE (Cek Matematika)
         const bytes = window.CryptoJS.AES.decrypt(inputCode, SECRET_KEY);
         const originalText = bytes.toString(window.CryptoJS.enc.Utf8);
-        if (!originalText) throw new Error("Kode Aktivasi Salah!");
+        if (!originalText) throw new Error("Kode Lisensi Tidak Valid!");
 
         const data = JSON.parse(originalText);
-        if (data.id !== inputID) throw new Error("ID tidak cocok!");
-        if (new Date() > new Date(data.validUntil)) throw new Error("Masa aktif habis!");
+        
+        // Validasi Dasar
+        if (data.id !== inputID) throw new Error("ID Pengguna tidak cocok dengan kode!");
+        if (new Date() > new Date(data.validUntil)) throw new Error("Masa aktif lisensi telah habis!");
 
+        // ============================================================
+        // [BARU] CEK ONLINE KE DATABASE HAPUS/BLOKIR
+        // ============================================================
+        try {
+            // Tambahkan anti-cache time
+            const check = await fetch(BLACKLIST_URL + "?t=" + Date.now());
+            if(check.ok) {
+                const blockedIDs = await check.json();
+                // Jika ID ditemukan di daftar hapus/blokir
+                if(blockedIDs.includes(data.id)) {
+                    throw new Error("Data Client Tidak Ditemukan (Terhapus).");
+                }
+            }
+        } catch (networkError) {
+            // Opsional: Jika internet mati, mau dibolehkan masuk atau tidak?
+            // console.log("Gagal cek online, lanjut offline...");
+        }
+        // ============================================================
+
+        // Jika lolos semua, Buka Aplikasi
         onUnlock({ ...data, originalToken: inputCode }); 
       } catch (err) {
         setError(err.message || "Gagal Aktivasi");
@@ -263,6 +289,7 @@ const LockScreen = ({ onUnlock, id }) => {
       }
     }, 1000);
   };
+
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-6 bg-[url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop')] bg-cover bg-center">
