@@ -1501,7 +1501,7 @@ const SettingsTab = () => {
         <div className="space-y-4 text-sm px-2">
             {/* ... isi card ... */}
             <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                 <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-4 h-4 text-slate-400"/> Penyewa</span>
+                 <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-4 h-4 text-slate-400"/> User</span>
                 <span className="font-bold text-slate-800 dark:text-white">{licenseInfo.tenant}</span>
             </div>
             <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
