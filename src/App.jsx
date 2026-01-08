@@ -1470,27 +1470,35 @@ const SettingsTab = () => {
             
             <div className="space-y-6">
                 {licenseInfo && (
-                    <Card title="Status Lisensi" icon={ShieldCheck} className="border-indigo-100 dark:border-slate-700 bg-gradient-to-b from-white to-slate-50">
-                        <div className="bg-indigo-600 text-white p-5 rounded-2xl mb-5 text-center shadow-lg shadow-indigo-500/20">
-                             <p className="text-[10px] font-bold uppercase text-indigo-200 mb-1 tracking-widest">Sisa Masa Aktif</p>
-                             <p className="text-xl font-black font-mono">{timeLeft}</p>
-                        </div>
-                        <div className="space-y-4 text-sm px-2">
-                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-4 h-4 text-slate-400"/> Penyewa</span>
-                                <span className="font-bold text-slate-800 dark:text-white">{licenseInfo.tenant}</span>
-                            </div>
-                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Shield className="w-4 h-4 text-slate-400"/> ID Aplikasi</span>
-                                <span className="font-mono font-bold text-slate-800 dark:text-white bg-slate-100 px-2 py-0.5 rounded">{licenseInfo.id}</span>
-                            </div>
-                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Calendar className="w-4 h-4 text-slate-400"/> Berakhir</span>
-                                <span className="font-bold text-slate-800 dark:text-white">{new Date(licenseInfo.validUntil).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
-                            </div>
-                        </div>
-                    </Card>
-                )}
+    <Card 
+        title="Status Lisensi" 
+        icon={ShieldCheck} 
+        // FIX: Menambahkan dark:from-slate-800 dark:to-slate-900 agar card menjadi gelap saat mode dark
+        className="border-indigo-100 dark:border-slate-700 bg-gradient-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-900"
+    >
+        {/* ... sisa konten card tetap sama ... */}
+        <div className="bg-indigo-600 text-white p-5 rounded-2xl mb-5 text-center shadow-lg shadow-indigo-500/20">
+             <p className="text-[10px] font-bold uppercase text-indigo-200 mb-1 tracking-widest">Sisa Masa Aktif</p>
+             <p className="text-xl font-black font-mono">{timeLeft}</p>
+        </div>
+        {/* ... pertahankan kode konten di bawahnya (div className="space-y-4...") ... */}
+        <div className="space-y-4 text-sm px-2">
+            {/* ... isi card ... */}
+            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                 <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-4 h-4 text-slate-400"/> Penyewa</span>
+                <span className="font-bold text-slate-800 dark:text-white">{licenseInfo.tenant}</span>
+            </div>
+            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Shield className="w-4 h-4 text-slate-400"/> ID Aplikasi</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-white bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">{licenseInfo.id}</span>
+            </div>
+            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                 <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Calendar className="w-4 h-4 text-slate-400"/> Berakhir</span>
+                <span className="font-bold text-slate-800 dark:text-white">{new Date(licenseInfo.validUntil).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+            </div>
+         </div>
+    </Card>
+)}
 
                 <Card title="Zona Bahaya" icon={AlertCircle} className="border-rose-100 dark:border-rose-900/30">
                     <p className="text-xs font-medium text-slate-500 mb-4 leading-relaxed">
@@ -1644,23 +1652,30 @@ const App = () => {
           {active==='settings' && <SettingsTab/>}
         </div>
 
-        {/* BOTTOM NAV FLOATING */}
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
-            <nav className="bg-slate-900/90 dark:bg-white/90 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-400/30 dark:shadow-black/50 flex gap-1 border border-white/10 ring-1 ring-black/5">
-            {[
-                { id: 'calc', icon: Calculator, l: 'Hitung' },
-                { id: 'pos', icon: ShoppingCart, l: 'Kasir' },
-                { id: 'report', icon: BarChart3, l: 'Laporan' },
-                { id: 'profile', icon: Store, l: 'Toko' },
-                { id: 'settings', icon: Settings, l: 'Setting' }
-            ].map(i => (
-                <button key={i.id} onClick={()=>setActive(i.id)} className={`relative px-5 py-3 rounded-full transition-all duration-300 flex items-center justify-center gap-2 group ${active===i.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/40' : 'text-slate-400 hover:text-white dark:hover:text-slate-900'}`}>
-                <i.icon className={`w-5 h-5 transition-transform duration-300 ${active===i.id ? 'scale-110' : 'group-hover:scale-110'}`}/>
-                {active===i.id && <span className="text-[10px] font-bold whitespace-nowrap hidden sm:inline animate-enter">{i.l}</span>}
-                </button>
-            ))}
-            </nav>
-        </div>
+      {/* BOTTOM NAV FLOATING */}
+<div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
+    {/* FIX: Mengubah bg-slate-900 menjadi bg-white/90 dan dark:bg-slate-900/90 */}
+    <nav className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-200/50 dark:shadow-black/50 flex gap-1 border border-slate-200 dark:border-white/10 ring-1 ring-black/5">
+    {[
+        { id: 'calc', icon: Calculator, l: 'Hitung' },
+        { id: 'pos', icon: ShoppingCart, l: 'Kasir' },
+        { id: 'report', icon: BarChart3, l: 'Laporan' },
+        { id: 'profile', icon: Store, l: 'Toko' },
+        { id: 'settings', icon: Settings, l: 'Setting' }
+    ].map(i => (
+        <button key={i.id} onClick={()=>setActive(i.id)} className={`relative px-5 py-3 rounded-full transition-all duration-300 flex items-center justify-center gap-2 group ${active===i.id ?
+        // Jika aktif (tetap sama)
+        'bg-indigo-600 text-white shadow-lg shadow-indigo-500/40' : 
+        // FIX: Jika tidak aktif, sesuaikan text color agar terlihat di background baru (slate-500 untuk light, slate-400 untuk dark)
+        'text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-white'}`}>
+        
+        <i.icon className={`w-5 h-5 transition-transform duration-300 ${active===i.id ?
+        'scale-110' : 'group-hover:scale-110'}`}/>
+        {active===i.id && <span className="text-[10px] font-bold whitespace-nowrap hidden sm:inline animate-enter">{i.l}</span>}
+        </button>
+    ))}
+    </nav>
+</div>
 
       </div>
     </div>
