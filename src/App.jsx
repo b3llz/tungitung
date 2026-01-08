@@ -1,4 +1,6 @@
- import React, { useState, useEffect, useMemo, useRef } from 'react';
+ // Ganti baris import React (paling atas) dengan ini:
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom'; // Tambahkan ini
 import { 
   Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
   Save, FolderOpen, RotateCcw, Info, CheckCircle, 
@@ -18,7 +20,7 @@ import {
 // CONFIGURATION (WAJIB DIISI DEVELOPER)
 // ============================================================================
 // GANTI INI DENGAN URL "RAW" DARI FILE blacklist.json DI GIST GITHUB ANDA
-const BLACKLIST_URL = "https://gist.githubusercontent.com/b3llz/07d95837ff27524b875990b5bd3bbe83/raw/5b2e05d153e8ea77c1e928fcdc840b36313f1844/blocklist.json"; 
+const BLACKLIST_URL = "https://gist.githubusercontent.com/b3llz/07d95837ff27524b875990b5bd3bbe83/raw/blocklist.json"; 
 
 // ============================================================================
 // 0. UTILS & CONSTANTS
@@ -69,19 +71,33 @@ const formatNumberDisplay = (val) => {
 
 const HelpBox = ({ text }) => {
   const [isOpen, setIsOpen] = useState(false);
+  
+  // FIX: Menggunakan createPortal agar popup dirender di document.body
+  // Ini memaksa popup selalu di tengah layar dan Z-Index paling atas,
+  // tidak peduli tombolnya ada di dalam Card, QRIS, atau elemen beranimasi.
   return (
     <div className="relative inline-block ml-1 align-middle">
       <button onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} className="text-slate-300 hover:text-indigo-500 transition">
         <HelpCircle className="w-4 h-4" />
       </button>
-      {isOpen && (
+      {isOpen && createPortal(
         <>
-          <div className="fixed inset-0 z-[90]" onClick={() => setIsOpen(false)}></div>
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] w-[85%] max-w-xs p-5 bg-slate-900/95 backdrop-blur-md text-white text-sm rounded-2xl shadow-2xl animate-enter border border-white/10">
-             <div className="flex justify-between mb-3 pb-2 border-b border-white/10"><span className="font-bold text-indigo-400 uppercase tracking-wider text-xs">Info</span><X className="w-4 h-4 cursor-pointer hover:text-rose-400" onClick={(e)=>{ e.stopPropagation(); setIsOpen(false);}}/></div>
+          {/* Overlay Gelap */}
+          <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm" onClick={(e) => {
+              e.stopPropagation();
+              setIsOpen(false);
+          }}></div>
+          
+          {/* Modal Tengah */}
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[10000] w-[85%] max-w-xs p-5 bg-slate-900/95 backdrop-blur-md text-white text-sm rounded-2xl shadow-2xl animate-enter border border-white/10" onClick={(e) => e.stopPropagation()}>
+             <div className="flex justify-between mb-3 pb-2 border-b border-white/10">
+                 <span className="font-bold text-indigo-400 uppercase tracking-wider text-xs">Info</span>
+                 <X className="w-4 h-4 cursor-pointer hover:text-rose-400" onClick={(e)=>{ e.stopPropagation(); setIsOpen(false);}}/>
+             </div>
              <p className="leading-relaxed text-slate-300 font-medium">{text}</p>
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   );
@@ -254,7 +270,7 @@ const LockScreen = ({ onUnlock, id }) => {
        <div className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-[2rem] p-8 shadow-2xl space-y-6 relative z-10 border border-white/10 animate-enter">
           <div className="text-center">
              <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-indigo-500/40 text-white rotate-3"><LockKeyhole className="w-10 h-10"/></div>
-             <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">HPP MASTER PRO</h2>
+             <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">CostLab</h2>
              <p className="text-sm text-slate-500 mt-1 font-medium">Aplikasi Premium Manajemen Bisnis</p>
           </div>
           
@@ -1525,43 +1541,17 @@ const App = () => {
   const [active, setActive] = useState('calc');
   const [dark, setDark] = useState(false);
 
-  // 1. CEK STATUS BLACKLIST ONLINE (KILL SWITCH)
-  useEffect(() => {
-    const checkBanStatus = async () => {
-      // Jangan cek jika belum ada lisensi tersimpan
-      const saved = localStorage.getItem('app_license');
-      if(!saved) return;
-      const data = JSON.parse(saved);
+// 1. CEK STATUS BLACKLIST ONLINE (KILL SWITCH)
+useEffect(() => {
+  const checkBanStatus = async () => {
+    // ... logika fetch URL blacklist ...
+    // ... jika ID ditemukan, set isBanned(true) ...
+  };
 
-      try {
-        const res = await fetch(BLACKLIST_URL);
-        if(res.ok) {
-          const bannedList = await res.json();
-          const currentID = data.id;
-          
-          if(bannedList.includes(currentID)) {
-             // KENA BAN: Kunci dan set flag
-             setIsBanned(true);
-             setIsLocked(true);
-             localStorage.setItem('app_banned', 'true');
-          } else {
-             // TIDAK KENA BAN (atau SUDAH DIBUKA)
-             if(localStorage.getItem('app_banned') === 'true') {
-                // Berarti dulunya diban, sekarang sudah bersih -> RESTORED
-                localStorage.removeItem('app_banned');
-                localStorage.removeItem('app_license'); // Paksa login ulang
-                setIsBanned(false);
-                setIsRestored(true); // Tampilkan layar "Akses Dibuka"
-             }
-          }
-        }
-      } catch(e) { console.log("Offline mode, skip ban check"); }
-    };
-
-    checkBanStatus();
-    const timer = setInterval(checkBanStatus, 15000); // Cek tiap 15 detik
-    return () => clearInterval(timer);
-  }, []);
+  checkBanStatus();
+  const timer = setInterval(checkBanStatus, 15000); // Cek ulang tiap 15 detik
+  return () => clearInterval(timer);
+}, []);
 
   // 2. CEK VALIDITAS LISENSI LOKAL
   const checkValidity = () => {
@@ -1630,8 +1620,8 @@ const App = () => {
           <div className="flex items-center gap-3">
             <div className="bg-indigo-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-500/30"><Calculator className="w-5 h-5"/></div>
              <div>
-                <h1 className="font-black text-sm tracking-tight text-slate-900 dark:text-white leading-none">HPP MASTER</h1>
-                <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">Pro Edition</p>
+                <h1 className="font-black text-sm tracking-tight text-slate-900 dark:text-white leading-none">CostLab</h1>
+                <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">By ShanTech </p>
              </div>
           </div>
           <div className="flex gap-2">
