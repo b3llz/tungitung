@@ -1544,14 +1544,18 @@ const App = () => {
 // 1. CEK STATUS BLACKLIST ONLINE (KILL SWITCH)
 useEffect(() => {
   const checkBanStatus = async () => {
-    // ... logika fetch URL blacklist ...
-    // ... jika ID ditemukan, set isBanned(true) ...
-  };
+    const saved = localStorage.getItem('app_license');
+    if(!saved) return;
+    const data = JSON.parse(saved);
 
-  checkBanStatus();
-  const timer = setInterval(checkBanStatus, 15000); // Cek ulang tiap 15 detik
-  return () => clearInterval(timer);
-}, []);
+    try {
+      // PENTING: Tambahkan "?t=" + Date.now() di belakang URL
+      // Ini memaksa aplikasi mengambil data baru detik itu juga
+      const res = await fetch(BLACKLIST_URL + "?t=" + Date.now());
+      
+      if(res.ok) {
+        const bannedList = await res.json();
+        // ... logika selanjutnya tetap sama
 
   // 2. CEK VALIDITAS LISENSI LOKAL
   const checkValidity = () => {
