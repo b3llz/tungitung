@@ -1,118 +1,91 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* =========================================
-   1. UTILITIES TAMBAHAN
+   GLOBAL STYLES (PREMIUM LOOK)
+   ========================================= */
+:root {
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Background Pattern Halus */
+.bg-premium-pattern {
+  background-color: #f8fafc;
+  background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.dark .bg-premium-pattern {
+  background-color: #0f172a;
+  background-image: radial-gradient(#1e293b 1px, transparent 1px);
+}
+
+/* =========================================
+   UTILITIES
    ========================================= */
 @layer utilities {
-  /* Menyembunyikan Scrollbar tapi tetap bisa di-scroll 
-     (Digunakan pada pemilihan tipe biaya variabel & kategori) */
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  
+  /* Glass Effect Utility */
+  .glass {
+    @apply bg-white/80 backdrop-blur-md border-b border-white/20 shadow-sm;
   }
-  .no-scrollbar {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+  .dark .glass {
+    @apply bg-slate-900/80 border-slate-800/50 shadow-none;
+  }
+  
+  /* Premium Card */
+  .card-premium {
+    @apply bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-300;
   }
 }
 
 /* =========================================
-   2. CUSTOM ANIMATIONS (Untuk Modal & Lock Screen)
+   ANIMATIONS
    ========================================= */
-
-/* Fade In Halus (Digunakan di App Shell & Tab perpindahan) */
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out forwards;
-}
-
-/* Fade In + Gerak ke Atas (Untuk Toast / Notifikasi / HelpBox) */
 @keyframes fade-in-up {
-  from { opacity: 0; transform: translate(-50%, -40%); }
-  to { opacity: 1; transform: translate(-50%, -50%); }
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-.animate-fade-in-up {
-  animation: fade-in-up 0.3s ease-out forwards;
-}
-
-/* Zoom In (Untuk Modal Dialog & Struk) */
-@keyframes zoom-in {
-  from { opacity: 0; transform: scale(0.95); }
-  to { opacity: 1; transform: scale(1); }
-}
-.animate-in.zoom-in {
-  animation: zoom-in 0.2s ease-out forwards;
+.animate-enter {
+  animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Pulse Lambat (Untuk Status Menunggu Pembayaran) */
-@keyframes pulse-slow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.95); }
 }
-.animate-pulse {
-  animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.animate-pulse-soft {
+  animation: pulse-soft 3s infinite;
 }
 
 /* =========================================
-   3. PRINT STYLES (LOGIC CETAK STRUK THERMAL)
+   PRINT STYLES
    ========================================= */
 @media print {
-  /* Atur margin kertas jadi 0 agar header/footer browser hilang */
-  @page {
-    margin: 0;
-    size: auto;
-  }
-
-  /* Sembunyikan SEMUA elemen body secara default saat print */
-  body * {
-    visibility: hidden;
-  }
-
-  /* Sembunyikan elemen dengan class no-print */
-  .no-print {
-    display: none !important;
-  }
-
-  /* Tampilkan HANYA elemen modal struk (z-[80]) */
-  .fixed.inset-0.z-\[80\], 
-  .fixed.inset-0.z-\[80\] * {
-    visibility: visible;
-  }
-
-  /* Reset posisi modal agar pas di pojok kiri atas kertas */
+  @page { margin: 0; size: auto; }
+  body * { visibility: hidden; }
+  .no-print { display: none !important; }
+  .fixed.inset-0.z-\[80\], .fixed.inset-0.z-\[80\] * { visibility: visible; }
   .fixed.inset-0.z-\[80\] {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: auto;
-    background: white !important; /* Paksa putih */
-    color: black !important;      /* Paksa hitam pekat */
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 0;
-    margin: 0;
-    backdrop-filter: none;
-    z-index: 9999;
-    
-    /* Paksa browser render warna akurat (high contrast untuk printer thermal) */
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    position: absolute; left: 0; top: 0; width: 100%; height: auto;
+    background: white !important; color: black !important;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 0; margin: 0; z-index: 9999;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-
-  /* Hilangkan shadow & border saat print agar bersih */
   .fixed.inset-0.z-\[80\] > div {
-    box-shadow: none !important;
-    border: none !important;
-    border-radius: 0 !important;
-    max-width: 100% !important;
-    width: 100% !important;
-    padding: 10px !important; /* Padding dikit biar ga kepotong */
-    margin: 0 !important;
+    box-shadow: none !important; border: none !important;
+    max-width: 100% !important; width: 100% !important; padding: 10px !important; margin: 0 !important;
   }
 }
