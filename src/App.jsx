@@ -8,7 +8,9 @@ import {
   Shield, Crown, Rocket, Layers, LayoutGrid, Download, 
   FileSpreadsheet, Clock, Truck, Users, Briefcase,
   Store, CreditCard, Wallet, Smartphone, Printer, Receipt,
-  AlertCircle, Check, Settings, RefreshCw, User, Award
+  AlertCircle, Check, Settings, RefreshCw, User, Award,
+  // ICON TAMBAHAN UNTUK LOCK & SETTINGS
+  Lock, Unlock, Key, ShieldCheck, Calendar, AlertTriangle
 } from 'lucide-react';
 
 // ============================================================================
@@ -38,7 +40,6 @@ const VARIABLE_COST_TYPES = {
 };
 
 const WALLET_TYPES = ['Gopay', 'ShopeePay', 'Dana', 'OVO', 'LinkAja'];
-
 const formatIDR = (number) => {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
@@ -135,7 +136,6 @@ const Button = ({ children, onClick, variant = 'primary', className = "", icon: 
 
 const CountdownTimer = ({ deadline }) => {
   const [timeLeft, setTimeLeft] = useState('');
-
   useEffect(() => {
     const calculateTimeLeft = () => {
       const difference = +new Date(deadline) - +new Date();
@@ -153,8 +153,67 @@ const CountdownTimer = ({ deadline }) => {
     const timer = setInterval(calculateTimeLeft, 1000);
     return () => clearInterval(timer);
   }, [deadline]);
-
   return <span>{timeLeft}</span>;
+};
+
+// ============================================================================
+// KOMPONEN TAMBAHAN: LOCK SCREEN (Aktivasi)
+// ============================================================================
+const LockScreen = ({ onUnlock }) => {
+  const [inputID, setInputID] = useState('');
+  const [inputCode, setInputCode] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleActivation = () => {
+    setLoading(true); setError('');
+    setTimeout(() => {
+      try {
+        // PERHATIAN: SECRET_KEY INI HARUS SAMA PERSIS DENGAN YANG DI GENERATOR.HTML
+        const SECRET_KEY = "RAHASIA_DAPUR_123"; 
+
+        if (!window.CryptoJS) throw new Error("Library keamanan belum dimuat. Cek internet.");
+
+        const bytes = window.CryptoJS.AES.decrypt(inputCode, SECRET_KEY);
+        const originalText = bytes.toString(window.CryptoJS.enc.Utf8);
+
+        if (!originalText) throw new Error("Kode Aktivasi Salah!");
+
+        const data = JSON.parse(originalText);
+
+        if (data.id !== inputID) throw new Error("ID tidak cocok!");
+        if (new Date() > new Date(data.validUntil)) throw new Error("Masa aktif lisensi ini sudah habis!");
+
+        // Simpan juga token aslinya agar bisa ditampilkan di Settings
+        const fullLicenseData = { ...data, originalToken: inputCode };
+
+        onUnlock(fullLicenseData); 
+
+      } catch (err) {
+        setError(err.message || "Gagal Aktivasi");
+      } finally {
+        setLoading(false);
+      }
+    }, 1000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-6 animate-fade-in">
+       <div className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-2xl p-6 shadow-2xl space-y-4">
+          <div className="text-center">
+             <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3 text-indigo-600"><Lock className="w-8 h-8"/></div>
+             <h2 className="text-xl font-black text-slate-800 dark:text-white">AKTIVASI APLIKASI</h2>
+             <p className="text-xs text-slate-400">Masukkan ID dan Kode Lisensi untuk membuka.</p>
+          </div>
+          {error && <div className="p-3 bg-red-50 text-red-600 text-xs font-bold rounded-lg flex gap-2 items-center"><AlertTriangle className="w-4 h-4"/> {error}</div>}
+          <div className="space-y-3">
+             <div><label className="text-[10px] font-bold uppercase text-slate-400">ID Pengguna</label><input value={inputID} onChange={e=>setInputID(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-sm outline-none dark:text-white" placeholder="ID..."/></div>
+             <div><label className="text-[10px] font-bold uppercase text-slate-400">Kode Aktivasi</label><textarea value={inputCode} onChange={e=>setInputCode(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono h-24 outline-none dark:text-white" placeholder="Paste kode disini..."></textarea></div>
+             <button onClick={handleActivation} disabled={loading} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 transition active:scale-95">{loading ? 'Memproses...' : 'Buka Aplikasi'}</button>
+          </div>
+       </div>
+    </div>
+  );
 };
 
 // ============================================================================
@@ -193,7 +252,6 @@ const CalculatorTab = () => {
   const addVar = () => setVariableOps([...variableOps, { id: Date.now(), type: 'Kemasan', name: '', price: 0, unit: 'pcs', content: 1, usage: 0, cost: 0 }]);
   const addFix = () => setFixedOps([...fixedOps, { id: Date.now(), name: '', cost: 0 }]);
   const removeRow = (setter, list, id) => list.length > 1 && setter(list.filter(i => i.id !== id));
-
   // HPP Calculation
   const totalMat = materials.reduce((a,b) => a + b.cost, 0);
   const totalVar = variableOps.reduce((a,b) => a + b.cost, 0);
@@ -212,7 +270,8 @@ const CalculatorTab = () => {
 
   // Pricing
   const round = (p) => smartRounding ? (p < 1000 ? Math.ceil(p/100)*100 : Math.ceil(p/500)*500) : p;
-  const getTier = (margin) => { const raw = hppBersih + (hppBersih * (margin/100)); return { raw, final: round(raw), profit: round(raw) - hppBersih }; };
+  const getTier = (margin) => { const raw = hppBersih + (hppBersih * (margin/100));
+  return { raw, final: round(raw), profit: round(raw) - hppBersih }; };
   const tiers = [
     { name: "YANG PENTING LAKU", label: "kompetitif", desc: "Penetrasi pasar", margin: 22.8, color: "bg-orange-50", border: "border-orange-200", text: "text-orange-700", icon: Shield },
     { name: "MASUK AKAL", label: "standar", desc: "Margin umum", margin: 48.6, color: "bg-blue-50", border: "border-blue-200", text: "text-blue-700", icon: Layers },
@@ -220,12 +279,12 @@ const CalculatorTab = () => {
   ];
   const finalPrice = getTier(customMargin).final;
   const profitPerPcs = finalPrice - hppBersih;
-  
   // Projection Logic
   const targetPcsMonth = profitPerPcs > 0 ? Math.ceil(targetProfit / profitPerPcs) : 0;
   const targetPcsDay = Math.ceil(targetPcsMonth / 30);
   const projOmzetMonth = targetPcsMonth * finalPrice;
-  const projProdCostMonth = targetPcsMonth * (matPerUnit + varPerUnit); // Total variable cost for production
+  const projProdCostMonth = targetPcsMonth * (matPerUnit + varPerUnit);
+  // Total variable cost for production
   const projFixedCostMonth = showFixed ? totalFix : 0;
   const projNetProfitMonth = projOmzetMonth - projProdCostMonth - projFixedCostMonth;
 
@@ -264,7 +323,8 @@ const CalculatorTab = () => {
       const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
       XLSX.utils.book_append_sheet(wb, wsSummary, "Ringkasan");
       XLSX.writeFile(wb, `HPP_${product.name.replace(/\s+/g, '_')}.xlsx`);
-    } catch (e) { alert("Gagal export: " + e.message); }
+    } catch (e) { alert("Gagal export: " + e.message);
+    }
     setIsExporting(false);
   };
 
@@ -300,16 +360,19 @@ const CalculatorTab = () => {
       </div>
 
       {/* 2. COST CALCULATION */}
-      {calcMode === 'detail' ? (
+      {calcMode === 'detail' ?
+      (
         <div className="space-y-4">
           <Card title="Bahan Baku" icon={Package} help="Biaya bahan untuk 1x resep (Batch)">
             <div className="space-y-4">
               {materials.map((m) => (
                 <div key={m.id} className="relative p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 group">
+                 
                   <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                     <div className="col-span-2">
                        <input className="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 py-1 text-sm font-bold placeholder:text-slate-400 focus:border-indigo-500 outline-none dark:text-white" placeholder="Nama Bahan (Tepung, Telur...)" value={m.name} onChange={e=>updateMat(m.id,'name',e.target.value)} />
                     </div>
+            
                     <NumericInput label="Harga Beli" placeholder="0" prefix="Rp" value={m.price} onChange={v=>updateMat(m.id,'price',v)} className="bg-white dark:bg-slate-900" />
                     <div>
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 block">Isi Kemasan</label>
@@ -342,9 +405,10 @@ const CalculatorTab = () => {
                   <div key={op.id} className="relative p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 group">
                     <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
                       {Object.keys(VARIABLE_COST_TYPES).map(typeKey => (
-                        <button key={typeKey} onClick={()=>updateVar(op.id, 'type', typeKey)} className={`shrink-0 px-2 py-1 rounded-md text-[10px] font-bold border transition ${op.type === typeKey ? 'bg-slate-800 text-white border-slate-800 dark:bg-white dark:text-slate-900' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 dark:bg-slate-900 dark:border-slate-700'}`}>{typeKey}</button>
+                         <button key={typeKey} onClick={()=>updateVar(op.id, 'type', typeKey)} className={`shrink-0 px-2 py-1 rounded-md text-[10px] font-bold border transition ${op.type === typeKey ? 'bg-slate-800 text-white border-slate-800 dark:bg-white dark:text-slate-900' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 dark:bg-slate-900 dark:border-slate-700'}`}>{typeKey}</button>
                       ))}
                     </div>
+                    
                     <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                        <div className="col-span-2 flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2 mb-1">
                           <TypeIcon className="w-4 h-4 text-slate-400" />
@@ -352,10 +416,10 @@ const CalculatorTab = () => {
                        </div>
                        <NumericInput label="Biaya Satuan" placeholder="0" prefix="Rp" value={op.price} onChange={v=>updateVar(op.id,'price',v)} className="bg-white dark:bg-slate-900" />
                        <div>
-                          <label className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 block">{typeConfig.label}</label>
+                           <label className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 block">{typeConfig.label}</label>
                           <div className="flex">
                             <input type="number" className="w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-l-lg py-2 pl-2 text-sm font-bold outline-none" placeholder="1" value={op.content} onChange={e=>updateVar(op.id,'content',parseFloat(e.target.value))} />
-                            <select className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 border-l-0 rounded-r-lg px-1 text-xs font-bold text-slate-600 dark:text-slate-300 outline-none cursor-pointer w-20" value={op.unit} onChange={e=>updateVar(op.id,'unit',e.target.value)}>{typeConfig.units.map(u => <option key={u} value={u}>{u}</option>)}</select>
+                             <select className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 border-l-0 rounded-r-lg px-1 text-xs font-bold text-slate-600 dark:text-slate-300 outline-none cursor-pointer w-20" value={op.unit} onChange={e=>updateVar(op.id,'unit',e.target.value)}>{typeConfig.units.map(u => <option key={u} value={u}>{u}</option>)}</select>
                           </div>
                        </div>
                        <div className="col-span-2 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700 mt-1 flex items-center justify-between gap-3">
@@ -364,7 +428,7 @@ const CalculatorTab = () => {
                               <input type="number" className="w-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg py-1.5 px-2 text-sm font-bold text-amber-800 dark:text-amber-400 outline-none" placeholder="0" value={op.usage} onChange={e=>updateVar(op.id,'usage',parseFloat(e.target.value))} />
                            </div>
                            <div className="text-right"><p className="text-[10px] text-slate-400 font-medium">Biaya</p><p className="text-base font-black text-slate-700 dark:text-white">{formatIDR(op.cost)}</p></div>
-                       </div>
+                        </div>
                     </div>
                     <button onClick={()=>removeRow(setVariableOps,variableOps,op.id)} className="absolute -top-2 -right-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full p-1.5 text-slate-300 hover:text-red-500 shadow-sm"><Trash2 className="w-3 h-3"/></button>
                   </div>
@@ -416,7 +480,7 @@ const CalculatorTab = () => {
           <div className="animate-fade-in mt-3 p-3 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-100 dark:border-slate-800">
             <div className="w-full mb-3"><NumericInput label="Target Produksi / Bulan" placeholder="100" value={production.monthlyTarget} onChange={v=>setProduction({...production, monthlyTarget: v})} suffix="Pcs" className="bg-white dark:bg-slate-900" /></div>
             <div className="space-y-2">
-              {fixedOps.map(op => (
+               {fixedOps.map(op => (
                 <div key={op.id} className="flex gap-2 items-end">
                   <div className="flex-1"><input className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-xs font-bold outline-none" placeholder="Nama Biaya" value={op.name} onChange={e=>updateFix(op.id,'name',e.target.value)} /></div>
                   <div className="w-28"><NumericInput value={op.cost} onChange={v=>updateFix(op.id, v)} prefix="Rp" className="bg-white dark:bg-slate-900 text-xs py-2" /></div>
@@ -456,7 +520,7 @@ const CalculatorTab = () => {
                 <div key={i} onClick={()=>setCustomMargin(t.margin)} className={`relative overflow-hidden rounded-xl border-2 transition-all cursor-pointer group hover:-translate-y-1 ${isSelected ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900'}`}>
                   <div className="p-4 flex justify-between items-center">
                     <div>
-                       <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1">
                           <div className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md inline-block ${t.color} ${t.text} border ${t.border}`}>{t.name}</div>
                           <span className="text-[10px] font-medium text-slate-400 capitalize">{t.label}</span>
                       </div>
@@ -508,16 +572,16 @@ const CalculatorTab = () => {
                        <div className="flex justify-between items-center text-emerald-50">
                           <span className="text-[10px] opacity-80 uppercase font-bold">Potensi Omzet / Bulan</span>
                           <span className="text-sm font-semibold">{formatIDR(projOmzetMonth)}</span>
-                       </div>
+                      </div>
 
                        <div className="flex justify-between items-center text-emerald-50">
                           <span className="text-[10px] opacity-80 uppercase font-bold">Total Biaya Produksi / Bulan</span>
-                          <span className="text-sm font-semibold">{formatIDR(projProdCostMonth)}</span>
+                         <span className="text-sm font-semibold">{formatIDR(projProdCostMonth)}</span>
                        </div>
 
                        {showFixed && (
                           <div className="flex justify-between items-center text-emerald-50">
-                              <span className="text-[10px] opacity-80 uppercase font-bold">Total Biaya Tetap / Bulan</span>
+                             <span className="text-[10px] opacity-80 uppercase font-bold">Total Biaya Tetap / Bulan</span>
                               <span className="text-sm font-semibold">{formatIDR(projFixedCostMonth)}</span>
                           </div>
                        )}
@@ -525,7 +589,7 @@ const CalculatorTab = () => {
                        <div className="pt-2 mt-2 border-t border-white/30 flex justify-between items-center">
                           <span className="text-xs font-black text-white uppercase">Proyeksi Laba Bersih / Bulan</span>
                           <span className="text-xl font-black text-white">{formatIDR(projNetProfitMonth)}</span>
-                       </div>
+                     </div>
                      </div>
                    </div>
                  )}
@@ -563,7 +627,8 @@ const CalculatorTab = () => {
                     <h4 className="font-bold text-slate-800 dark:text-white text-xs">{r.product?.name}</h4>
                     <p className="text-[10px] text-slate-500 mt-0.5">{formatIDR(r.finalPrice)} • {new Date(r.id).toLocaleDateString()}</p>
                   </div>
-                  <button onClick={(e)=>{e.stopPropagation(); setSavedRecipes(savedRecipes.filter(i=>i.id!==r.id)); localStorage.setItem('hpp_pro_db', JSON.stringify(savedRecipes.filter(i=>i.id!==r.id)));}} className="absolute top-3 right-3 text-slate-300 hover:text-rose-500"><Trash2 className="w-3.5 h-3.5"/></button>
+                  <button onClick={(e)=>{e.stopPropagation();
+                  setSavedRecipes(savedRecipes.filter(i=>i.id!==r.id)); localStorage.setItem('hpp_pro_db', JSON.stringify(savedRecipes.filter(i=>i.id!==r.id)));}} className="absolute top-3 right-3 text-slate-300 hover:text-rose-500"><Trash2 className="w-3.5 h-3.5"/></button>
                 </div>
               ))}
             </div>
@@ -589,24 +654,20 @@ const ProfileTab = () => {
   const [activeSec, setActiveSec] = useState('info'); 
   const [newWallet, setNewWallet] = useState({ type: 'Gopay', number: '' });
   const [newBank, setNewBank] = useState({ bank: '', number: '' });
-
   useEffect(() => {
     const saved = localStorage.getItem('store_profile');
     if (saved) setProfile(JSON.parse(saved));
     const savedProd = localStorage.getItem('product_stock_db');
     if (savedProd) setProducts(JSON.parse(savedProd));
   }, []);
-
   const saveProfile = (newP) => {
     setProfile(newP);
     localStorage.setItem('store_profile', JSON.stringify(newP));
   };
-
   const saveProducts = (newP) => {
     setProducts(newP);
     localStorage.setItem('product_stock_db', JSON.stringify(newP));
   };
-
   const addProduct = () => {
     if(!newProd.name) return alert("Nama produk wajib diisi");
     const item = { id: `p_${Date.now()}`, ...newProd, hpp: newProd.price*0.7 }; 
@@ -614,10 +675,8 @@ const ProfileTab = () => {
     setShowAdd(false);
     setNewProd({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
   };
-
   const deleteProduct = (id) => saveProducts(products.filter(p => p.id !== id));
   const updateStock = (id, delta) => saveProducts(products.map(p => p.id === id ? {...p, stock: Math.max(0, p.stock + delta)} : p));
-
   const addWallet = () => {
     if(!newWallet.number) return;
     saveProfile({...profile, payment: {...profile.payment, ewallets: [...profile.payment.ewallets, newWallet]}});
@@ -629,7 +688,6 @@ const ProfileTab = () => {
     saveProfile({...profile, payment: {...profile.payment, bank: [...profile.payment.bank, newBank]}});
     setNewBank({bank: '', number: ''});
   };
-
   return (
     <div className="max-w-xl mx-auto pb-24 px-4 space-y-4">
       <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
@@ -650,7 +708,8 @@ const ProfileTab = () => {
                 <div className="flex justify-center">
                     <div className="w-24 h-24 bg-slate-50 dark:bg-slate-800 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center relative overflow-hidden group">
                         {profile.logo ? <img src={profile.logo} className="w-full h-full object-cover"/> : <ImageIcon className="w-8 h-8 text-slate-300"/>}
-                        <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {if(e.target.files[0]) { const r = new FileReader(); r.onload=v=>saveProfile({...profile, logo:v.target.result}); r.readAsDataURL(e.target.files[0]); }}}/>
+                        <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {if(e.target.files[0]) { const r = new FileReader();
+                        r.onload=v=>saveProfile({...profile, logo:v.target.result}); r.readAsDataURL(e.target.files[0]); }}}/>
                         <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"><Edit3 className="w-5 h-5 text-white"/></div>
                     </div>
                 </div>
@@ -668,20 +727,22 @@ const ProfileTab = () => {
         <div className="space-y-4">
             <Card title="QRIS" help="Upload gambar QRIS toko agar bisa discan pembeli">
                 <div className="w-full h-48 bg-slate-50 dark:bg-slate-800 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center relative overflow-hidden group">
-                    {profile.payment.qris ? <img src={profile.payment.qris} className="w-full h-full object-contain"/> : <div className="text-center text-slate-400"><ImageIcon className="w-8 h-8 mx-auto mb-2"/><p className="text-xs">Upload QRIS</p></div>}
-                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {if(e.target.files[0]) { const r = new FileReader(); r.onload=v=>saveProfile({...profile, payment: {...profile.payment, qris:v.target.result}}); r.readAsDataURL(e.target.files[0]); }}}/>
+                  {profile.payment.qris ?
+                  <img src={profile.payment.qris} className="w-full h-full object-contain"/> : <div className="text-center text-slate-400"><ImageIcon className="w-8 h-8 mx-auto mb-2"/><p className="text-xs">Upload QRIS</p></div>}
+                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {if(e.target.files[0]) { const r = new FileReader();
+                    r.onload=v=>saveProfile({...profile, payment: {...profile.payment, qris:v.target.result}}); r.readAsDataURL(e.target.files[0]); }}}/>
                 </div>
             </Card>
             <Card title="E-Wallet & Bank">
                 <div className="space-y-4">
                     <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl space-y-2">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase">Tambah E-Wallet</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Tambah E-Wallet</label>
                         <div className="flex gap-2 flex-wrap sm:flex-nowrap">
                             <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold px-2 py-2 outline-none w-full sm:w-auto" value={newWallet.type} onChange={e=>setNewWallet({...newWallet, type:e.target.value})}>{WALLET_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
                             <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs outline-none w-full sm:w-auto" placeholder="Nomor HP" value={newWallet.number} onChange={e=>setNewWallet({...newWallet, number:e.target.value})}/>
                             <Button onClick={addWallet} className="py-2 px-4 shrink-0">Add</Button>
                         </div>
-                        <div className="flex flex-wrap gap-2 mt-2">
+                       <div className="flex flex-wrap gap-2 mt-2">
                             {profile.payment.ewallets.map((w,i) => (
                                 <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-xs font-bold shadow-sm">
                                     <span className="text-indigo-600">{w.type}</span> <span className="text-slate-700 dark:text-slate-300">{w.number}</span>
@@ -690,7 +751,7 @@ const ProfileTab = () => {
                             ))}
                         </div>
                     </div>
-                     <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl space-y-2">
+                    <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl space-y-2">
                         <label className="text-[10px] font-bold text-slate-400 uppercase">Tambah Bank</label>
                          <div className="flex gap-2 flex-wrap sm:flex-nowrap">
                             <input className="w-full sm:w-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2 text-xs font-bold outline-none" placeholder="Bank" value={newBank.bank} onChange={e=>setNewBank({...newBank, bank:e.target.value})}/>
@@ -698,7 +759,7 @@ const ProfileTab = () => {
                             <Button onClick={addBank} className="py-2 px-4 shrink-0">Add</Button>
                         </div>
                          <div className="flex flex-wrap gap-2 mt-2">
-                            {profile.payment.bank.map((b,i) => (
+                             {profile.payment.bank.map((b,i) => (
                                 <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-xs font-bold shadow-sm">
                                     <span className="text-emerald-600 uppercase">{b.bank}</span> <span className="text-slate-700 dark:text-slate-300">{b.number}</span>
                                     <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, bank: profile.payment.bank.filter((_,x)=>x!==i)}})}><X className="w-3 h-3 text-red-500"/></button>
@@ -722,7 +783,7 @@ const ProfileTab = () => {
                 {products.map(p => (
                     <div key={p.id} className="bg-white dark:bg-slate-900 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 flex gap-3 items-center">
                          <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-lg overflow-hidden shrink-0">
-                            {p.image ? <img src={p.image} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-slate-300">{p.name[0]}</div>}
+                             {p.image ? <img src={p.image} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-slate-300">{p.name[0]}</div>}
                         </div>
                         <div className="flex-1 min-w-0">
                             <div className="flex justify-between">
@@ -732,12 +793,12 @@ const ProfileTab = () => {
                             <p className="text-indigo-600 font-bold text-xs">{formatIDR(p.price)}</p>
                         </div>
                         <div className="flex flex-col items-end gap-1">
-                            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 rounded-lg p-1">
+                             <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 rounded-lg p-1">
                                 <button onClick={()=>updateStock(p.id, -1)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm flex items-center justify-center text-xs font-bold hover:bg-slate-100">-</button>
                                 <span className="w-6 text-center text-xs font-bold">{p.stock}</span>
                                 <button onClick={()=>updateStock(p.id, 1)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm flex items-center justify-center text-xs font-bold hover:bg-slate-100">+</button>
                             </div>
-                            <button onClick={()=>deleteProduct(p.id)} className="text-[10px] text-red-400 hover:text-red-600">Hapus</button>
+                             <button onClick={()=>deleteProduct(p.id)} className="text-[10px] text-red-400 hover:text-red-600">Hapus</button>
                         </div>
                     </div>
                 ))}
@@ -768,7 +829,6 @@ const ProfileTab = () => {
                    </div>
                    <div className="w-24">
                        <label className="text-[10px] font-bold text-slate-400 uppercase">Stok Awal</label>
-                       {/* FIX: Using NumericInput logic logic for stock so we don't have to delete 0 manually */}
                        <NumericInput value={newProd.stock} onChange={v=>setNewProd({...newProd, stock:v})} className="bg-slate-50 dark:bg-slate-800" />
                    </div>
               </div>
@@ -786,7 +846,6 @@ const ProfileTab = () => {
 // 4. TAB: POS (KASIR)
 // ============================================================================
 
-// COMPONENT: Cart (Moved outside to prevent re-render focus loss)
 const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile }) => (
     <div className={`fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm md:static md:bg-transparent md:w-80 transition-all ${showCart ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto'}`} onClick={()=>setShowCart(false)}>
         <div className={`absolute right-0 top-0 h-full w-full md:w-80 bg-white dark:bg-slate-900 shadow-2xl md:border-l border-slate-100 dark:border-slate-800 flex flex-col transition-transform duration-300 ${showCart ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`} onClick={e=>e.stopPropagation()}>
@@ -839,14 +898,13 @@ const PosTab = () => {
   const [cart, setCart] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState('shop'); 
+  const [viewMode, setViewMode] = useState('shop');
   const [buyerName, setBuyerName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [showCart, setShowCart] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showReceipt, setShowReceipt] = useState(null);
   const [profile, setProfile] = useState({});
-
   useEffect(() => {
     const p = JSON.parse(localStorage.getItem('product_stock_db') || '[]');
     setProducts(p);
@@ -855,12 +913,10 @@ const PosTab = () => {
     const prof = JSON.parse(localStorage.getItem('store_profile') || '{}');
     setProfile(prof);
   }, []);
-
   const saveActiveOrders = (ords) => {
     setActiveOrders(ords);
     localStorage.setItem('active_orders_db', JSON.stringify(ords));
   };
-
   const addToCart = (p) => {
     if(p.stock <= 0) return alert("Stok habis!");
     setCart(prev => {
@@ -881,11 +937,9 @@ const PosTab = () => {
   };
 
   const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
-
   const handleCheckout = () => {
     if(!buyerName) return alert("Masukkan nama pembeli!");
     if(!paymentMethod) return alert("Pilih metode pembayaran!");
-    
     const newOrder = {
         id: `ord_${Date.now()}`,
         date: new Date().toISOString(),
@@ -896,7 +950,6 @@ const PosTab = () => {
         status: 'pending',
         deadline: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
     };
-
     saveActiveOrders([newOrder, ...activeOrders]);
     const newStock = products.map(p => {
         const inCart = cart.find(c => c.id === p.id);
@@ -910,17 +963,14 @@ const PosTab = () => {
     alert("Order dibuat! Silahkan cek Status Pesanan.");
     setViewMode('status');
   };
-
   const confirmPayment = (order) => {
       const history = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
       const completedOrder = { ...order, status: 'paid', paidAt: new Date().toISOString() };
       localStorage.setItem('pos_history_db', JSON.stringify([...history, completedOrder]));
-      
       const updated = activeOrders.map(o => o.id === order.id ? completedOrder : o);
       saveActiveOrders(updated);
       setSelectedOrder(completedOrder);
   };
-
   const cancelOrder = (order) => {
       if(confirm("Batalkan pesanan? Stok akan dikembalikan.")) {
           const newStock = products.map(p => {
@@ -934,7 +984,6 @@ const PosTab = () => {
           setSelectedOrder(null);
       }
   };
-
   const getPaymentInfo = (method) => {
       if(method === 'Cash') return <div className="p-3 bg-slate-100 rounded-lg text-center font-bold text-slate-800">Bayar Tunai di Kasir</div>;
       if(method === 'QRIS') return (
@@ -976,7 +1025,7 @@ const PosTab = () => {
                   ))}
               </div>
               <div className="space-y-1 text-sm text-slate-900">
-                   <div className="flex justify-between font-black"><span>Total</span><span>{formatIDR(order.total)}</span></div>
+                 <div className="flex justify-between font-black"><span>Total</span><span>{formatIDR(order.total)}</span></div>
                    <div className="flex justify-between text-xs font-bold"><span>Bayar ({order.paymentMethod})</span><span>{formatIDR(order.total)}</span></div>
               </div>
               <div className="mt-6 text-center text-[10px] text-slate-900 font-bold">
@@ -987,10 +1036,8 @@ const PosTab = () => {
           </div>
       </div>
   );
-
   return (
     <div className="h-full flex flex-col pb-24 max-w-6xl mx-auto w-full px-2 sm:px-4">
-      {/* Top Nav Switcher */}
       <div className="flex gap-2 mb-4 bg-slate-50 dark:bg-slate-950 p-1 sticky top-0 z-20">
           <button onClick={()=>setViewMode('shop')} className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 ${viewMode==='shop'?'bg-indigo-600 text-white shadow':'text-slate-500'}`}><Store className="w-4 h-4"/> Produk</button>
           <button onClick={()=>setViewMode('status')} className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 ${viewMode==='status'?'bg-indigo-600 text-white shadow':'text-slate-500'}`}>
@@ -1020,20 +1067,7 @@ const PosTab = () => {
                 </div>
             </div>
 
-            <CartSidebar 
-                showCart={showCart} 
-                setShowCart={setShowCart} 
-                cart={cart} 
-                updateQty={updateQty} 
-                removeFromCart={removeFromCart} 
-                buyerName={buyerName} 
-                setBuyerName={setBuyerName} 
-                paymentMethod={paymentMethod} 
-                setPaymentMethod={setPaymentMethod} 
-                handleCheckout={handleCheckout} 
-                profile={profile}
-            />
-            
+            <CartSidebar showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile}/>
             <button onClick={()=>setShowCart(true)} className="md:hidden fixed bottom-24 right-4 bg-slate-900 text-white w-12 h-12 rounded-full shadow-xl flex items-center justify-center z-40 transition hover:scale-110 active:scale-90">
                 <ShoppingCart className="w-5 h-5"/>
                 {cart.length>0 && <span className="absolute top-0 right-0 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-bold flex items-center justify-center border-2 border-slate-900">{cart.length}</span>}
@@ -1055,7 +1089,7 @@ const PosTab = () => {
                         </div>
                         <div>
                             <h4 className="font-bold text-slate-900 dark:text-white text-sm">{order.buyer}</h4>
-                            <p className="text-xs text-slate-500">{order.items[0].name} {order.items.length > 1 && `+ ${order.items.length-1} lainnya`}</p>
+                             <p className="text-xs text-slate-500">{order.items[0].name} {order.items.length > 1 && `+ ${order.items.length-1} lainnya`}</p>
                             <p className="font-black text-indigo-600 mt-1">{formatIDR(order.total)}</p>
                         </div>
                     </div>
@@ -1068,7 +1102,6 @@ const PosTab = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in zoom-in duration-200">
               <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl relative overflow-hidden">
                   <button onClick={()=>setSelectedOrder(null)} className="absolute top-4 right-4 p-1 bg-slate-100 rounded-full hover:bg-slate-200"><X className="w-5 h-5"/></button>
-                  
                   <div className="text-center mb-6">
                       {selectedOrder.status === 'pending' ? (
                           <div className="inline-flex items-center gap-2 bg-yellow-50 text-yellow-700 px-4 py-2 rounded-full font-bold text-xs border border-yellow-200 mb-2 animate-pulse">
@@ -1097,7 +1130,7 @@ const PosTab = () => {
                   </div>
 
                   {selectedOrder.status === 'pending' && (
-                      <div className="mb-6">
+                    <div className="mb-6">
                           <p className="text-[10px] font-bold uppercase text-slate-400 mb-2 text-center">Transfer ke:</p>
                           {getPaymentInfo(selectedOrder.paymentMethod)}
                       </div>
@@ -1131,7 +1164,6 @@ const ReportTab = () => {
   const [txs, setTxs] = useState([]);
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
-
   useEffect(() => { setTxs(JSON.parse(localStorage.getItem('pos_history_db') || '[]')); }, []);
 
   // Helper untuk format tanggal Indonesia
@@ -1168,12 +1200,8 @@ const ReportTab = () => {
         const d = new Date();
         d.setDate(d.getDate() - i);
         const dayStr = d.toISOString().split('T')[0];
-        
         // Simpan tanggal untuk keperluan label grafik
-        if (i === 29 || i === 15 || i === 0) {
-           trendDates.push(d);
-        }
-
+        if (i === 29 || i === 15 || i === 0) { trendDates.push(d); }
         const dayTotal = txs.filter(t => t.date.startsWith(dayStr)).reduce((a,b) => a+b.total, 0);
         trendData.push(dayTotal);
     }
@@ -1183,7 +1211,6 @@ const ReportTab = () => {
         const y = 100 - ((val / maxTrend) * 80);
         return `${x},${y}`;
     }).join(' ');
-
     // Best Selling Products Logic (30 Days)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(now.getDate() - 30);
@@ -1198,7 +1225,6 @@ const ReportTab = () => {
         .map(([name, qty]) => ({ name, qty }))
         .sort((a, b) => b.qty - a.qty)
         .slice(0, 5);
-
     return { 
         rev: f.reduce((a,b)=>a+b.total,0), 
         prof: f.reduce((a,b)=>a+(b.profit||0),0), 
@@ -1221,7 +1247,6 @@ const ReportTab = () => {
     } catch (e) { alert("Gagal download: " + e.message); }
     setIsDownloading(false);
   };
-
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 pb-32 space-y-6 w-full">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1230,7 +1255,6 @@ const ReportTab = () => {
            {['today','month','all'].map(k => (<button key={k} onClick={()=>setFilter(k)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold capitalize ${filter===k ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>{k==='all'?'Semua':k==='today'?'Hari Ini':'Bulan Ini'}</button>))}
         </div>
       </div>
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card className="relative overflow-hidden">
             <div className="relative z-10"><p className="text-slate-400 text-[10px] font-bold uppercase">Omzet</p><h2 className="text-2xl font-black text-slate-900 dark:text-white">{formatIDR(stats.rev)}</h2></div>
@@ -1242,18 +1266,16 @@ const ReportTab = () => {
             <p className="text-slate-400 text-[10px] font-bold uppercase">Transaksi</p><h2 className="text-2xl font-black text-slate-900 dark:text-white">{stats.count}</h2>
         </Card>
       </div>
-
       {/* Traffic Graph (Original - With Date Labels) */}
       <Card title="Traffic Penjualan (Bulanan)" icon={TrendingUp}>
           <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
-             <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
+              <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
                  <polyline points={`0,100 ${stats.graph} 100,100`} fill="none" stroke="#4f46e5" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
                  <polygon points={`0,100 ${stats.graph} 100,100 0,100`} fill="url(#grad)" opacity="0.2"/>
                  <defs><linearGradient id="grad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#4f46e5"/><stop offset="100%" stopColor="white" stopOpacity="0"/></linearGradient></defs>
               </svg>
               {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data grafik</div>}
           </div>
-          {/* NEW: Date Labels for Traffic */}
           <div className="mt-2">
             <div className="flex justify-between px-1">
                 {[1, 5, 10, 15, 20, 25, 30].map(d => (
@@ -1267,7 +1289,6 @@ const ReportTab = () => {
             </div>
           </div>
       </Card>
-
       {/* 30-Day Trend Graph (With Date Labels) */}
       <Card title="Tren Penjualan 30 Hari Terakhir" icon={BarChart3}>
           <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
@@ -1276,7 +1297,6 @@ const ReportTab = () => {
               </svg>
               {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data tren</div>}
           </div>
-          {/* NEW: Date Labels for Trend */}
           <div className="mt-2 flex justify-between items-center px-1 border-t border-slate-100 dark:border-slate-800 pt-2">
              {stats.trendDates.length > 0 ? (
                  <>
@@ -1298,7 +1318,6 @@ const ReportTab = () => {
              )}
           </div>
       </Card>
-
       {/* Top Selling Products Card */}
       <Card title="Produk Terlaris (30 Hari Terakhir)" icon={Award}>
           <div className="space-y-3">
@@ -1360,12 +1379,49 @@ const ReportTab = () => {
 };
 
 // ============================================================================
-// 6. TAB: SETTINGS
+// 6. TAB: SETTINGS (UPDATED WITH LICENSE INFO)
 // ============================================================================
 
 const SettingsTab = () => {
+    // State untuk data lisensi
+    const [licenseInfo, setLicenseInfo] = useState(null);
+    const [timeLeft, setTimeLeft] = useState('');
+
+    useEffect(() => {
+        // Ambil data lisensi dari storage
+        const saved = localStorage.getItem('app_license');
+        if (saved) {
+            setLicenseInfo(JSON.parse(saved));
+        }
+    }, []);
+
+    // Countdown Timer Realtime untuk License
+    useEffect(() => {
+        if (!licenseInfo?.validUntil) return;
+        
+        const updateTimer = () => {
+            const now = new Date();
+            const end = new Date(licenseInfo.validUntil);
+            const diff = end - now;
+
+            if (diff <= 0) {
+                setTimeLeft("Kedaluwarsa");
+            } else {
+                const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+                const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+                const m = Math.floor((diff / 1000 / 60) % 60);
+                const s = Math.floor((diff / 1000) % 60);
+                setTimeLeft(`${d} Hari ${h} Jam ${m} Menit ${s} Detik`);
+            }
+        };
+
+        updateTimer();
+        const interval = setInterval(updateTimer, 1000);
+        return () => clearInterval(interval);
+    }, [licenseInfo]);
+
     const handleResetAll = () => {
-        if(confirm("PERINGATAN: Tindakan ini akan menghapus SELURUH data aplikasi (Resep, Stok, Profile, Riwayat Transaksi). Data tidak dapat dikembalikan. Lanjutkan?")) {
+        if(confirm("PERINGATAN: Tindakan ini akan menghapus SELURUH data aplikasi (Resep, Stok, Profile, Riwayat Transaksi). Data tidak dapat dikembalikan. Lisensi Anda juga akan terhapus dan perlu login ulang. Lanjutkan?")) {
             localStorage.clear();
             alert("Aplikasi berhasil di-reset. Halaman akan dimuat ulang.");
             window.location.reload();
@@ -1375,14 +1431,54 @@ const SettingsTab = () => {
     return (
         <div className="max-w-xl mx-auto p-4 sm:p-6 pb-32">
             <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-6">Pengaturan</h1>
-            <Card title="Zona Bahaya" icon={AlertCircle} className="border-red-100 dark:border-red-900">
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                    Gunakan tombol di bawah ini jika terjadi error fatal atau Anda ingin memulai dari awal.
-                </p>
-                <Button onClick={handleResetAll} variant="danger" icon={RefreshCw} className="w-full">
-                    Reset Seluruh Data Aplikasi
-                </Button>
-            </Card>
+            
+            <div className="space-y-6">
+                <Card title="Zona Bahaya" icon={AlertCircle} className="border-red-100 dark:border-red-900">
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                        Gunakan tombol di bawah ini jika terjadi error fatal atau Anda ingin memulai dari awal.
+                    </p>
+                    <Button onClick={handleResetAll} variant="danger" icon={RefreshCw} className="w-full">
+                        Reset Seluruh Data Aplikasi
+                    </Button>
+                </Card>
+
+                {/* NEW: PERIODE WAKTU CARD */}
+                {licenseInfo && (
+                    <Card title="Periode Waktu (Lisensi)" icon={ShieldCheck} className="border-indigo-100 dark:border-slate-700">
+                        <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl mb-4 text-center">
+                             <p className="text-[10px] font-bold uppercase text-indigo-400 mb-1">Sisa Waktu Aktif</p>
+                             <p className="text-lg font-black text-indigo-600 dark:text-indigo-400 font-mono">{timeLeft}</p>
+                        </div>
+                        
+                        <div className="space-y-3 text-sm">
+                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-3 h-3"/> Penyewa</span>
+                                <span className="font-bold text-slate-800 dark:text-white">{licenseInfo.tenant}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Shield className="w-3 h-3"/> ID Aplikasi</span>
+                                <span className="font-mono font-bold text-slate-800 dark:text-white">{licenseInfo.id}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Calendar className="w-3 h-3"/> Berakhir Pada</span>
+                                <span className="font-bold text-slate-800 dark:text-white">
+                                    {new Date(licenseInfo.validUntil).toLocaleDateString('id-ID', { 
+                                        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+                                    })}
+                                </span>
+                            </div>
+                            <div className="pt-2">
+                                <p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Kode Aktivasi</p>
+                                <div className="bg-slate-100 dark:bg-slate-800 p-2 rounded text-[10px] font-mono break-all text-slate-500">
+                                    {licenseInfo.originalToken 
+                                        ? licenseInfo.originalToken.substring(0, 20) + "..." + licenseInfo.originalToken.substring(licenseInfo.originalToken.length - 10) 
+                                        : "Tersembunyi"}
+                                </div>
+                            </div>
+                        </div>
+                    </Card>
+                )}
+            </div>
         </div>
     );
 };
@@ -1392,10 +1488,58 @@ const SettingsTab = () => {
 // ============================================================================
 
 const App = () => {
+  // --- LOGIC LOCK SCREEN START ---
+  const [isLocked, setIsLocked] = useState(true);
+  const [licenseInfo, setLicenseInfo] = useState(null);
+
+  // Fungsi cek validitas (dipakai saat mount dan interval)
+  const checkValidity = () => {
+      const saved = localStorage.getItem('app_license');
+      if(saved) {
+          try {
+            const data = JSON.parse(saved);
+            const now = new Date();
+            const validUntil = new Date(data.validUntil);
+            
+            if(now < validUntil) {
+                // Masih Valid
+                setLicenseInfo(data);
+                setIsLocked(false);
+            } else {
+                // Expired: Kunci, tapi JANGAN hapus data user lain (Resep/Stok)
+                // Cukup hapus status login/lisensi agar terkunci
+                localStorage.removeItem('app_license'); 
+                setIsLocked(true);
+                setLicenseInfo(null);
+            }
+          } catch(e) { 
+              setIsLocked(true); 
+          }
+      } else {
+          setIsLocked(true);
+      }
+  };
+
+  // Cek saat pertama kali load
+  useEffect(() => {
+    checkValidity();
+    
+    // Cek secara berkala (setiap 10 detik) untuk auto-lock realtime
+    const interval = setInterval(checkValidity, 10000); 
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleUnlock = (data) => {
+     localStorage.setItem('app_license', JSON.stringify(data));
+     setLicenseInfo(data);
+     setIsLocked(false);
+  };
+  // --- LOGIC LOCK SCREEN END ---
+
+
   const [active, setActive] = useState('calc');
   const [dark, setDark] = useState(false);
 
-  // LOGIC FIX: Check LocalStorage & System Preference on Mount
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -1405,13 +1549,10 @@ const App = () => {
     }
   }, []);
 
-  // LOGIC FIX: Toggle Function that saves to LocalStorage
   const toggleDarkMode = () => {
       const newMode = !dark;
       setDark(newMode);
       localStorage.setItem('theme', newMode ? 'dark' : 'light');
-      
-      // Optional: Add/Remove class directly to document element as fallback
       if(newMode) {
           document.documentElement.classList.add('dark');
       } else {
@@ -1419,16 +1560,25 @@ const App = () => {
       }
   };
 
+  // TAMPILKAN LAYAR KUNCI JIKA TERKUNCI
+  if(isLocked) return <LockScreen onUnlock={handleUnlock} />;
+
   return (
-    // Wrapper 'dark' class applied conditionally
     <div className={dark ? 'dark' : ''}>
       <div className="min-h-screen w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-200 transition-colors duration-300">
+        
+        {/* INFO BAR LISENSI */}
+        {licenseInfo && (
+            <div className="bg-indigo-900 text-indigo-200 text-[10px] py-1 text-center font-bold border-b border-indigo-800">
+                Hi, {licenseInfo.tenant} | Masa Aktif s/d {new Date(licenseInfo.validUntil).toLocaleDateString('id-ID')}
+            </div>
+        )}
+
         <div className="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex justify-between items-center max-w-screen-xl mx-auto">
           <div className="flex items-center gap-2">
             <div className="bg-indigo-600 p-1.5 rounded-lg text-white"><Calculator className="w-4 h-4"/></div>
-            <h1 className="font-bold text-base tracking-tight text-slate-900 dark:text-white">HPP Master Pro</h1>
+             <h1 className="font-bold text-base tracking-tight text-slate-900 dark:text-white">HPP Master Pro</h1>
           </div>
-          {/* Button Trigger Updated */}
           <button onClick={toggleDarkMode} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition">
             {dark ? <Sun className="w-4 h-4"/> : <Moon className="w-4 h-4"/>}
           </button>
@@ -1441,7 +1591,7 @@ const App = () => {
           {active==='settings' && <SettingsTab/>}
         </div>
         <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-200/50 dark:shadow-black/50 z-40 flex gap-1 border border-white/20 dark:border-white/10">
-          {[
+           {[
             { id: 'calc', icon: Calculator, l: 'Hitung' },
             { id: 'pos', icon: ShoppingCart, l: 'Kasir' },
             { id: 'report', icon: BarChart3, l: 'Laporan' },
