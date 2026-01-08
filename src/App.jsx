@@ -9,9 +9,16 @@ import {
   FileSpreadsheet, Clock, Truck, Users, Briefcase,
   Store, CreditCard, Wallet, Smartphone, Printer, Receipt,
   AlertCircle, Check, Settings, RefreshCw, User, Award,
-  // ICON TAMBAHAN UNTUK LOCK & SETTINGS
-  Lock, Unlock, Key, ShieldCheck, Calendar, AlertTriangle
+  // ICON TAMBAHAN
+  Lock, Unlock, Key, ShieldCheck, Calendar, AlertTriangle, 
+  ShieldAlert, ShieldCheck as ShieldOk, LockKeyhole
 } from 'lucide-react';
+
+// ============================================================================
+// CONFIGURATION (WAJIB DIISI DEVELOPER)
+// ============================================================================
+// GANTI INI DENGAN URL "RAW" DARI FILE blacklist.json DI GIST GITHUB ANDA
+const BLACKLIST_URL = "https://gist.githubusercontent.com/USERNAME/ID_GIST/raw/blacklist.json"; 
 
 // ============================================================================
 // 0. UTILS & CONSTANTS
@@ -63,16 +70,16 @@ const formatNumberDisplay = (val) => {
 const HelpBox = ({ text }) => {
   const [isOpen, setIsOpen] = useState(false);
   return (
-    <div className="relative inline-block ml-2 align-middle">
-      <button onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-indigo-500 transition flex items-center justify-center">
-        <HelpCircle className="w-3.5 h-3.5" />
+    <div className="relative inline-block ml-1 align-middle">
+      <button onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} className="text-slate-300 hover:text-indigo-500 transition">
+        <HelpCircle className="w-4 h-4" />
       </button>
       {isOpen && (
         <>
           <div className="fixed inset-0 z-[90]" onClick={() => setIsOpen(false)}></div>
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] w-[90%] max-w-xs p-4 bg-slate-800 text-white text-xs rounded-xl shadow-2xl animate-fade-in-up border border-slate-700">
-             <div className="flex justify-between mb-2 pb-2 border-b border-slate-700"><span className="font-bold text-indigo-400">Panduan</span><X className="w-4 h-4 cursor-pointer" onClick={(e)=>{ e.stopPropagation(); setIsOpen(false);}}/></div>
-             <p className="leading-relaxed text-slate-300 text-center">{text}</p>
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] w-[85%] max-w-xs p-5 bg-slate-900/95 backdrop-blur-md text-white text-sm rounded-2xl shadow-2xl animate-enter border border-white/10">
+             <div className="flex justify-between mb-3 pb-2 border-b border-white/10"><span className="font-bold text-indigo-400 uppercase tracking-wider text-xs">Info</span><X className="w-4 h-4 cursor-pointer hover:text-rose-400" onClick={(e)=>{ e.stopPropagation(); setIsOpen(false);}}/></div>
+             <p className="leading-relaxed text-slate-300 font-medium">{text}</p>
           </div>
         </>
       )}
@@ -91,45 +98,45 @@ const NumericInput = ({ value, onChange, placeholder, className, prefix, suffix,
     }
   };
   return (
-    <div className="w-full">
-      {label && <label className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 tracking-wider mb-1.5 block whitespace-nowrap overflow-hidden text-ellipsis">{label}</label>}
-      <div className="relative group">
-        {prefix && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-medium z-10 pointer-events-none">{prefix}</span>}
+    <div className="w-full group">
+      {label && <label className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider mb-1.5 block ml-1">{label}</label>}
+      <div className="relative flex items-center">
+        {prefix && <span className="absolute left-3.5 text-slate-400 text-sm font-semibold z-10 pointer-events-none group-focus-within:text-indigo-500 transition-colors">{prefix}</span>}
         <input type="text" value={displayValue} onChange={handleChange} placeholder={placeholder}
-          className={`w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg py-2 font-bold outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600 text-sm ${prefix ? 'pl-8' : 'pl-3'} ${suffix ? 'pr-8' : 'pr-3'} ${className}`}
+          className={`w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white rounded-xl py-2.5 font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-300 text-sm ${prefix ? 'pl-9' : 'pl-4'} ${suffix ? 'pr-10' : 'pr-4'} ${className}`}
         />
-        {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold pointer-events-none">{suffix}</span>}
+        {suffix && <span className="absolute right-4 text-slate-400 text-xs font-bold pointer-events-none">{suffix}</span>}
       </div>
     </div>
   );
 };
 
 const Card = ({ children, className = "", title, icon: Icon, action, help }) => (
-  <div className={`bg-white dark:bg-slate-900 rounded-2xl shadow-[0_2px_10px_-3px_rgba(0,0,0,0.05)] border border-slate-100 dark:border-slate-800 transition-all duration-300 ${className}`}>
+  <div className={`card-premium ${className}`}>
     {(title || action) && (
-      <div className="px-5 py-3 border-b border-slate-50 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900 rounded-t-2xl">
+      <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
         <div className="flex items-center gap-3">
-          {Icon && <div className="p-1.5 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 border border-slate-100 dark:border-slate-700"><Icon className="w-4 h-4" /></div>}
+          {Icon && <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl text-indigo-600 dark:text-indigo-400"><Icon className="w-4 h-4" /></div>}
           <div><h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">{title} {help && <HelpBox text={help} />}</h3></div>
         </div>
         {action}
       </div>
     )}
-    <div className="p-5">{children}</div>
+    <div className="p-6">{children}</div>
   </div>
 );
 
 const Button = ({ children, onClick, variant = 'primary', className = "", icon: Icon, disabled }) => {
   const styles = {
-    primary: "bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/20",
-    secondary: "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200",
+    primary: "bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white shadow-lg shadow-indigo-500/30 border-0",
+    secondary: "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700",
     outline: "border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-400",
-    success: "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-500/20",
-    danger: "bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 dark:bg-rose-900/20 dark:border-rose-800 dark:text-rose-400"
+    success: "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-lg shadow-emerald-500/30 border-0",
+    danger: "bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 dark:bg-rose-900/20 dark:border-rose-900 dark:text-rose-400"
   };
   return (
-    <button onClick={onClick} disabled={disabled} className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl font-bold text-xs transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed ${styles[variant]} ${className}`}>
-      {Icon && <Icon className="w-3.5 h-3.5" />} {children}
+    <button onClick={onClick} disabled={disabled} className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-xs transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none ${styles[variant]} ${className}`}>
+      {Icon && <Icon className="w-4 h-4" />} {children}
     </button>
   );
 };
@@ -143,23 +150,75 @@ const CountdownTimer = ({ deadline }) => {
         const hours = Math.floor((difference / (1000 * 60 * 60)));
         const minutes = Math.floor((difference / 1000 / 60) % 60);
         const seconds = Math.floor((difference / 1000) % 60);
-        setTimeLeft(`${hours}h ${minutes}m ${seconds}s`);
+        setTimeLeft(`${hours}j ${minutes}m ${seconds}d`);
       } else {
         setTimeLeft('Expired');
       }
     };
-
     calculateTimeLeft();
     const timer = setInterval(calculateTimeLeft, 1000);
     return () => clearInterval(timer);
   }, [deadline]);
-  return <span>{timeLeft}</span>;
+  return <span className="font-mono text-indigo-600 dark:text-indigo-400">{timeLeft}</span>;
 };
 
 // ============================================================================
-// KOMPONEN TAMBAHAN: LOCK SCREEN (Aktivasi)
+// SECURITY COMPONENTS: LOCK & BANNED SCREENS (PREMIUM DESIGN)
 // ============================================================================
-const LockScreen = ({ onUnlock }) => {
+
+const BannedScreen = ({ id }) => (
+  <div className="fixed inset-0 z-[200] bg-slate-950 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-black text-white overflow-hidden animate-enter">
+      {/* Background Texture */}
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
+      
+      <div className="max-w-md w-full relative z-10 text-center">
+          {/* Animated Shield */}
+          <div className="relative inline-block mb-8">
+             <div className="absolute inset-0 bg-red-600 blur-3xl opacity-30 rounded-full animate-pulse-soft"></div>
+             <div className="w-24 h-24 bg-gradient-to-br from-red-500 to-red-700 rounded-3xl flex items-center justify-center shadow-2xl shadow-red-900/50 border-t border-red-400/30 relative transform rotate-3 hover:rotate-0 transition-transform duration-500">
+                <ShieldAlert className="w-12 h-12 text-white drop-shadow-md" />
+             </div>
+          </div>
+
+          <h1 className="text-3xl font-black tracking-tight mb-2 text-white drop-shadow-lg">AKSES DIBLOKIR</h1>
+          <div className="w-16 h-1 bg-red-600 mx-auto rounded-full mb-6 opacity-80"></div>
+          
+          <p className="text-slate-300 text-sm mb-8 leading-relaxed px-4 font-medium">
+             Sistem keamanan mendeteksi aktivitas yang tidak diizinkan pada akun ini. 
+             Silahkan hubungi Developer untuk verifikasi dan pembukaan akses kembali.
+          </p>
+
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-8 backdrop-blur-md shadow-inner">
+             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2">ID PERANGKAT</p>
+             <p className="text-lg font-mono font-black text-red-400 tracking-wider select-all cursor-text">{id}</p>
+          </div>
+
+          <button onClick={() => window.location.reload()} className="w-full bg-white hover:bg-slate-200 text-slate-900 font-bold py-4 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-white/10 flex items-center justify-center gap-2">
+             <RefreshCw className="w-4 h-4"/> Cek Status Akses
+          </button>
+          <p className="text-[10px] text-slate-600 mt-6">Secure System Protection v2.4</p>
+      </div>
+  </div>
+);
+
+const RestoredScreen = ({ onContinue }) => (
+  <div className="fixed inset-0 z-[200] bg-slate-900 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/40 to-slate-950 animate-enter">
+      <div className="max-w-md w-full text-center relative z-10">
+          <div className="w-24 h-24 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-2xl shadow-emerald-500/30 animate-fade-in-up">
+             <ShieldOk className="w-12 h-12 text-white" />
+          </div>
+          <h1 className="text-3xl font-black text-white mb-3 tracking-tight">AKSES DIBUKA</h1>
+          <p className="text-slate-300 text-sm mb-8 px-6 leading-relaxed">
+             Terima kasih telah melakukan konfirmasi. Status keamanan Anda telah dipulihkan. Silahkan login kembali.
+          </p>
+          <button onClick={onContinue} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-2xl transition shadow-xl shadow-emerald-500/20 active:scale-[0.98] flex items-center justify-center gap-2">
+             <LockKeyhole className="w-4 h-4"/> Lanjutkan Login
+          </button>
+      </div>
+  </div>
+);
+
+const LockScreen = ({ onUnlock, id }) => {
   const [inputID, setInputID] = useState('');
   const [inputCode, setInputCode] = useState('');
   const [error, setError] = useState('');
@@ -169,26 +228,18 @@ const LockScreen = ({ onUnlock }) => {
     setLoading(true); setError('');
     setTimeout(() => {
       try {
-        // PERHATIAN: SECRET_KEY INI HARUS SAMA PERSIS DENGAN YANG DI GENERATOR.HTML
         const SECRET_KEY = "RAHASIA_DAPUR_123"; 
-
-        if (!window.CryptoJS) throw new Error("Library keamanan belum dimuat. Cek internet.");
-
+        if (!window.CryptoJS) throw new Error("Koneksi internet diperlukan.");
+        
         const bytes = window.CryptoJS.AES.decrypt(inputCode, SECRET_KEY);
         const originalText = bytes.toString(window.CryptoJS.enc.Utf8);
-
         if (!originalText) throw new Error("Kode Aktivasi Salah!");
 
         const data = JSON.parse(originalText);
-
         if (data.id !== inputID) throw new Error("ID tidak cocok!");
-        if (new Date() > new Date(data.validUntil)) throw new Error("Masa aktif lisensi ini sudah habis!");
+        if (new Date() > new Date(data.validUntil)) throw new Error("Masa aktif habis!");
 
-        // Simpan juga token aslinya agar bisa ditampilkan di Settings
-        const fullLicenseData = { ...data, originalToken: inputCode };
-
-        onUnlock(fullLicenseData); 
-
+        onUnlock({ ...data, originalToken: inputCode }); 
       } catch (err) {
         setError(err.message || "Gagal Aktivasi");
       } finally {
@@ -198,28 +249,31 @@ const LockScreen = ({ onUnlock }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-6 animate-fade-in">
-       <div className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-2xl p-6 shadow-2xl space-y-4">
+    <div className="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-6 bg-[url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop')] bg-cover bg-center">
+       <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md"></div>
+       <div className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-[2rem] p-8 shadow-2xl space-y-6 relative z-10 border border-white/10 animate-enter">
           <div className="text-center">
-             <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-3 text-indigo-600"><Lock className="w-8 h-8"/></div>
-             <h2 className="text-xl font-black text-slate-800 dark:text-white">AKTIVASI APLIKASI</h2>
-             <p className="text-xs text-slate-400">Masukkan ID dan Kode Lisensi untuk membuka.</p>
+             <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-indigo-500/40 text-white rotate-3"><LockKeyhole className="w-10 h-10"/></div>
+             <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">HPP MASTER PRO</h2>
+             <p className="text-sm text-slate-500 mt-1 font-medium">Aplikasi Premium Manajemen Bisnis</p>
           </div>
-          {error && <div className="p-3 bg-red-50 text-red-600 text-xs font-bold rounded-lg flex gap-2 items-center"><AlertTriangle className="w-4 h-4"/> {error}</div>}
-          <div className="space-y-3">
-             <div><label className="text-[10px] font-bold uppercase text-slate-400">ID Pengguna</label><input value={inputID} onChange={e=>setInputID(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-sm outline-none dark:text-white" placeholder="ID..."/></div>
-             <div><label className="text-[10px] font-bold uppercase text-slate-400">Kode Aktivasi</label><textarea value={inputCode} onChange={e=>setInputCode(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono h-24 outline-none dark:text-white" placeholder="Paste kode disini..."></textarea></div>
-             <button onClick={handleActivation} disabled={loading} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 transition active:scale-95">{loading ? 'Memproses...' : 'Buka Aplikasi'}</button>
+          
+          {error && <div className="p-4 bg-rose-50 text-rose-600 text-xs font-bold rounded-2xl flex gap-3 items-center border border-rose-100 shadow-sm"><AlertTriangle className="w-5 h-5 shrink-0"/> {error}</div>}
+          
+          <div className="space-y-4">
+             <div><label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider ml-1">ID Pengguna</label><input value={inputID} onChange={e=>setInputID(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition dark:text-white" placeholder="Masukkan ID..."/></div>
+             <div><label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider ml-1">Kode Lisensi</label><textarea value={inputCode} onChange={e=>setInputCode(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono h-24 outline-none focus:ring-2 focus:ring-indigo-500 transition dark:text-white resize-none" placeholder="Tempel kode panjang disini..."></textarea></div>
+             <button onClick={handleActivation} disabled={loading} className="w-full py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-xl font-bold shadow-xl shadow-indigo-500/30 transition active:scale-[0.98]">{loading ? 'Memvalidasi...' : 'Buka Aplikasi'}</button>
           </div>
+          <p className="text-center text-[10px] text-slate-400">Locked by Secure License System v2.0</p>
        </div>
     </div>
   );
 };
 
 // ============================================================================
-// 2. TAB: CALCULATOR
+// CALCULATOR TAB
 // ============================================================================
-
 const CalculatorTab = () => {
   const [calcMode, setCalcMode] = useState('detail');
   const [simpleModal, setSimpleModal] = useState(0);
@@ -237,7 +291,6 @@ const CalculatorTab = () => {
   const [showLoad, setShowLoad] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Logic Calculations
   const calcRow = (price, content, usage) => (!content || content === 0) ? 0 : (price / content) * usage;
   const updateMat = (id, f, v) => setMaterials(prev => prev.map(m => m.id===id ? {...m, [f]:v, cost: calcRow(f==='price'?v:m.price, f==='content'?v:m.content, f==='usage'?v:m.usage)} : m));
   const updateVar = (id, f, v) => setVariableOps(prev => prev.map(o => {
@@ -252,7 +305,7 @@ const CalculatorTab = () => {
   const addVar = () => setVariableOps([...variableOps, { id: Date.now(), type: 'Kemasan', name: '', price: 0, unit: 'pcs', content: 1, usage: 0, cost: 0 }]);
   const addFix = () => setFixedOps([...fixedOps, { id: Date.now(), name: '', cost: 0 }]);
   const removeRow = (setter, list, id) => list.length > 1 && setter(list.filter(i => i.id !== id));
-  // HPP Calculation
+  
   const totalMat = materials.reduce((a,b) => a + b.cost, 0);
   const totalVar = variableOps.reduce((a,b) => a + b.cost, 0);
   const totalFix = fixedOps.reduce((a,b) => a + b.cost, 0);
@@ -268,7 +321,6 @@ const CalculatorTab = () => {
     hppBersih = matPerUnit + varPerUnit + fixPerUnit;
   }
 
-  // Pricing
   const round = (p) => smartRounding ? (p < 1000 ? Math.ceil(p/100)*100 : Math.ceil(p/500)*500) : p;
   const getTier = (margin) => { const raw = hppBersih + (hppBersih * (margin/100));
   return { raw, final: round(raw), profit: round(raw) - hppBersih }; };
@@ -279,12 +331,10 @@ const CalculatorTab = () => {
   ];
   const finalPrice = getTier(customMargin).final;
   const profitPerPcs = finalPrice - hppBersih;
-  // Projection Logic
   const targetPcsMonth = profitPerPcs > 0 ? Math.ceil(targetProfit / profitPerPcs) : 0;
   const targetPcsDay = Math.ceil(targetPcsMonth / 30);
   const projOmzetMonth = targetPcsMonth * finalPrice;
   const projProdCostMonth = targetPcsMonth * (matPerUnit + varPerUnit);
-  // Total variable cost for production
   const projFixedCostMonth = showFixed ? totalFix : 0;
   const projNetProfitMonth = projOmzetMonth - projProdCostMonth - projFixedCostMonth;
 
@@ -330,7 +380,6 @@ const CalculatorTab = () => {
 
   return (
     <div className="space-y-4 pb-32 w-full px-2 sm:px-4 md:max-w-xl mx-auto">
-      {/* 1. PRODUCT HEADER */}
       <Card className="!p-0 overflow-hidden">
         <div className="p-4 flex gap-4 items-center">
           <div className="w-20 h-20 shrink-0 bg-slate-50 dark:bg-slate-800 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex items-center justify-center relative group cursor-pointer hover:border-indigo-400 transition-colors">
@@ -351,7 +400,6 @@ const CalculatorTab = () => {
         </div>
       </Card>
 
-      {/* MODE TOGGLE */}
       <div className="flex justify-center">
         <div className="bg-white dark:bg-slate-900 p-1 rounded-lg shadow-sm border border-slate-200 dark:border-slate-800 flex">
           <button onClick={()=>setCalcMode('detail')} className={`px-4 py-1.5 rounded-md text-[10px] font-bold transition ${calcMode==='detail'?'bg-indigo-600 text-white shadow-sm':'text-slate-500'}`}>Mode Detail</button>
@@ -359,7 +407,6 @@ const CalculatorTab = () => {
         </div>
       </div>
 
-      {/* 2. COST CALCULATION */}
       {calcMode === 'detail' ?
       (
         <div className="space-y-4">
@@ -367,12 +414,10 @@ const CalculatorTab = () => {
             <div className="space-y-4">
               {materials.map((m) => (
                 <div key={m.id} className="relative p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 group">
-                 
                   <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                     <div className="col-span-2">
                        <input className="w-full bg-transparent border-b border-slate-200 dark:border-slate-700 py-1 text-sm font-bold placeholder:text-slate-400 focus:border-indigo-500 outline-none dark:text-white" placeholder="Nama Bahan (Tepung, Telur...)" value={m.name} onChange={e=>updateMat(m.id,'name',e.target.value)} />
                     </div>
-            
                     <NumericInput label="Harga Beli" placeholder="0" prefix="Rp" value={m.price} onChange={v=>updateMat(m.id,'price',v)} className="bg-white dark:bg-slate-900" />
                     <div>
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 block">Isi Kemasan</label>
@@ -539,7 +584,7 @@ const CalculatorTab = () => {
             <div className="text-center mt-1 font-bold text-slate-900 dark:text-white text-xs">{customMargin}%</div>
           </div>
           
-          {/* TARGET & PROYEKSI (RESTORED COMPLETE VIEW) */}
+          {/* TARGET & PROYEKSI */}
           <Card title="Target & Proyeksi" icon={TrendingUp} help="Hitung berapa banyak harus jual biar dapet target cuan segitu." className="bg-white border-0 shadow-none !p-0">
              <div className="mt-2">
                  <NumericInput label="Target Laba Bersih (Bulan)" placeholder="5.000.000" prefix="Rp" value={targetProfit} onChange={setTargetProfit} />
@@ -558,34 +603,28 @@ const CalculatorTab = () => {
                  {targetProfit > 0 && hppBersih > 0 && (
                      <div className="mt-4 bg-emerald-600 text-white rounded-xl p-5 relative overflow-hidden shadow-lg shadow-emerald-500/20">
                      <div className="relative z-10 space-y-3">
-                       
                        <div className="flex justify-between items-center pb-2 border-b border-white/20">
                           <span className="text-[10px] text-emerald-100 font-bold uppercase opacity-80">Target Jual / Hari</span>
                          <span className="text-lg font-bold">{targetPcsDay} <span className="text-xs font-normal">pcs</span></span>
                        </div>
-
                        <div className="flex justify-between items-center pb-2 border-b border-white/20">
                          <span className="text-[10px] text-emerald-100 font-bold uppercase opacity-80">Total Jual / Bulan</span>
                          <span className="text-lg font-bold">{targetPcsMonth} <span className="text-xs font-normal">pcs</span></span>
                        </div>
- 
                        <div className="flex justify-between items-center text-emerald-50">
                           <span className="text-[10px] opacity-80 uppercase font-bold">Potensi Omzet / Bulan</span>
                           <span className="text-sm font-semibold">{formatIDR(projOmzetMonth)}</span>
                       </div>
-
                        <div className="flex justify-between items-center text-emerald-50">
                           <span className="text-[10px] opacity-80 uppercase font-bold">Total Biaya Produksi / Bulan</span>
                          <span className="text-sm font-semibold">{formatIDR(projProdCostMonth)}</span>
                        </div>
-
                        {showFixed && (
                           <div className="flex justify-between items-center text-emerald-50">
                              <span className="text-[10px] opacity-80 uppercase font-bold">Total Biaya Tetap / Bulan</span>
                               <span className="text-sm font-semibold">{formatIDR(projFixedCostMonth)}</span>
                           </div>
                        )}
-    
                        <div className="pt-2 mt-2 border-t border-white/30 flex justify-between items-center">
                           <span className="text-xs font-black text-white uppercase">Proyeksi Laba Bersih / Bulan</span>
                           <span className="text-xl font-black text-white">{formatIDR(projNetProfitMonth)}</span>
@@ -1156,7 +1195,7 @@ const PosTab = () => {
 };
 
 // ============================================================================
-// 5. TAB: REPORT (UPDATED WITH DATE LABELS)
+// 5. TAB: REPORT
 // ============================================================================
 
 const ReportTab = () => {
@@ -1166,7 +1205,6 @@ const ReportTab = () => {
   const [selectedTx, setSelectedTx] = useState(null);
   useEffect(() => { setTxs(JSON.parse(localStorage.getItem('pos_history_db') || '[]')); }, []);
 
-  // Helper untuk format tanggal Indonesia
   const formatDateIndo = (dateObj) => {
     return new Date(dateObj).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
   };
@@ -1180,7 +1218,6 @@ const ReportTab = () => {
         return true; 
     });
     
-    // Graph Data Logic (Existing Traffic - Monthly)
     const graphData = {};
     f.forEach(t => {
         const key = new Date(t.date).getDate();
@@ -1193,15 +1230,17 @@ const ReportTab = () => {
         return `${x},${y}`;
     }).join(' ');
 
-    // 30-Day Trend Data Logic
     const trendData = [];
-    const trendDates = []; // Menyimpan tanggal untuk label
+    const trendDates = []; 
     for(let i=29; i>=0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
         const dayStr = d.toISOString().split('T')[0];
-        // Simpan tanggal untuk keperluan label grafik
-        if (i === 29 || i === 15 || i === 0) { trendDates.push(d); }
+        
+        if (i === 29 || i === 15 || i === 0) {
+           trendDates.push(d);
+        }
+
         const dayTotal = txs.filter(t => t.date.startsWith(dayStr)).reduce((a,b) => a+b.total, 0);
         trendData.push(dayTotal);
     }
@@ -1211,7 +1250,7 @@ const ReportTab = () => {
         const y = 100 - ((val / maxTrend) * 80);
         return `${x},${y}`;
     }).join(' ');
-    // Best Selling Products Logic (30 Days)
+
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(now.getDate() - 30);
     const recentTxs = txs.filter(t => new Date(t.date) >= thirtyDaysAgo);
@@ -1225,6 +1264,7 @@ const ReportTab = () => {
         .map(([name, qty]) => ({ name, qty }))
         .sort((a, b) => b.qty - a.qty)
         .slice(0, 5);
+
     return { 
         rev: f.reduce((a,b)=>a+b.total,0), 
         prof: f.reduce((a,b)=>a+(b.profit||0),0), 
@@ -1232,7 +1272,7 @@ const ReportTab = () => {
         list: f.reverse(), 
         graph: points, 
         trendGraph: trendPoints,
-        trendDates: trendDates, // Mengirim data tanggal ke UI
+        trendDates: trendDates, 
         topProducts: topProducts
     };
   }, [filter, txs]);
@@ -1247,6 +1287,7 @@ const ReportTab = () => {
     } catch (e) { alert("Gagal download: " + e.message); }
     setIsDownloading(false);
   };
+
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 pb-32 space-y-6 w-full">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1255,6 +1296,7 @@ const ReportTab = () => {
            {['today','month','all'].map(k => (<button key={k} onClick={()=>setFilter(k)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold capitalize ${filter===k ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>{k==='all'?'Semua':k==='today'?'Hari Ini':'Bulan Ini'}</button>))}
         </div>
       </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card className="relative overflow-hidden">
             <div className="relative z-10"><p className="text-slate-400 text-[10px] font-bold uppercase">Omzet</p><h2 className="text-2xl font-black text-slate-900 dark:text-white">{formatIDR(stats.rev)}</h2></div>
@@ -1266,10 +1308,11 @@ const ReportTab = () => {
             <p className="text-slate-400 text-[10px] font-bold uppercase">Transaksi</p><h2 className="text-2xl font-black text-slate-900 dark:text-white">{stats.count}</h2>
         </Card>
       </div>
-      {/* Traffic Graph (Original - With Date Labels) */}
+
+      {/* Traffic Graph */}
       <Card title="Traffic Penjualan (Bulanan)" icon={TrendingUp}>
           <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
+             <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
                  <polyline points={`0,100 ${stats.graph} 100,100`} fill="none" stroke="#4f46e5" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
                  <polygon points={`0,100 ${stats.graph} 100,100 0,100`} fill="url(#grad)" opacity="0.2"/>
                  <defs><linearGradient id="grad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#4f46e5"/><stop offset="100%" stopColor="white" stopOpacity="0"/></linearGradient></defs>
@@ -1289,7 +1332,8 @@ const ReportTab = () => {
             </div>
           </div>
       </Card>
-      {/* 30-Day Trend Graph (With Date Labels) */}
+
+      {/* 30-Day Trend Graph */}
       <Card title="Tren Penjualan 30 Hari Terakhir" icon={BarChart3}>
           <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
               <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
@@ -1318,6 +1362,7 @@ const ReportTab = () => {
              )}
           </div>
       </Card>
+
       {/* Top Selling Products Card */}
       <Card title="Produk Terlaris (30 Hari Terakhir)" icon={Award}>
           <div className="space-y-3">
@@ -1383,30 +1428,22 @@ const ReportTab = () => {
 // ============================================================================
 
 const SettingsTab = () => {
-    // State untuk data lisensi
     const [licenseInfo, setLicenseInfo] = useState(null);
     const [timeLeft, setTimeLeft] = useState('');
 
     useEffect(() => {
-        // Ambil data lisensi dari storage
         const saved = localStorage.getItem('app_license');
-        if (saved) {
-            setLicenseInfo(JSON.parse(saved));
-        }
+        if (saved) { setLicenseInfo(JSON.parse(saved)); }
     }, []);
 
-    // Countdown Timer Realtime untuk License
     useEffect(() => {
         if (!licenseInfo?.validUntil) return;
-        
         const updateTimer = () => {
             const now = new Date();
             const end = new Date(licenseInfo.validUntil);
             const diff = end - now;
-
-            if (diff <= 0) {
-                setTimeLeft("Kedaluwarsa");
-            } else {
+            if (diff <= 0) { setTimeLeft("Kedaluwarsa"); } 
+            else {
                 const d = Math.floor(diff / (1000 * 60 * 60 * 24));
                 const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
                 const m = Math.floor((diff / 1000 / 60) % 60);
@@ -1414,196 +1451,217 @@ const SettingsTab = () => {
                 setTimeLeft(`${d} Hari ${h} Jam ${m} Menit ${s} Detik`);
             }
         };
-
         updateTimer();
         const interval = setInterval(updateTimer, 1000);
         return () => clearInterval(interval);
     }, [licenseInfo]);
 
     const handleResetAll = () => {
-        if(confirm("PERINGATAN: Tindakan ini akan menghapus SELURUH data aplikasi (Resep, Stok, Profile, Riwayat Transaksi). Data tidak dapat dikembalikan. Lisensi Anda juga akan terhapus dan perlu login ulang. Lanjutkan?")) {
+        if(confirm("PERINGATAN: Reset data akan menghapus semua simpanan dan lisensi. Lanjutkan?")) {
             localStorage.clear();
-            alert("Aplikasi berhasil di-reset. Halaman akan dimuat ulang.");
+            alert("Aplikasi berhasil di-reset.");
             window.location.reload();
         }
     };
 
     return (
-        <div className="max-w-xl mx-auto p-4 sm:p-6 pb-32">
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-6">Pengaturan</h1>
+        <div className="max-w-xl mx-auto p-6 pb-32">
+            <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-8 tracking-tight">Pengaturan</h1>
             
             <div className="space-y-6">
-                <Card title="Zona Bahaya" icon={AlertCircle} className="border-red-100 dark:border-red-900">
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                        Gunakan tombol di bawah ini jika terjadi error fatal atau Anda ingin memulai dari awal.
-                    </p>
-                    <Button onClick={handleResetAll} variant="danger" icon={RefreshCw} className="w-full">
-                        Reset Seluruh Data Aplikasi
-                    </Button>
-                </Card>
-
-                {/* NEW: PERIODE WAKTU CARD */}
                 {licenseInfo && (
-                    <Card title="Periode Waktu (Lisensi)" icon={ShieldCheck} className="border-indigo-100 dark:border-slate-700">
-                        <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl mb-4 text-center">
-                             <p className="text-[10px] font-bold uppercase text-indigo-400 mb-1">Sisa Waktu Aktif</p>
-                             <p className="text-lg font-black text-indigo-600 dark:text-indigo-400 font-mono">{timeLeft}</p>
+                    <Card title="Status Lisensi" icon={ShieldCheck} className="border-indigo-100 dark:border-slate-700 bg-gradient-to-b from-white to-slate-50">
+                        <div className="bg-indigo-600 text-white p-5 rounded-2xl mb-5 text-center shadow-lg shadow-indigo-500/20">
+                             <p className="text-[10px] font-bold uppercase text-indigo-200 mb-1 tracking-widest">Sisa Masa Aktif</p>
+                             <p className="text-xl font-black font-mono">{timeLeft}</p>
                         </div>
-                        
-                        <div className="space-y-3 text-sm">
+                        <div className="space-y-4 text-sm px-2">
                             <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-3 h-3"/> Penyewa</span>
+                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-4 h-4 text-slate-400"/> Penyewa</span>
                                 <span className="font-bold text-slate-800 dark:text-white">{licenseInfo.tenant}</span>
                             </div>
                             <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Shield className="w-3 h-3"/> ID Aplikasi</span>
-                                <span className="font-mono font-bold text-slate-800 dark:text-white">{licenseInfo.id}</span>
+                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Shield className="w-4 h-4 text-slate-400"/> ID Aplikasi</span>
+                                <span className="font-mono font-bold text-slate-800 dark:text-white bg-slate-100 px-2 py-0.5 rounded">{licenseInfo.id}</span>
                             </div>
                             <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Calendar className="w-3 h-3"/> Berakhir Pada</span>
-                                <span className="font-bold text-slate-800 dark:text-white">
-                                    {new Date(licenseInfo.validUntil).toLocaleDateString('id-ID', { 
-                                        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
-                                    })}
-                                </span>
-                            </div>
-                            <div className="pt-2">
-                                <p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Kode Aktivasi</p>
-                                <div className="bg-slate-100 dark:bg-slate-800 p-2 rounded text-[10px] font-mono break-all text-slate-500">
-                                    {licenseInfo.originalToken 
-                                        ? licenseInfo.originalToken.substring(0, 20) + "..." + licenseInfo.originalToken.substring(licenseInfo.originalToken.length - 10) 
-                                        : "Tersembunyi"}
-                                </div>
+                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Calendar className="w-4 h-4 text-slate-400"/> Berakhir</span>
+                                <span className="font-bold text-slate-800 dark:text-white">{new Date(licenseInfo.validUntil).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
                             </div>
                         </div>
                     </Card>
                 )}
+
+                <Card title="Zona Bahaya" icon={AlertCircle} className="border-rose-100 dark:border-rose-900/30">
+                    <p className="text-xs font-medium text-slate-500 mb-4 leading-relaxed">
+                        Tindakan ini akan menghapus seluruh database lokal browser (Resep, Stok, Riwayat) dan status lisensi Anda.
+                    </p>
+                    <Button onClick={handleResetAll} variant="danger" icon={RefreshCw} className="w-full">
+                        Factory Reset Aplikasi
+                    </Button>
+                </Card>
             </div>
         </div>
     );
 };
 
 // ============================================================================
-// APP SHELL
+// APP SHELL (SECURITY & LOGIC CENTER)
 // ============================================================================
 
 const App = () => {
-  // --- LOGIC LOCK SCREEN START ---
   const [isLocked, setIsLocked] = useState(true);
+  const [isBanned, setIsBanned] = useState(false);
+  const [isRestored, setIsRestored] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState(null);
+  const [active, setActive] = useState('calc');
+  const [dark, setDark] = useState(false);
 
-  // Fungsi cek validitas (dipakai saat mount dan interval)
+  // 1. CEK STATUS BLACKLIST ONLINE (KILL SWITCH)
+  useEffect(() => {
+    const checkBanStatus = async () => {
+      // Jangan cek jika belum ada lisensi tersimpan
+      const saved = localStorage.getItem('app_license');
+      if(!saved) return;
+      const data = JSON.parse(saved);
+
+      try {
+        const res = await fetch(BLACKLIST_URL);
+        if(res.ok) {
+          const bannedList = await res.json();
+          const currentID = data.id;
+          
+          if(bannedList.includes(currentID)) {
+             // KENA BAN: Kunci dan set flag
+             setIsBanned(true);
+             setIsLocked(true);
+             localStorage.setItem('app_banned', 'true');
+          } else {
+             // TIDAK KENA BAN (atau SUDAH DIBUKA)
+             if(localStorage.getItem('app_banned') === 'true') {
+                // Berarti dulunya diban, sekarang sudah bersih -> RESTORED
+                localStorage.removeItem('app_banned');
+                localStorage.removeItem('app_license'); // Paksa login ulang
+                setIsBanned(false);
+                setIsRestored(true); // Tampilkan layar "Akses Dibuka"
+             }
+          }
+        }
+      } catch(e) { console.log("Offline mode, skip ban check"); }
+    };
+
+    checkBanStatus();
+    const timer = setInterval(checkBanStatus, 15000); // Cek tiap 15 detik
+    return () => clearInterval(timer);
+  }, []);
+
+  // 2. CEK VALIDITAS LISENSI LOKAL
   const checkValidity = () => {
+      if(localStorage.getItem('app_banned') === 'true') { setIsBanned(true); return; }
+      
       const saved = localStorage.getItem('app_license');
       if(saved) {
           try {
             const data = JSON.parse(saved);
-            const now = new Date();
-            const validUntil = new Date(data.validUntil);
-            
-            if(now < validUntil) {
-                // Masih Valid
-                setLicenseInfo(data);
-                setIsLocked(false);
+            if(new Date() < new Date(data.validUntil)) {
+                setLicenseInfo(data); setIsLocked(false);
             } else {
-                // Expired: Kunci, tapi JANGAN hapus data user lain (Resep/Stok)
-                // Cukup hapus status login/lisensi agar terkunci
-                localStorage.removeItem('app_license'); 
-                setIsLocked(true);
-                setLicenseInfo(null);
+                localStorage.removeItem('app_license'); setIsLocked(true); setLicenseInfo(null);
             }
-          } catch(e) { 
-              setIsLocked(true); 
-          }
-      } else {
-          setIsLocked(true);
-      }
+          } catch(e) { setIsLocked(true); }
+      } else { setIsLocked(true); }
   };
 
-  // Cek saat pertama kali load
   useEffect(() => {
-    checkValidity();
-    
-    // Cek secara berkala (setiap 10 detik) untuk auto-lock realtime
-    const interval = setInterval(checkValidity, 10000); 
-    return () => clearInterval(interval);
-  }, []);
+    if(!isBanned && !isRestored) {
+        checkValidity();
+        const interval = setInterval(checkValidity, 10000); 
+        return () => clearInterval(interval);
+    }
+  }, [isBanned, isRestored]);
 
   const handleUnlock = (data) => {
+     if(isBanned) return alert("Akses Ditolak.");
      localStorage.setItem('app_license', JSON.stringify(data));
-     setLicenseInfo(data);
-     setIsLocked(false);
+     setLicenseInfo(data); setIsLocked(false);
   };
-  // --- LOGIC LOCK SCREEN END ---
 
+  const handleRestoreContinue = () => {
+      setIsRestored(false); // Matikan layar "Akses Dibuka"
+      setIsLocked(true);    // Masuk ke layar Login
+  };
 
-  const [active, setActive] = useState('calc');
-  const [dark, setDark] = useState(false);
-
+  // 3. DARK MODE LOGIC
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
       setDark(true);
-    } else {
-      setDark(false);
     }
   }, []);
 
   const toggleDarkMode = () => {
-      const newMode = !dark;
-      setDark(newMode);
+      const newMode = !dark; setDark(newMode);
       localStorage.setItem('theme', newMode ? 'dark' : 'light');
-      if(newMode) {
-          document.documentElement.classList.add('dark');
-      } else {
-          document.documentElement.classList.remove('dark');
-      }
+      if(newMode) document.documentElement.classList.add('dark');
+      else document.documentElement.classList.remove('dark');
   };
 
-  // TAMPILKAN LAYAR KUNCI JIKA TERKUNCI
-  if(isLocked) return <LockScreen onUnlock={handleUnlock} />;
+  // --- RENDER BLOCKING SCREENS ---
+  
+  if (isBanned) return <BannedScreen id={licenseInfo?.id || "UNKNOWN"} />;
+  if (isRestored) return <RestoredScreen onContinue={handleRestoreContinue} />;
+  if (isLocked) return <LockScreen onUnlock={handleUnlock} id={licenseInfo?.id} />;
 
+  // --- RENDER APP UTAMA ---
   return (
     <div className={dark ? 'dark' : ''}>
-      <div className="min-h-screen w-full overflow-x-hidden bg-slate-50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-200 transition-colors duration-300">
+      <div className="min-h-screen w-full bg-premium-pattern font-sans text-slate-800 dark:text-slate-200 transition-colors duration-300">
         
-        {/* INFO BAR LISENSI */}
-        {licenseInfo && (
-            <div className="bg-indigo-900 text-indigo-200 text-[10px] py-1 text-center font-bold border-b border-indigo-800">
-                Hi, {licenseInfo.tenant} | Masa Aktif s/d {new Date(licenseInfo.validUntil).toLocaleDateString('id-ID')}
-            </div>
-        )}
-
-        <div className="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex justify-between items-center max-w-screen-xl mx-auto">
-          <div className="flex items-center gap-2">
-            <div className="bg-indigo-600 p-1.5 rounded-lg text-white"><Calculator className="w-4 h-4"/></div>
-             <h1 className="font-bold text-base tracking-tight text-slate-900 dark:text-white">HPP Master Pro</h1>
+        {/* HEADER GLASS */}
+        <div className="sticky top-0 z-40 glass px-4 py-3 flex justify-between items-center max-w-screen-xl mx-auto border-b-0">
+          <div className="flex items-center gap-3">
+            <div className="bg-indigo-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-500/30"><Calculator className="w-5 h-5"/></div>
+             <div>
+                <h1 className="font-black text-sm tracking-tight text-slate-900 dark:text-white leading-none">HPP MASTER</h1>
+                <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">Pro Edition</p>
+             </div>
           </div>
-          <button onClick={toggleDarkMode} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition">
-            {dark ? <Sun className="w-4 h-4"/> : <Moon className="w-4 h-4"/>}
-          </button>
+          <div className="flex gap-2">
+             {licenseInfo && <span className="hidden sm:block text-[10px] font-bold bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-full border border-indigo-100">Hi, {licenseInfo.tenant}</span>}
+             <button onClick={toggleDarkMode} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 transition">
+                {dark ? <Sun className="w-4 h-4"/> : <Moon className="w-4 h-4"/>}
+             </button>
+          </div>
         </div>
-        <div className="animate-fade-in pt-4 pb-24">
+
+        {/* MAIN CONTENT */}
+        <div className="animate-enter pt-6 pb-28">
           {active==='calc' && <CalculatorTab/>}
+          {/* Note: Profile, Pos, Report tabs use standard Card/Button components defined above, so they will automatically look premium */}
+          {active==='profile' && <ProfileTab/>} 
           {active==='pos' && <PosTab/>}
           {active==='report' && <ReportTab/>}
-          {active==='profile' && <ProfileTab/>}
           {active==='settings' && <SettingsTab/>}
         </div>
-        <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-200/50 dark:shadow-black/50 z-40 flex gap-1 border border-white/20 dark:border-white/10">
-           {[
-            { id: 'calc', icon: Calculator, l: 'Hitung' },
-            { id: 'pos', icon: ShoppingCart, l: 'Kasir' },
-            { id: 'report', icon: BarChart3, l: 'Laporan' },
-            { id: 'profile', icon: Store, l: 'Toko' },
-            { id: 'settings', icon: Settings, l: 'Setting' }
-          ].map(i => (
-            <button key={i.id} onClick={()=>setActive(i.id)} className={`relative px-4 py-2.5 rounded-full transition-all duration-300 flex items-center justify-center gap-2 ${active===i.id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-lg' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}>
-              <i.icon className="w-4 h-4"/>
-              {active===i.id && <span className="text-[10px] font-bold whitespace-nowrap hidden sm:inline">{i.l}</span>}
-            </button>
-          ))}
-        </nav>
+
+        {/* BOTTOM NAV FLOATING */}
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
+            <nav className="bg-slate-900/90 dark:bg-white/90 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-400/30 dark:shadow-black/50 flex gap-1 border border-white/10 ring-1 ring-black/5">
+            {[
+                { id: 'calc', icon: Calculator, l: 'Hitung' },
+                { id: 'pos', icon: ShoppingCart, l: 'Kasir' },
+                { id: 'report', icon: BarChart3, l: 'Laporan' },
+                { id: 'profile', icon: Store, l: 'Toko' },
+                { id: 'settings', icon: Settings, l: 'Setting' }
+            ].map(i => (
+                <button key={i.id} onClick={()=>setActive(i.id)} className={`relative px-5 py-3 rounded-full transition-all duration-300 flex items-center justify-center gap-2 group ${active===i.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/40' : 'text-slate-400 hover:text-white dark:hover:text-slate-900'}`}>
+                <i.icon className={`w-5 h-5 transition-transform duration-300 ${active===i.id ? 'scale-110' : 'group-hover:scale-110'}`}/>
+                {active===i.id && <span className="text-[10px] font-bold whitespace-nowrap hidden sm:inline animate-enter">{i.l}</span>}
+                </button>
+            ))}
+            </nav>
+        </div>
+
       </div>
     </div>
   );
