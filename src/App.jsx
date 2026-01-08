@@ -20,7 +20,7 @@ import {
 // CONFIGURATION (WAJIB DIISI DEVELOPER)
 // ============================================================================
 // GANTI INI DENGAN URL "RAW" DARI FILE blacklist.json DI GIST GITHUB ANDA
-const BLACKLIST_URL = "https://gist.githubusercontent.com/b3llz/07d95837ff27524b875990b5bd3bbe83/raw/blacklist.json"; 
+const BLACKLIST_URL = "https://gist.githubusercontent.com/b3llz/07d95837ff27524b875990b5bd3bbe83/raw/blocklist.json"; 
 
 // ============================================================================
 // 0. UTILS & CONSTANTS
