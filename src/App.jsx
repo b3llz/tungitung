@@ -1576,7 +1576,7 @@ const App = () => {
     };
 
     checkBanStatus();
-    const timer = setInterval(checkBanStatus, 15000); 
+    const timer = setInterval(checkBanStatus, 5000); 
     return () => clearInterval(timer);
   }, []);
 
