@@ -1542,20 +1542,43 @@ const App = () => {
   const [dark, setDark] = useState(false);
 
 // 1. CEK STATUS BLACKLIST ONLINE (KILL SWITCH)
-useEffect(() => {
-  const checkBanStatus = async () => {
-    const saved = localStorage.getItem('app_license');
-    if(!saved) return;
-    const data = JSON.parse(saved);
+  useEffect(() => {
+    const checkBanStatus = async () => {
+      const saved = localStorage.getItem('app_license');
+      if(!saved) return;
+      const data = JSON.parse(saved);
 
-    try {
-      // PENTING: Tambahkan "?t=" + Date.now() di belakang URL
-      // Ini memaksa aplikasi mengambil data baru detik itu juga
-      const res = await fetch(BLACKLIST_URL + "?t=" + Date.now());
-      
-      if(res.ok) {
-        const bannedList = await res.json();
-        // ... logika selanjutnya tetap sama
+      try {
+        // FIX: Tambahkan '?t=' + Date.now() agar selalu mengambil data terbaru (anti-cache)
+        const res = await fetch(BLACKLIST_URL + "?t=" + Date.now());
+        
+        if(res.ok) {
+          const bannedList = await res.json();
+          const currentID = data.id;
+          
+          if(bannedList.includes(currentID)) {
+             // KENA BAN
+             setIsBanned(true);
+             setIsLocked(true);
+             localStorage.setItem('app_banned', 'true');
+             setLicenseInfo(data); 
+          } else {
+             // TIDAK KENA BAN
+             if(localStorage.getItem('app_banned') === 'true') {
+                localStorage.removeItem('app_banned');
+                localStorage.removeItem('app_license'); 
+                setIsBanned(false);
+                setIsRestored(true); 
+             }
+          }
+        }
+      } catch(e) { console.log("Offline/Gagal Cek Ban"); }
+    };
+
+    checkBanStatus();
+    const timer = setInterval(checkBanStatus, 15000); 
+    return () => clearInterval(timer);
+  }, []);
 
   // 2. CEK VALIDITAS LISENSI LOKAL
   const checkValidity = () => {
