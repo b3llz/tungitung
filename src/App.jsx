@@ -1,6 +1,5 @@
- // Ganti baris import React (paling atas) dengan ini:
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { createPortal } from 'react-dom'; // Tambahkan ini
+import { createPortal } from 'react-dom';
 import { 
   Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
   Save, FolderOpen, RotateCcw, Info, CheckCircle, 
@@ -11,7 +10,6 @@ import {
   FileSpreadsheet, Clock, Truck, Users, Briefcase,
   Store, CreditCard, Wallet, Smartphone, Printer, Receipt,
   AlertCircle, Check, Settings, RefreshCw, User, Award,
-  // ICON TAMBAHAN
   Lock, Unlock, Key, ShieldCheck, Calendar, AlertTriangle, 
   ShieldAlert, ShieldCheck as ShieldOk, LockKeyhole
 } from 'lucide-react';
@@ -19,8 +17,8 @@ import {
 // ============================================================================
 // CONFIGURATION (WAJIB DIISI DEVELOPER)
 // ============================================================================
-// GANTI INI DENGAN URL "RAW" DARI FILE blacklist.json DI GIST GITHUB ANDA
 const BLACKLIST_URL = "https://gist.githubusercontent.com/b3llz/07d95837ff27524b875990b5bd3bbe83/raw/blocklist.json"; 
+const SECRET_KEY = "RAHASIA_DAPUR_123"; // INI KUNCI DEFAULT YANG SINKRON DENGAN ADMIN
 
 // ============================================================================
 // 0. UTILS & CONSTANTS
@@ -35,6 +33,18 @@ const loadXLSX = async () => {
     script.onerror = () => reject(new Error("Gagal memuat library Excel"));
     document.head.appendChild(script);
   });
+};
+
+// [BARU] Loader CryptoJS agar tidak crash saat dekripsi
+const loadCrypto = async () => {
+    if (window.CryptoJS) return window.CryptoJS;
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js";
+        script.onload = () => resolve(window.CryptoJS);
+        script.onerror = () => reject(new Error("Gagal memuat library Crypto"));
+        document.head.appendChild(script);
+    });
 };
 
 const MATERIAL_UNITS = ['gr', 'kg', 'pcs', 'ml', 'liter', 'butir', 'sdm', 'sdt', 'pack', 'botol', 'cup'];
@@ -71,10 +81,6 @@ const formatNumberDisplay = (val) => {
 
 const HelpBox = ({ text }) => {
   const [isOpen, setIsOpen] = useState(false);
-  
-  // FIX: Menggunakan createPortal agar popup dirender di document.body
-  // Ini memaksa popup selalu di tengah layar dan Z-Index paling atas,
-  // tidak peduli tombolnya ada di dalam Card, QRIS, atau elemen beranimasi.
   return (
     <div className="relative inline-block ml-1 align-middle">
       <button onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} className="text-slate-300 hover:text-indigo-500 transition">
@@ -82,13 +88,7 @@ const HelpBox = ({ text }) => {
       </button>
       {isOpen && createPortal(
         <>
-          {/* Overlay Gelap */}
-          <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm" onClick={(e) => {
-              e.stopPropagation();
-              setIsOpen(false);
-          }}></div>
-          
-          {/* Modal Tengah */}
+          <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}></div>
           <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[10000] w-[85%] max-w-xs p-5 bg-slate-900/95 backdrop-blur-md text-white text-sm rounded-2xl shadow-2xl animate-enter border border-white/10" onClick={(e) => e.stopPropagation()}>
              <div className="flex justify-between mb-3 pb-2 border-b border-white/10">
                  <span className="font-bold text-indigo-400 uppercase tracking-wider text-xs">Info</span>
@@ -184,31 +184,24 @@ const CountdownTimer = ({ deadline }) => {
 
 const BannedScreen = ({ id }) => (
   <div className="fixed inset-0 z-[200] bg-slate-950 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-black text-white overflow-hidden animate-enter">
-      {/* Background Texture */}
       <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
-      
       <div className="max-w-md w-full relative z-10 text-center">
-          {/* Animated Shield */}
           <div className="relative inline-block mb-8">
              <div className="absolute inset-0 bg-red-600 blur-3xl opacity-30 rounded-full animate-pulse-soft"></div>
              <div className="w-24 h-24 bg-gradient-to-br from-red-500 to-red-700 rounded-3xl flex items-center justify-center shadow-2xl shadow-red-900/50 border-t border-red-400/30 relative transform rotate-3 hover:rotate-0 transition-transform duration-500">
                 <ShieldAlert className="w-12 h-12 text-white drop-shadow-md" />
              </div>
           </div>
-
           <h1 className="text-3xl font-black tracking-tight mb-2 text-white drop-shadow-lg">AKSES DIBLOKIR</h1>
           <div className="w-16 h-1 bg-red-600 mx-auto rounded-full mb-6 opacity-80"></div>
-          
           <p className="text-slate-300 text-sm mb-8 leading-relaxed px-4 font-medium">
              Sistem keamanan mendeteksi aktivitas yang tidak diizinkan pada akun ini. 
              Silahkan hubungi Developer untuk verifikasi dan pembukaan akses kembali.
           </p>
-
           <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-8 backdrop-blur-md shadow-inner">
              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2">ID PERANGKAT</p>
              <p className="text-lg font-mono font-black text-red-400 tracking-wider select-all cursor-text">{id}</p>
           </div>
-
           <button onClick={() => window.location.reload()} className="w-full bg-white hover:bg-slate-200 text-slate-900 font-bold py-4 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-white/10 flex items-center justify-center gap-2">
              <RefreshCw className="w-4 h-4"/> Cek Status Akses
           </button>
@@ -240,48 +233,51 @@ const LockScreen = ({ onUnlock, id }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Di dalam komponen LockScreen...
   const handleActivation = () => {
     setLoading(true); setError('');
     
-    // Gunakan async/await agar bisa cek online
+    // Gunakan async/await agar bisa cek online dan load crypto
     setTimeout(async () => {
       try {
-        const SECRET_KEY = "RAHASIA_DAPUR_123"; // Pastikan sama dengan Admin
-        if (!window.CryptoJS) throw new Error("Koneksi internet diperlukan.");
+        // [PERBAIKAN] Load Crypto Library agar tidak error
+        const CryptoJS = await loadCrypto();
         
+        // [PERBAIKAN] Bersihkan Spasi agar tidak Malformed UTF-8
+        const cleanID = inputID.trim();
+        const cleanCode = inputCode.trim();
+
+        if(!cleanCode) throw new Error("Kode Lisensi tidak boleh kosong!");
+
         // 1. DEKRIPSI KODE (Cek Matematika)
-        const bytes = window.CryptoJS.AES.decrypt(inputCode, SECRET_KEY);
-        const originalText = bytes.toString(window.CryptoJS.enc.Utf8);
-        if (!originalText) throw new Error("Kode Lisensi Tidak Valid!");
+        let originalText = "";
+        try {
+            const bytes = CryptoJS.AES.decrypt(cleanCode, SECRET_KEY);
+            originalText = bytes.toString(CryptoJS.enc.Utf8);
+        } catch(e) {
+            throw new Error("Format Kode Lisensi Rusak!");
+        }
+
+        if (!originalText) throw new Error("Kode Lisensi Tidak Valid! (Secret Key tidak cocok)");
 
         const data = JSON.parse(originalText);
         
         // Validasi Dasar
-        if (data.id !== inputID) throw new Error("ID Pengguna tidak cocok dengan kode!");
+        if (data.id !== cleanID) throw new Error(`ID Salah! Kode ini milik ID: ${data.id}`);
         if (new Date() > new Date(data.validUntil)) throw new Error("Masa aktif lisensi telah habis!");
 
-        // ============================================================
-        // [BARU] CEK ONLINE KE DATABASE HAPUS/BLOKIR
-        // ============================================================
+        // CEK ONLINE
         try {
-            // Tambahkan anti-cache time
             const check = await fetch(BLACKLIST_URL + "?t=" + Date.now());
             if(check.ok) {
                 const blockedIDs = await check.json();
-                // Jika ID ditemukan di daftar hapus/blokir
                 if(blockedIDs.includes(data.id)) {
                     throw new Error("Data Client Tidak Ditemukan (Terhapus).");
                 }
             }
-        } catch (networkError) {
-            // Opsional: Jika internet mati, mau dibolehkan masuk atau tidak?
-            // console.log("Gagal cek online, lanjut offline...");
-        }
-        // ============================================================
+        } catch (networkError) { }
 
         // Jika lolos semua, Buka Aplikasi
-        onUnlock({ ...data, originalToken: inputCode }); 
+        onUnlock({ ...data, originalToken: cleanCode }); 
       } catch (err) {
         setError(err.message || "Gagal Aktivasi");
       } finally {
@@ -289,7 +285,6 @@ const LockScreen = ({ onUnlock, id }) => {
       }
     }, 1000);
   };
-
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-6 bg-[url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop')] bg-cover bg-center">
