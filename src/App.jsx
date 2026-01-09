@@ -12,14 +12,15 @@ import {
   AlertCircle, Check, Settings, RefreshCw, User, Award,
   Lock, Unlock, Key, ShieldCheck, Calendar, AlertTriangle, 
   ShieldAlert, ShieldCheck as ShieldOk, LockKeyhole,
-  QrCode, Banknote, Coins
+  QrCode, Banknote, Coins, CreditCard as CardIcon, 
+  UserCircle2, Wallet2
 } from 'lucide-react';
 
 // ============================================================================
 // CONFIGURATION (WAJIB DIISI DEVELOPER)
 // ============================================================================
 const BLACKLIST_URL = "https://gist.githubusercontent.com/b3llz/07d95837ff27524b875990b5bd3bbe83/raw/blocklist.json"; 
-const SECRET_KEY = "RAHASIA_DAPUR_123"; // INI KUNCI DEFAULT YANG SINKRON DENGAN ADMIN
+const SECRET_KEY = "RAHASIA_DAPUR_123"; 
 
 // ============================================================================
 // 0. UTILS & CONSTANTS
@@ -36,7 +37,6 @@ const loadXLSX = async () => {
   });
 };
 
-// [BARU] Loader CryptoJS agar tidak crash saat dekripsi
 const loadCrypto = async () => {
     if (window.CryptoJS) return window.CryptoJS;
     return new Promise((resolve, reject) => {
@@ -180,7 +180,7 @@ const CountdownTimer = ({ deadline }) => {
 };
 
 // ============================================================================
-// SECURITY COMPONENTS: LOCK & BANNED SCREENS (PREMIUM DESIGN)
+// SECURITY COMPONENTS: LOCK & BANNED SCREENS
 // ============================================================================
 
 const BannedScreen = ({ id }) => (
@@ -195,10 +195,7 @@ const BannedScreen = ({ id }) => (
           </div>
           <h1 className="text-3xl font-black tracking-tight mb-2 text-white drop-shadow-lg">AKSES DIBLOKIR</h1>
           <div className="w-16 h-1 bg-red-600 mx-auto rounded-full mb-6 opacity-80"></div>
-          <p className="text-slate-300 text-sm mb-8 leading-relaxed px-4 font-medium">
-             Sistem keamanan mendeteksi aktivitas yang tidak diizinkan pada akun ini. 
-             Silahkan hubungi Developer untuk verifikasi dan pembukaan akses kembali.
-          </p>
+          <p className="text-slate-300 text-sm mb-8 leading-relaxed px-4 font-medium">Sistem keamanan mendeteksi aktivitas yang tidak diizinkan pada akun ini.</p>
           <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-8 backdrop-blur-md shadow-inner">
              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2">ID PERANGKAT</p>
              <p className="text-lg font-mono font-black text-red-400 tracking-wider select-all cursor-text">{id}</p>
@@ -206,7 +203,6 @@ const BannedScreen = ({ id }) => (
           <button onClick={() => window.location.reload()} className="w-full bg-white hover:bg-slate-200 text-slate-900 font-bold py-4 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-white/10 flex items-center justify-center gap-2">
              <RefreshCw className="w-4 h-4"/> Cek Status Akses
           </button>
-          <p className="text-[10px] text-slate-600 mt-6">Secure System Protection v2.4</p>
       </div>
   </div>
 );
@@ -218,9 +214,7 @@ const RestoredScreen = ({ onContinue }) => (
              <ShieldOk className="w-12 h-12 text-white" />
           </div>
           <h1 className="text-3xl font-black text-white mb-3 tracking-tight">AKSES DIBUKA</h1>
-          <p className="text-slate-300 text-sm mb-8 px-6 leading-relaxed">
-             Terima kasih telah melakukan konfirmasi. Status keamanan Anda telah dipulihkan. Silahkan login kembali.
-          </p>
+          <p className="text-slate-300 text-sm mb-8 px-6 leading-relaxed">Terima kasih telah melakukan konfirmasi. Status keamanan Anda telah dipulihkan.</p>
           <button onClick={onContinue} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-2xl transition shadow-xl shadow-emerald-500/20 active:scale-[0.98] flex items-center justify-center gap-2">
              <LockKeyhole className="w-4 h-4"/> Lanjutkan Login
           </button>
@@ -234,57 +228,38 @@ const LockScreen = ({ onUnlock, id }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleActivation = () => {
+  const handleActivation = async () => {
     setLoading(true); setError('');
-    
-    // Gunakan async/await agar bisa cek online dan load crypto
     setTimeout(async () => {
       try {
-        // [PERBAIKAN] Load Crypto Library agar tidak error
         const CryptoJS = await loadCrypto();
-        
-        // [PERBAIKAN] Bersihkan Spasi agar tidak Malformed UTF-8
         const cleanID = inputID.trim();
         const cleanCode = inputCode.trim();
-
         if(!cleanCode) throw new Error("Kode Lisensi tidak boleh kosong!");
 
-        // 1. DEKRIPSI KODE (Cek Matematika)
         let originalText = "";
         try {
             const bytes = CryptoJS.AES.decrypt(cleanCode, SECRET_KEY);
             originalText = bytes.toString(CryptoJS.enc.Utf8);
-        } catch(e) {
-            throw new Error("Format Kode Lisensi Rusak!");
-        }
+        } catch(e) { throw new Error("Format Kode Lisensi Rusak!"); }
 
         if (!originalText) throw new Error("Kode Lisensi Tidak Valid! (Secret Key tidak cocok)");
-
         const data = JSON.parse(originalText);
         
-        // Validasi Dasar
-        if (data.id !== cleanID) throw new Error(`ID Salah! Kode ini milik ID: ${data.id}`);
+        if (data.id !== cleanID) throw new Error(`ID Salah! Kode ini untuk ID: ${data.id}`);
         if (new Date() > new Date(data.validUntil)) throw new Error("Masa aktif lisensi telah habis!");
 
-        // CEK ONLINE
         try {
             const check = await fetch(BLACKLIST_URL + "?t=" + Date.now());
             if(check.ok) {
                 const blockedIDs = await check.json();
-                if(blockedIDs.includes(data.id)) {
-                    throw new Error("Data Client Tidak Ditemukan (Terhapus).");
-                }
+                if(blockedIDs.includes(data.id)) throw new Error("Data Client Tidak Ditemukan (Terhapus).");
             }
         } catch (networkError) { }
 
-        // Jika lolos semua, Buka Aplikasi
         onUnlock({ ...data, originalToken: cleanCode }); 
-      } catch (err) {
-        setError(err.message || "Gagal Aktivasi");
-      } finally {
-        setLoading(false);
-      }
-    }, 1000);
+      } catch (err) { setError(err.message || "Gagal Aktivasi"); } finally { setLoading(false); }
+    }, 500);
   };
 
   return (
@@ -296,9 +271,7 @@ const LockScreen = ({ onUnlock, id }) => {
              <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">CostLab</h2>
              <p className="text-sm text-slate-500 mt-1 font-medium">Aplikasi Premium Manajemen Bisnis</p>
           </div>
-          
           {error && <div className="p-4 bg-rose-50 text-rose-600 text-xs font-bold rounded-2xl flex gap-3 items-center border border-rose-100 shadow-sm"><AlertTriangle className="w-5 h-5 shrink-0"/> {error}</div>}
-          
           <div className="space-y-4">
              <div><label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider ml-1">ID Pengguna</label><input value={inputID} onChange={e=>setInputID(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition dark:text-white" placeholder="Masukkan ID..."/></div>
              <div><label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider ml-1">Kode Lisensi</label><textarea value={inputCode} onChange={e=>setInputCode(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono h-24 outline-none focus:ring-2 focus:ring-indigo-500 transition dark:text-white resize-none" placeholder="Tempel kode panjang disini..."></textarea></div>
@@ -412,8 +385,7 @@ const CalculatorTab = () => {
       const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
       XLSX.utils.book_append_sheet(wb, wsSummary, "Ringkasan");
       XLSX.writeFile(wb, `HPP_${product.name.replace(/\s+/g, '_')}.xlsx`);
-    } catch (e) { alert("Gagal export: " + e.message);
-    }
+    } catch (e) { alert("Gagal export: " + e.message); }
     setIsExporting(false);
   };
 
@@ -921,7 +893,7 @@ const ProfileTab = () => {
 };
 
 // ============================================================================
-// 4. TAB: POS (KASIR)
+// 4. TAB: POS (KASIR) - UPDATED
 // ============================================================================
 
 const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile }) => {
@@ -933,7 +905,7 @@ const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, b
     };
 
     return (
-        <div className={`fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm md:static md:bg-transparent md:w-80 transition-all ${showCart ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto'}`} onClick={()=>setShowCart(false)}>
+        <div className={`fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm md:static md:bg-transparent md:w-80 transition-all ${showCart ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto'}`} onClick={()=>setShowCart(false)}>
             <div className={`absolute right-0 top-0 h-full w-full md:w-80 bg-white dark:bg-slate-900 shadow-2xl md:border-l border-slate-100 dark:border-slate-800 flex flex-col transition-transform duration-300 ${showCart ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`} onClick={e=>e.stopPropagation()}>
                 
                 {/* Header Keranjang */}
@@ -946,7 +918,7 @@ const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, b
                 </div>
 
                 {/* List Item */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-40">
                     {cart.length===0 && (
                         <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-3 opacity-60">
                             <ShoppingCart className="w-16 h-16 stroke-1"/>
@@ -973,7 +945,7 @@ const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, b
                 </div>
 
                 {/* Footer Checkout Premium */}
-                <div className="p-5 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 space-y-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] z-10 relative">
+                <div className="p-5 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 space-y-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] z-10 relative pb-10">
                     
                     {/* Input Nama Pembeli Keren */}
                     <div className="relative group">
@@ -1019,7 +991,7 @@ const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, b
                         <button 
                             onClick={handleCheckout} 
                             disabled={cart.length===0} 
-                            className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white py-3.5 rounded-xl font-bold shadow-xl shadow-indigo-500/30 disabled:opacity-50 disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                            className="w-full bg-gradient-to-r from-slate-900 to-slate-800 hover:from-slate-800 hover:to-slate-700 text-white py-3.5 rounded-xl font-bold shadow-xl shadow-slate-900/30 disabled:opacity-50 disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                         >
                             <CheckCircle className="w-4 h-4"/> Proses Pesanan
                         </button>
@@ -1206,10 +1178,10 @@ const PosTab = () => {
 
             <CartSidebar showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile}/>
             
-            {/* --- TOMBOL FLOATING KERANJANG PREMIUM --- */}
+            {/* --- TOMBOL FLOATING KERANJANG PREMIUM (FIXED & ALWAYS VISIBLE) --- */}
             <button 
                 onClick={() => setShowCart(true)} 
-                className="fixed bottom-24 right-6 z-50 w-16 h-16 bg-gradient-to-br from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-full shadow-2xl shadow-indigo-600/40 flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-90 border-4 border-white/20 backdrop-blur-sm animate-enter"
+                className="fixed bottom-24 right-4 z-50 w-16 h-16 bg-gradient-to-br from-slate-900 to-black hover:from-slate-800 hover:to-slate-900 text-white rounded-full shadow-2xl shadow-slate-900/40 flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-90 border-4 border-white/20 backdrop-blur-sm animate-enter"
             >
                 <div className="relative">
                     <ShoppingCart className="w-7 h-7" />
