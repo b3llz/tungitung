@@ -1111,6 +1111,7 @@ const PosTab = () => {
       }
   };
 
+  // --- HELPER COMPONENTS ---
   const getPaymentInfo = (method) => {
       if(method === 'Cash') return <div className="p-3 bg-slate-100 rounded-lg text-center font-bold text-slate-800">Bayar Tunai di Kasir</div>;
       if(method === 'QRIS') return (
@@ -1164,8 +1165,13 @@ const PosTab = () => {
       </div>
   );
 
+  // Calculate Total for Floating Dock
+  const totalCartPrice = cart.reduce((a,b)=>a+(b.price*b.qty),0);
+  const totalCartQty = cart.reduce((a,b)=>a+b.qty,0);
+
   return (
     <div className="h-full flex flex-col pb-24 max-w-6xl mx-auto w-full px-2 sm:px-4">
+      {/* Top Navbar */}
       <div className="flex gap-2 mb-4 bg-slate-50 dark:bg-slate-950 p-1 sticky top-0 z-20">
           <button onClick={()=>setViewMode('shop')} className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 ${viewMode==='shop'?'bg-indigo-600 text-white shadow':'text-slate-500'}`}><Store className="w-4 h-4"/> Produk</button>
           <button onClick={()=>setViewMode('status')} className={`flex-1 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 ${viewMode==='status'?'bg-indigo-600 text-white shadow':'text-slate-500'}`}>
@@ -1181,7 +1187,8 @@ const PosTab = () => {
                     <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
                     <input className="w-full bg-white dark:bg-slate-900 rounded-xl pl-9 pr-4 py-2 text-sm outline-none shadow-sm dark:text-white" placeholder="Cari produk..." value={search} onChange={e=>setSearch(e.target.value)} />
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-20">
+                {/* Product Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-32">
                     {products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())).map(p => (
                         <div key={p.id} onClick={()=>addToCart(p)} className={`bg-white dark:bg-slate-900 p-2.5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition group ${p.stock>0 ? 'cursor-pointer hover:border-indigo-500 hover:scale-[1.02]' : 'opacity-60 grayscale cursor-not-allowed'}`}>
                             <div className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl mb-2.5 overflow-hidden relative">
@@ -1195,24 +1202,32 @@ const PosTab = () => {
                 </div>
             </div>
 
-            {/* MENGGUNAKAN POPUP BARU */}
+            {/* Cart Popup Component */}
             <CartPopup showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile}/>
             
-            {/* TOMBOL FLOATING KERANJANG (WARNA GELAP & FIXED POSITION) */}
-            <button 
-                onClick={() => setShowCart(true)} 
-                // FIXED BOTTOM-28 (Diatas Navbar)
-                className="fixed bottom-28 right-4 z-50 w-16 h-16 bg-gradient-to-br from-slate-900 to-black hover:from-slate-800 hover:to-slate-900 text-white rounded-full shadow-2xl shadow-slate-900/40 flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-90 border-4 border-white/20 backdrop-blur-sm animate-enter"
-            >
-                <div className="relative">
-                    <ShoppingCart className="w-7 h-7" />
-                    {cart.length > 0 && (
-                        <span className="absolute -top-3 -right-3 w-6 h-6 bg-rose-500 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white dark:border-slate-900 shadow-sm animate-bounce">
-                            {cart.length}
-                        </span>
-                    )}
+            {/* === FLOATING CHECKOUT DOCK (DESIGN MAHAL) === */}
+            {/* Muncul hanya jika ada item di keranjang */}
+            {cart.length > 0 && (
+                <div className="fixed bottom-24 left-0 right-0 px-4 z-30 flex justify-center animate-slide-up">
+                    <div 
+                        onClick={() => setShowCart(true)}
+                        className="w-full max-w-md bg-slate-900 dark:bg-black text-white p-4 rounded-2xl shadow-2xl shadow-slate-900/40 flex justify-between items-center cursor-pointer border border-white/10 backdrop-blur-xl group hover:scale-[1.02] transition-all duration-300"
+                    >
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">{totalCartQty} Item Dipilih</span>
+                            <span className="text-lg font-black tracking-tight">{formatIDR(totalCartPrice)}</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                             <div className="h-8 w-[1px] bg-white/20"></div>
+                             <button className="flex items-center gap-2 font-bold text-sm bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl transition shadow-lg shadow-indigo-600/20 group-hover:shadow-indigo-600/40">
+                                <ShoppingCart className="w-4 h-4"/>
+                                Checkout
+                             </button>
+                        </div>
+                    </div>
                 </div>
-            </button>
+            )}
         </div>
       )}
 
@@ -1295,8 +1310,7 @@ const PosTab = () => {
     </div>
   );
 };
-
-// ============================================================================
+============================================================================
 // 5. TAB: REPORT
 // ============================================================================
 
