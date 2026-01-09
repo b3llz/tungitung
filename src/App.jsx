@@ -11,7 +11,8 @@ import {
   Store, CreditCard, Wallet, Smartphone, Printer, Receipt,
   AlertCircle, Check, Settings, RefreshCw, User, Award,
   Lock, Unlock, Key, ShieldCheck, Calendar, AlertTriangle, 
-  ShieldAlert, ShieldCheck as ShieldOk, LockKeyhole
+  ShieldAlert, ShieldCheck as ShieldOk, LockKeyhole,
+  QrCode, Banknote, Coins
 } from 'lucide-react';
 
 // ============================================================================
@@ -923,52 +924,111 @@ const ProfileTab = () => {
 // 4. TAB: POS (KASIR)
 // ============================================================================
 
-const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile }) => (
-    <div className={`fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm md:static md:bg-transparent md:w-80 transition-all ${showCart ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto'}`} onClick={()=>setShowCart(false)}>
-        <div className={`absolute right-0 top-0 h-full w-full md:w-80 bg-white dark:bg-slate-900 shadow-2xl md:border-l border-slate-100 dark:border-slate-800 flex flex-col transition-transform duration-300 ${showCart ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`} onClick={e=>e.stopPropagation()}>
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                <div className="font-bold text-slate-800 dark:text-white flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Keranjang</div>
-                <button onClick={()=>setShowCart(false)} className="md:hidden"><X className="w-5 h-5"/></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {cart.length===0 && <div className="text-center text-slate-400 text-xs py-10">Keranjang kosong</div>}
-                {cart.map(i => (
-                    <div key={i.id} className="flex gap-3 items-center">
-                        <div className="w-10 h-10 bg-slate-100 rounded-lg overflow-hidden shrink-0">{i.image && <img src={i.image} className="w-full h-full object-cover"/>}</div>
-                        <div className="flex-1 min-w-0">
-                            <p className="font-bold text-xs truncate dark:text-white">{i.name}</p>
-                            <p className="text-[10px] text-slate-500">{formatIDR(i.price)}</p>
-                        </div>
-                        <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-1 rounded-lg">
-                            <button onClick={()=>updateQty(i.id,-1)} className="w-5 h-5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">-</button>
-                            <span className="text-[10px] font-bold w-3 text-center dark:text-white">{i.qty}</span>
-                            <button onClick={()=>updateQty(i.id,1)} className="w-5 h-5 bg-white dark:bg-slate-700 rounded shadow-sm text-[10px] font-bold">+</button>
-                        </div>
-                        <button onClick={()=>removeFromCart(i.id)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5"/></button>
-                    </div>
-                ))}
-            </div>
-            <div className="p-4 bg-slate-50 dark:bg-slate-950 space-y-3 border-t border-slate-100 dark:border-slate-800">
-                <input className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none dark:bg-slate-800 dark:text-white" placeholder="Nama Pembeli" value={buyerName} onChange={e=>setBuyerName(e.target.value)}/>
+const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile }) => {
+    // Helper untuk ikon pembayaran
+    const getPaymentIcon = (type) => {
+        if (type === 'Cash') return <Banknote className="w-4 h-4"/>;
+        if (type === 'QRIS') return <QrCode className="w-4 h-4"/>;
+        return <Wallet className="w-4 h-4"/>;
+    };
+
+    return (
+        <div className={`fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm md:static md:bg-transparent md:w-80 transition-all ${showCart ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto'}`} onClick={()=>setShowCart(false)}>
+            <div className={`absolute right-0 top-0 h-full w-full md:w-80 bg-white dark:bg-slate-900 shadow-2xl md:border-l border-slate-100 dark:border-slate-800 flex flex-col transition-transform duration-300 ${showCart ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`} onClick={e=>e.stopPropagation()}>
                 
-                <div className="space-y-2">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Metode Pembayaran</p>
-                    <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto pr-1">
-                        {['Cash','QRIS', ...(profile.payment?.ewallets?.map(w=>w.type)||[]), ...(profile.payment?.bank?.map(b=>b.bank)||[])].map(m => (
-                            <button key={m} onClick={()=>setPaymentMethod(m)} className={`p-2 rounded-lg text-[10px] font-bold border transition truncate ${paymentMethod===m ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-400'}`}>{m}</button>
-                        ))}
+                {/* Header Keranjang */}
+                <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white/50 dark:bg-slate-900/50 backdrop-blur-md">
+                    <div className="font-black text-lg text-slate-800 dark:text-white flex items-center gap-2">
+                        <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-xl text-indigo-600"><ShoppingCart className="w-5 h-5"/></div>
+                        Keranjang
                     </div>
+                    <button onClick={()=>setShowCart(false)} className="md:hidden p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition"><X className="w-5 h-5 text-slate-500"/></button>
                 </div>
 
-                <div className="flex justify-between items-center pt-2">
-                    <span className="text-slate-500 text-xs font-bold">Total</span>
-                    <span className="text-xl font-black text-slate-900 dark:text-white">{formatIDR(cart.reduce((a,b)=>a+(b.price*b.qty),0))}</span>
+                {/* List Item */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    {cart.length===0 && (
+                        <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-3 opacity-60">
+                            <ShoppingCart className="w-16 h-16 stroke-1"/>
+                            <p className="text-sm font-bold">Keranjang Masih Kosong</p>
+                        </div>
+                    )}
+                    {cart.map(i => (
+                        <div key={i.id} className="flex gap-3 items-center bg-white dark:bg-slate-800 p-2 pr-3 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                            <div className="w-12 h-12 bg-slate-100 dark:bg-slate-700 rounded-xl overflow-hidden shrink-0">
+                                {i.image && <img src={i.image} className="w-full h-full object-cover"/>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="font-bold text-sm truncate dark:text-white text-slate-800">{i.name}</p>
+                                <p className="text-xs font-bold text-indigo-600">{formatIDR(i.price)}</p>
+                            </div>
+                            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 p-1 rounded-lg border border-slate-100 dark:border-slate-700">
+                                <button onClick={()=>updateQty(i.id,-1)} className="w-6 h-6 bg-white dark:bg-slate-800 rounded shadow-sm text-xs font-bold hover:text-rose-500 transition">-</button>
+                                <span className="text-xs font-bold w-4 text-center dark:text-white">{i.qty}</span>
+                                <button onClick={()=>updateQty(i.id,1)} className="w-6 h-6 bg-white dark:bg-slate-800 rounded shadow-sm text-xs font-bold hover:text-emerald-500 transition">+</button>
+                            </div>
+                            <button onClick={()=>removeFromCart(i.id)} className="text-slate-300 hover:text-rose-500 transition px-1"><Trash2 className="w-4 h-4"/></button>
+                        </div>
+                    ))}
                 </div>
-                <button onClick={handleCheckout} disabled={cart.length===0} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 disabled:shadow-none transition text-sm">Buat Pesanan</button>
+
+                {/* Footer Checkout Premium */}
+                <div className="p-5 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 space-y-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] z-10 relative">
+                    
+                    {/* Input Nama Pembeli Keren */}
+                    <div className="relative group">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                            <User className="h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                        </div>
+                        <input 
+                            className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all dark:text-white placeholder:text-slate-400" 
+                            placeholder="Nama Pembeli" 
+                            value={buyerName} 
+                            onChange={e=>setBuyerName(e.target.value)}
+                        />
+                    </div>
+                    
+                    {/* Pilihan Pembayaran Grid */}
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Metode Pembayaran</p>
+                            {paymentMethod && <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{paymentMethod}</span>}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto pr-1">
+                            {['Cash','QRIS', ...(profile.payment?.ewallets?.map(w=>w.type)||[]), ...(profile.payment?.bank?.map(b=>b.bank)||[])].map(m => (
+                                <button 
+                                    key={m} 
+                                    onClick={()=>setPaymentMethod(m)} 
+                                    className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl border transition-all duration-200 ${paymentMethod===m ? 
+                                    'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 
+                                    'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:border-indigo-200 hover:bg-slate-50'}`}
+                                >
+                                    {getPaymentIcon(m)}
+                                    <span className="text-[9px] font-bold truncate w-full text-center">{m}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Total & Checkout Button */}
+                    <div className="pt-2">
+                        <div className="flex justify-between items-end mb-3">
+                            <span className="text-slate-500 text-xs font-bold">Total Tagihan</span>
+                            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{formatIDR(cart.reduce((a,b)=>a+(b.price*b.qty),0))}</span>
+                        </div>
+                        <button 
+                            onClick={handleCheckout} 
+                            disabled={cart.length===0} 
+                            className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white py-3.5 rounded-xl font-bold shadow-xl shadow-indigo-500/30 disabled:opacity-50 disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                        >
+                            <CheckCircle className="w-4 h-4"/> Proses Pesanan
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
-    </div>
-);
+    );
+};
 
 const PosTab = () => {
   const [products, setProducts] = useState([]);
@@ -1145,9 +1205,20 @@ const PosTab = () => {
             </div>
 
             <CartSidebar showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile}/>
-            <button onClick={()=>setShowCart(true)} className="md:hidden fixed bottom-24 right-4 bg-slate-900 text-white w-12 h-12 rounded-full shadow-xl flex items-center justify-center z-40 transition hover:scale-110 active:scale-90">
-                <ShoppingCart className="w-5 h-5"/>
-                {cart.length>0 && <span className="absolute top-0 right-0 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-bold flex items-center justify-center border-2 border-slate-900">{cart.length}</span>}
+            
+            {/* --- TOMBOL FLOATING KERANJANG PREMIUM --- */}
+            <button 
+                onClick={() => setShowCart(true)} 
+                className="fixed bottom-24 right-6 z-50 w-16 h-16 bg-gradient-to-br from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-full shadow-2xl shadow-indigo-600/40 flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-90 border-4 border-white/20 backdrop-blur-sm animate-enter"
+            >
+                <div className="relative">
+                    <ShoppingCart className="w-7 h-7" />
+                    {cart.length > 0 && (
+                        <span className="absolute -top-3 -right-3 w-6 h-6 bg-rose-500 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white dark:border-slate-900 shadow-sm animate-bounce">
+                            {cart.length}
+                        </span>
+                    )}
+                </div>
             </button>
         </div>
       )}
