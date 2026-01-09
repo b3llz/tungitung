@@ -893,10 +893,12 @@ const ProfileTab = () => {
 };
 
 // ============================================================================
-// 4. TAB: POS (KASIR) - UPDATED
+// 4. TAB: POS (KASIR) - FIXED: MODAL POPUP & BLUE BUTTON
 // ============================================================================
 
-const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile }) => {
+// Mengubah konsep Sidebar menjadi Modal Popup agar tidak tertutup Navbar
+const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile }) => {
+    
     // Helper untuk ikon pembayaran
     const getPaymentIcon = (type) => {
         if (type === 'Cash') return <Banknote className="w-4 h-4"/>;
@@ -904,23 +906,33 @@ const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, b
         return <Wallet className="w-4 h-4"/>;
     };
 
+    if (!showCart) return null;
+
     return (
-        <div className={`fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm md:static md:bg-transparent md:w-80 transition-all ${showCart ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none md:opacity-100 md:pointer-events-auto'}`} onClick={()=>setShowCart(false)}>
-            <div className={`absolute right-0 top-0 h-full w-full md:w-80 bg-white dark:bg-slate-900 shadow-2xl md:border-l border-slate-100 dark:border-slate-800 flex flex-col transition-transform duration-300 ${showCart ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`} onClick={e=>e.stopPropagation()}>
+        // Overlay Gelap (Backdrop)
+        <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={()=>setShowCart(false)}>
+            
+            {/* Container Modal (Popup) - Dibatasi max-height agar tidak full screen */}
+            <div 
+                className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl relative flex flex-col max-h-[85vh] overflow-hidden border border-white/20 ring-1 ring-black/5" 
+                onClick={e=>e.stopPropagation()}
+            >
                 
-                {/* Header Keranjang */}
-                <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white/50 dark:bg-slate-900/50 backdrop-blur-md">
+                {/* 1. Header Popup */}
+                <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900 z-10">
                     <div className="font-black text-lg text-slate-800 dark:text-white flex items-center gap-2">
                         <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-xl text-indigo-600"><ShoppingCart className="w-5 h-5"/></div>
                         Keranjang
                     </div>
-                    <button onClick={()=>setShowCart(false)} className="md:hidden p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition"><X className="w-5 h-5 text-slate-500"/></button>
+                    <button onClick={()=>setShowCart(false)} className="p-2 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition">
+                        <X className="w-5 h-5 text-slate-500"/>
+                    </button>
                 </div>
 
-                {/* List Item */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-40">
+                {/* 2. List Item (Scrollable Area) */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 dark:bg-slate-950/50">
                     {cart.length===0 && (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-3 opacity-60">
+                        <div className="py-20 flex flex-col items-center justify-center text-slate-400 space-y-3 opacity-60">
                             <ShoppingCart className="w-16 h-16 stroke-1"/>
                             <p className="text-sm font-bold">Keranjang Masih Kosong</p>
                         </div>
@@ -944,10 +956,10 @@ const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, b
                     ))}
                 </div>
 
-                {/* Footer Checkout Premium */}
-                <div className="p-5 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 space-y-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] z-10 relative pb-10">
+                {/* 3. Footer Form & Checkout (Pinned at Bottom of Modal) */}
+                <div className="p-5 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 space-y-4 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] z-20">
                     
-                    {/* Input Nama Pembeli Keren */}
+                    {/* Input Nama Pembeli */}
                     <div className="relative group">
                         <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                             <User className="h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
@@ -960,20 +972,18 @@ const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, b
                         />
                     </div>
                     
-                    {/* Pilihan Pembayaran Grid */}
+                    {/* Pilihan Pembayaran */}
                     <div className="space-y-2">
                         <div className="flex justify-between items-center">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Metode Pembayaran</p>
                             {paymentMethod && <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{paymentMethod}</span>}
                         </div>
-                        <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto pr-1">
+                        <div className="grid grid-cols-3 gap-2 max-h-24 overflow-y-auto pr-1">
                             {['Cash','QRIS', ...(profile.payment?.ewallets?.map(w=>w.type)||[]), ...(profile.payment?.bank?.map(b=>b.bank)||[])].map(m => (
                                 <button 
                                     key={m} 
                                     onClick={()=>setPaymentMethod(m)} 
-                                    className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl border transition-all duration-200 ${paymentMethod===m ? 
-                                    'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 
-                                    'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:border-indigo-200 hover:bg-slate-50'}`}
+                                    className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl border transition-all duration-200 ${paymentMethod===m ? 'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:border-indigo-200 hover:bg-slate-50'}`}
                                 >
                                     {getPaymentIcon(m)}
                                     <span className="text-[9px] font-bold truncate w-full text-center">{m}</span>
@@ -982,7 +992,7 @@ const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, b
                         </div>
                     </div>
 
-                    {/* Total & Checkout Button */}
+                    {/* Total & Checkout Button (WARNA BIRU) */}
                     <div className="pt-2">
                         <div className="flex justify-between items-end mb-3">
                             <span className="text-slate-500 text-xs font-bold">Total Tagihan</span>
@@ -991,7 +1001,8 @@ const CartSidebar = ({ showCart, setShowCart, cart, updateQty, removeFromCart, b
                         <button 
                             onClick={handleCheckout} 
                             disabled={cart.length===0} 
-                            className="w-full bg-gradient-to-r from-slate-900 to-slate-800 hover:from-slate-800 hover:to-slate-700 text-white py-3.5 rounded-xl font-bold shadow-xl shadow-slate-900/30 disabled:opacity-50 disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                            // WARNA BIRU SESUAI PERMINTAAN
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                         >
                             <CheckCircle className="w-4 h-4"/> Proses Pesanan
                         </button>
@@ -1014,6 +1025,7 @@ const PosTab = () => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showReceipt, setShowReceipt] = useState(null);
   const [profile, setProfile] = useState({});
+
   useEffect(() => {
     const p = JSON.parse(localStorage.getItem('product_stock_db') || '[]');
     setProducts(p);
@@ -1022,10 +1034,12 @@ const PosTab = () => {
     const prof = JSON.parse(localStorage.getItem('store_profile') || '{}');
     setProfile(prof);
   }, []);
+
   const saveActiveOrders = (ords) => {
     setActiveOrders(ords);
     localStorage.setItem('active_orders_db', JSON.stringify(ords));
   };
+
   const addToCart = (p) => {
     if(p.stock <= 0) return alert("Stok habis!");
     setCart(prev => {
@@ -1046,6 +1060,7 @@ const PosTab = () => {
   };
 
   const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
+  
   const handleCheckout = () => {
     if(!buyerName) return alert("Masukkan nama pembeli!");
     if(!paymentMethod) return alert("Pilih metode pembayaran!");
@@ -1072,6 +1087,7 @@ const PosTab = () => {
     alert("Order dibuat! Silahkan cek Status Pesanan.");
     setViewMode('status');
   };
+
   const confirmPayment = (order) => {
       const history = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
       const completedOrder = { ...order, status: 'paid', paidAt: new Date().toISOString() };
@@ -1080,6 +1096,7 @@ const PosTab = () => {
       saveActiveOrders(updated);
       setSelectedOrder(completedOrder);
   };
+
   const cancelOrder = (order) => {
       if(confirm("Batalkan pesanan? Stok akan dikembalikan.")) {
           const newStock = products.map(p => {
@@ -1093,6 +1110,7 @@ const PosTab = () => {
           setSelectedOrder(null);
       }
   };
+
   const getPaymentInfo = (method) => {
       if(method === 'Cash') return <div className="p-3 bg-slate-100 rounded-lg text-center font-bold text-slate-800">Bayar Tunai di Kasir</div>;
       if(method === 'QRIS') return (
@@ -1145,6 +1163,7 @@ const PosTab = () => {
           </div>
       </div>
   );
+
   return (
     <div className="h-full flex flex-col pb-24 max-w-6xl mx-auto w-full px-2 sm:px-4">
       <div className="flex gap-2 mb-4 bg-slate-50 dark:bg-slate-950 p-1 sticky top-0 z-20">
@@ -1176,12 +1195,14 @@ const PosTab = () => {
                 </div>
             </div>
 
-            <CartSidebar showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile}/>
+            {/* MENGGUNAKAN POPUP BARU */}
+            <CartPopup showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile}/>
             
-            {/* --- TOMBOL FLOATING KERANJANG PREMIUM (FIXED & ALWAYS VISIBLE) --- */}
+            {/* TOMBOL FLOATING KERANJANG (WARNA GELAP & FIXED POSITION) */}
             <button 
                 onClick={() => setShowCart(true)} 
-                className="fixed bottom-24 right-4 z-50 w-16 h-16 bg-gradient-to-br from-slate-900 to-black hover:from-slate-800 hover:to-slate-900 text-white rounded-full shadow-2xl shadow-slate-900/40 flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-90 border-4 border-white/20 backdrop-blur-sm animate-enter"
+                // FIXED BOTTOM-28 (Diatas Navbar)
+                className="fixed bottom-28 right-4 z-50 w-16 h-16 bg-gradient-to-br from-slate-900 to-black hover:from-slate-800 hover:to-slate-900 text-white rounded-full shadow-2xl shadow-slate-900/40 flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-90 border-4 border-white/20 backdrop-blur-sm animate-enter"
             >
                 <div className="relative">
                     <ShoppingCart className="w-7 h-7" />
