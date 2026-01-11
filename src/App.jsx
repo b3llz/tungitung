@@ -1403,25 +1403,241 @@ const PosTab = ({ licenseInfo }) => {
 };
 
 // ============================================================================
-// 5. TAB: REPORT (Placeholder agar tidak error)
+// 5. TAB: REPORT (VERSI LENGKAP)
 // ============================================================================
+
 const ReportTab = ({ licenseInfo }) => {
+  const [filter, setFilter] = useState('month');
+  const [txs, setTxs] = useState([]);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [selectedTx, setSelectedTx] = useState(null);
+
+  useEffect(() => { 
+      const data = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
+      setTxs(data); 
+  }, []);
+
+  const formatDateIndo = (dateObj) => {
+    return new Date(dateObj).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+  };
+
+  const stats = useMemo(() => {
+    const now = new Date();
+    const f = txs.filter(t => { 
+        const d = new Date(t.date); 
+        if(filter==='today') return d.getDate()===now.getDate() && d.getMonth()===now.getMonth(); 
+        if(filter==='month') return d.getMonth()===now.getMonth(); 
+        return true; 
+    });
+    
+    // Logic Grafik Traffic (Ungu)
+    const graphData = {};
+    f.forEach(t => {
+        const key = new Date(t.date).getDate();
+        graphData[key] = (graphData[key] || 0) + t.total;
+    });
+    const maxVal = Math.max(...Object.values(graphData), 1000); // Mencegah bagi nol
+    const points = Object.keys(graphData).map(k => {
+        const x = (k / 31) * 100; 
+        const y = 100 - ((graphData[k] / maxVal) * 80); 
+        return `${x},${y}`;
+    }).join(' ');
+
+    // Logic Grafik Tren 30 Hari (Hijau)
+    const trendData = [];
+    const trendDates = []; 
+    for(let i=29; i>=0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dayStr = d.toISOString().split('T')[0];
+        
+        if (i === 29 || i === 15 || i === 0) {
+           trendDates.push(d);
+        }
+
+        const dayTotal = txs.filter(t => t.date.startsWith(dayStr)).reduce((a,b) => a+b.total, 0);
+        trendData.push(dayTotal);
+    }
+    const maxTrend = Math.max(...trendData, 1000);
+    const trendPoints = trendData.map((val, i) => {
+        const x = (i / 29) * 100;
+        const y = 100 - ((val / maxTrend) * 80);
+        return `${x},${y}`;
+    }).join(' ');
+
+    // Logic Produk Terlaris
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(now.getDate() - 30);
+    const recentTxs = txs.filter(t => new Date(t.date) >= thirtyDaysAgo);
+    const productSales = {};
+    recentTxs.forEach(t => {
+        t.items.forEach(item => {
+            productSales[item.name] = (productSales[item.name] || 0) + item.qty;
+        });
+    });
+    const topProducts = Object.entries(productSales)
+        .map(([name, qty]) => ({ name, qty }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
+
+    return { 
+        rev: f.reduce((a,b)=>a+b.total,0), 
+        prof: f.reduce((a,b)=>a+(b.profit||0),0), 
+        count: f.length, 
+        list: f.reverse(), 
+        graph: points, 
+        trendGraph: trendPoints,
+        trendDates: trendDates, 
+        topProducts: topProducts
+    };
+  }, [filter, txs]);
+
+  const handleDownloadReport = async () => {
+    if(stats.list.length === 0) return alert("Belum ada data.");
+    setIsDownloading(true);
+    try {
+      const XLSX = await loadXLSX();
+      const data = stats.list.map(t => ({ "ID": `#${t.id}`, "Tanggal": new Date(t.date).toLocaleDateString(), "Waktu": new Date(t.date).toLocaleTimeString(), "Pembeli": t.buyer, "Metode": t.paymentMethod, "Total Omzet": t.total, "Items": t.items.map(i => `${i.name} (${i.qty})`).join(', ') }));
+      const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Laporan Keuangan"); XLSX.writeFile(wb, `Laporan_${filter}.xlsx`);
+    } catch (e) { alert("Gagal download: " + e.message); }
+    setIsDownloading(false);
+  };
+
   return (
-    <div className="max-w-xl mx-auto p-4">
-      <Card title="Laporan Keuangan" icon={BarChart3}>
-        <div className="flex flex-col items-center justify-center py-12 text-center space-y-3">
-           <div className="p-4 bg-indigo-50 dark:bg-slate-800 rounded-full text-indigo-500">
-             <BarChart3 className="w-10 h-10" />
-           </div>
-           <h3 className="font-bold text-slate-800 dark:text-white">Fitur Segera Hadir</h3>
-           <p className="text-xs text-slate-500 max-w-xs">
-             Modul pelaporan keuangan dan grafik analisis sedang dalam pengembangan.
-           </p>
+    <div className="max-w-4xl mx-auto p-4 sm:p-6 pb-32 space-y-6 w-full">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div><h1 className="text-xl font-bold text-slate-900 dark:text-white">Laporan Keuangan</h1></div>
+        <div className="flex gap-2 bg-white dark:bg-slate-800 p-1 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+           {['today','month','all'].map(k => (<button key={k} onClick={()=>setFilter(k)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold capitalize ${filter===k ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>{k==='all'?'Semua':k==='today'?'Hari Ini':'Bulan Ini'}</button>))}
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Card className="relative overflow-hidden">
+            <div className="relative z-10"><p className="text-slate-400 text-[10px] font-bold uppercase">Omzet</p><h2 className="text-2xl font-black text-slate-900 dark:text-white">{formatIDR(stats.rev)}</h2></div>
+        </Card>
+        <Card className="relative overflow-hidden border-emerald-500/20">
+            <div className="relative z-10"><p className="text-emerald-600 text-[10px] font-bold uppercase">Profit (Est)</p><h2 className="text-2xl font-black text-emerald-600">{formatIDR(stats.prof || (stats.rev*0.3))}</h2></div>
+        </Card>
+        <Card>
+            <p className="text-slate-400 text-[10px] font-bold uppercase">Transaksi</p><h2 className="text-2xl font-black text-slate-900 dark:text-white">{stats.count}</h2>
+        </Card>
+      </div>
+
+      {/* Traffic Graph */}
+      <Card title="Traffic Penjualan (Bulanan)" icon={TrendingUp}>
+          <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
+             <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
+                 <polyline points={`0,100 ${stats.graph} 100,100`} fill="none" stroke="#4f46e5" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
+                 <polygon points={`0,100 ${stats.graph} 100,100 0,100`} fill="url(#grad)" opacity="0.2"/>
+                 <defs><linearGradient id="grad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#4f46e5"/><stop offset="100%" stopColor="white" stopOpacity="0"/></linearGradient></defs>
+              </svg>
+              {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data grafik</div>}
+          </div>
+          <div className="mt-2">
+            <div className="flex justify-between px-1">
+                {[1, 5, 10, 15, 20, 25, 30].map(d => (
+                    <span key={d} className="text-[9px] text-slate-400 font-medium font-mono">{d}</span>
+                ))}
+            </div>
+            <div className="text-center mt-1 border-t border-slate-100 dark:border-slate-800 pt-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    {new Date().toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
+                </span>
+            </div>
+          </div>
       </Card>
+
+      {/* 30-Day Trend Graph */}
+      <Card title="Tren Penjualan 30 Hari Terakhir" icon={BarChart3}>
+          <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
+              <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
+                 <polyline points={stats.trendGraph} fill="none" stroke="#10b981" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
+              </svg>
+              {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data tren</div>}
+          </div>
+          <div className="mt-2 flex justify-between items-center px-1 border-t border-slate-100 dark:border-slate-800 pt-2">
+             {stats.trendDates.length > 0 ? (
+                 <>
+                    <div className="text-left">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase">Mulai</p>
+                        <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{formatDateIndo(stats.trendDates[0])}</p>
+                    </div>
+                    <div className="text-center hidden sm:block">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase">Pertengahan</p>
+                        <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{formatDateIndo(stats.trendDates[1])}</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-[9px] text-slate-400 font-bold uppercase">Hari Ini</p>
+                        <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{formatDateIndo(stats.trendDates[2])}</p>
+                    </div>
+                 </>
+             ) : (
+                <p className="text-[9px] text-slate-400 w-full text-center">Menunggu data...</p>
+             )}
+          </div>
+      </Card>
+
+      {/* Top Selling Products Card */}
+      <Card title="Produk Terlaris (30 Hari Terakhir)" icon={Award}>
+          <div className="space-y-3">
+              {stats.topProducts.length === 0 ? (
+                  <p className="text-center text-slate-400 text-xs py-4">Belum ada penjualan bulan ini.</p>
+              ) : (
+                  stats.topProducts.map((prod, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${i===0 ? 'bg-yellow-100 text-yellow-700' : i===1 ? 'bg-slate-100 text-slate-600' : i===2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-50 text-slate-500'}`}>
+                              #{i+1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                              <div className="flex justify-between mb-1">
+                                  <span className="text-sm font-bold text-slate-800 dark:text-white truncate">{prod.name}</span>
+                                  <span className="text-xs font-bold text-slate-500">{prod.qty} Terjual</span>
+                              </div>
+                              <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                  <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${(prod.qty / stats.topProducts[0].qty) * 100}%` }}></div>
+                              </div>
+                          </div>
+                      </div>
+                  ))
+              )}
+          </div>
+      </Card>
+
+      <div className="space-y-3">
+        <div className="flex justify-between items-center"><h3 className="font-bold text-slate-800 dark:text-white text-sm">Riwayat Transaksi</h3><Button onClick={handleDownloadReport} icon={Download} variant="secondary" className="py-1.5 text-[10px]">Export</Button></div>
+        {stats.list.length === 0 ? <p className="text-center py-10 text-slate-400 text-xs">Belum ada transaksi.</p> : stats.list.map(t => (
+          <div key={t.id} onClick={()=>setSelectedTx(t)} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800 flex gap-3 items-center hover:border-indigo-500/30 transition cursor-pointer">
+            <div className="w-10 h-10 rounded-lg bg-slate-100 shrink-0 overflow-hidden">{t.items[0]?.image ? <img src={t.items[0].image} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-slate-400 text-[10px] font-bold">{t.items[0]?.name[0]}</div>}</div>
+            <div className="flex-1 min-w-0">
+               <div className="flex justify-between items-start"><h4 className="font-bold text-sm text-slate-800 dark:text-white truncate">{t.items[0]?.name} {t.items.length > 1 && `+ ${t.items.length-1} lainnya`}</h4><span className="text-xs font-black text-emerald-600">{formatIDR(t.total)}</span></div>
+               <div className="flex justify-between mt-1 text-[10px] text-slate-400"><span>{t.buyer} • {t.paymentMethod}</span><span>{new Date(t.date).toLocaleString()}</span></div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {selectedTx && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={()=>setSelectedTx(null)}>
+              <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl p-5 shadow-2xl" onClick={e=>e.stopPropagation()}>
+                  <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Detail Transaksi</h3>
+                  <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                      <div className="flex justify-between border-b border-slate-100 dark:border-slate-700 pb-2"><span>ID</span><span className="font-mono">{selectedTx.id}</span></div>
+                      <div className="flex justify-between border-b border-slate-100 dark:border-slate-700 pb-2"><span>Pembeli</span><span className="font-bold">{selectedTx.buyer}</span></div>
+                      <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-lg space-y-1">
+                          {selectedTx.items.map((i,x)=>(<div key={x} className="flex justify-between text-xs"><span>{i.qty}x {i.name}</span><span>{formatIDR(i.price*i.qty)}</span></div>))}
+                          <div className="border-t border-slate-200 dark:border-slate-700 pt-2 mt-2 flex justify-between font-bold text-slate-900 dark:text-white"><span>Total</span><span>{formatIDR(selectedTx.total)}</span></div>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-500"><span>Metode</span><span className="font-bold uppercase">{selectedTx.paymentMethod}</span></div>
+                      <div className="flex justify-between text-xs text-slate-500"><span>Waktu</span><span>{new Date(selectedTx.date).toLocaleString()}</span></div>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 };
+
 
 
 // ============================================================================
