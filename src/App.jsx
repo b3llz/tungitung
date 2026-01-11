@@ -1,4 +1,4 @@
-import { 
+Import { 
   Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
   Save, FolderOpen, RotateCcw, Info, CheckCircle, 
   TrendingUp, Package, Zap, DollarSign, Menu, X, 
@@ -969,6 +969,7 @@ const ProfileTab = ({ licenseInfo }) => {
                    </div>
               </div>
                            
+                          {/* --- BAGIAN YANG RUSAK BIASANYA DISINI --- */}
               <NumericInput 
                   placeholder="Harga Jual" 
                   value={newProd.price} 
@@ -977,7 +978,7 @@ const ProfileTab = ({ licenseInfo }) => {
                   label="Harga Jual (Retail)" 
               />
 
-      
+              {/* FITUR PRO: HARGA BERTINGKAT */}
               {isPro(licenseInfo) && (
                   <div className="grid grid-cols-2 gap-2 mt-2 p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-100 dark:border-indigo-800">
                       <div className="col-span-2 text-[10px] font-bold text-indigo-500 uppercase flex items-center gap-1"><Crown className="w-3 h-3"/> Pro Pricing</div>
@@ -1450,6 +1451,32 @@ const PosTab = ({ licenseInfo }) => {
 // 5. TAB: REPORT
 // ============================================================================
 
+// [FITUR PRO] MENU ENGINEERING COMPONENT
+const MenuEngineeringTab = () => {
+    return (
+        <Card title="Menu Engineering (Matrix)" icon={LayoutGrid} className="mb-4" help="Analisis menu berdasarkan keuntungan vs popularitas.">
+            <div className="grid grid-cols-2 gap-2 h-32">
+                <div className="bg-emerald-100 dark:bg-emerald-900/30 p-2 rounded-lg border border-emerald-200 dark:border-emerald-800 relative">
+                    <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 bg-white/60 dark:bg-black/40 px-2 rounded absolute top-2 left-2">STARS (Laris & Cuan Besar)</span>
+                    <div className="mt-6 flex flex-wrap gap-1">
+                        <span className="text-[8px] bg-white dark:bg-slate-800 px-1 rounded shadow-sm border dark:border-slate-700 text-slate-600 dark:text-slate-300">Contoh Menu Laris</span>
+                    </div>
+                </div>
+                <div className="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-lg border border-blue-200 dark:border-blue-800 relative">
+                    <span className="text-[10px] font-black text-blue-700 dark:text-blue-400 bg-white/60 dark:bg-black/40 px-2 rounded absolute top-2 left-2">PUZZLE (Jarang Laku tapi Cuan)</span>
+                </div>
+                <div className="bg-yellow-100 dark:bg-yellow-900/30 p-2 rounded-lg border border-yellow-200 dark:border-yellow-800 relative">
+                    <span className="text-[10px] font-black text-yellow-700 dark:text-yellow-400 bg-white/60 dark:bg-black/40 px-2 rounded absolute top-2 left-2">PLOWHORSE (Laris Cuan Tipis)</span>
+                </div>
+                <div className="bg-rose-100 dark:bg-rose-900/30 p-2 rounded-lg border border-rose-200 dark:border-rose-800 relative">
+                    <span className="text-[10px] font-black text-rose-700 dark:text-rose-400 bg-white/60 dark:bg-black/40 px-2 rounded absolute top-2 left-2">DOGS (Gak Laku & Rugi)</span>
+                </div>
+            </div>
+        </Card>
+    );
+};
+
+
 const ReportTab = ({ licenseInfo }) => {
   const [filter, setFilter] = useState('month');
   const [txs, setTxs] = useState([]);
@@ -1873,21 +1900,18 @@ const App = () => {
       if(newMode) document.documentElement.classList.add('dark');
       else document.documentElement.classList.remove('dark');
   };
-
   // --- [START] LOGIC AUTO LOGOUT ---
   useEffect(() => {
-    if(!licenseInfo) return; // Kalau belum login, diam saja
+    if(!licenseInfo) return; 
 
     const interval = setInterval(async () => {
-        // Kirim sinyal 'heartbeat' ke server Google Script
-        // Agar server tahu device ini masih aktif.
-        // Jika server menerima login baru dari device lain, token di server berubah.
         syncSession('heartbeat', licenseInfo);
-    }, 15000); // Cek setiap 15 detik
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [licenseInfo]);
   // --- [END] LOGIC AUTO LOGOUT ---
+
 
 
   // --- RENDER BLOCKING SCREENS ---
@@ -1960,4 +1984,6 @@ const App = () => {
   );
 };
 
-export default App;
+export default App; 
+
+
