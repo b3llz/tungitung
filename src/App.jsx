@@ -1,5 +1,3 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { 
   Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
   Save, FolderOpen, RotateCcw, Info, CheckCircle, 
@@ -13,8 +11,37 @@ import {
   Lock, Unlock, Key, ShieldCheck, Calendar, AlertTriangle, 
   ShieldAlert, ShieldCheck as ShieldOk, LockKeyhole,
   QrCode, Banknote, Coins, CreditCard as CardIcon, 
-  UserCircle2, Wallet2
+  UserCircle2, Wallet2, FileText
 } from 'lucide-react';
+
+// --- CONFIG BARU (GANTI URL DI BAWAH INI) ---
+const LOG_API_URL = "PASTE_URL_GOOGLE_SCRIPT_TADI_DISINI"; 
+const SESSION_TOKEN = `sess_${Date.now()}_${Math.random().toString(36).substr(2,9)}`; // Token unik per tab
+
+// Helper Cek Pro
+const isPro = (info) => info && (info.type === 'PRO' || info.type === 'PREMIUM');
+
+// Fungsi Sync ke Server (Login & Auto Logout)
+const syncSession = async (action, info) => {
+    try {
+        if(!info) return;
+        // Ambil IP (Optional, kalau gagal lanjut aja)
+        let ip = 'Unknown';
+        try { const r = await fetch('https://api.ipify.org?format=json'); const j = await r.json(); ip = j.ip; } catch(e){}
+        
+        // Kirim ke Google Script
+        await fetch(LOG_API_URL, {
+            method: 'POST',
+            mode: 'no-cors', // Penting untuk Google Script
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action, id: info.id, tenant: info.tenant, 
+                sessionToken: SESSION_TOKEN, ip: ip, 
+                device: navigator.userAgent 
+            })
+        });
+    } catch(e) { console.log("Sync Silent Fail"); }
+};
 
 // ============================================================================
 // CONFIGURATION (WAJIB DIISI DEVELOPER)
@@ -246,6 +273,10 @@ const LockScreen = ({ onUnlock, id }) => {
         if (!originalText) throw new Error("Kode Lisensi Tidak Valid! (Secret Key tidak cocok)");
         const data = JSON.parse(originalText);
         
+        // UPDATE: Masukkan Tipe Lisensi & Sync Login
+        data.type = data.type || 'BASIC'; 
+        syncSession('login', data); // Lapor ke server ada login baru
+
         if (data.id !== cleanID) throw new Error(`ID Salah! Kode ini untuk ID: ${data.id}`);
         if (new Date() > new Date(data.validUntil)) throw new Error("Masa aktif lisensi telah habis!");
 
@@ -283,10 +314,51 @@ const LockScreen = ({ onUnlock, id }) => {
   );
 };
 
+
+// [FITUR PRO] MODAL SMART PLANNER
+const SmartPlannerModal = ({ materials, onClose }) => {
+    const [target, setTarget] = useState(100);
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl p-6 shadow-2xl border border-indigo-500/30">
+                <div className="flex justify-between items-center mb-6">
+                    <div className="flex items-center gap-2">
+                        <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg"><Layers className="w-5 h-5"/></div>
+                        <div><h3 className="font-bold text-lg dark:text-white">Smart Production Planner</h3><p className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider">Pro Feature</p></div>
+                    </div>
+                    <button onClick={onClose}><X className="w-5 h-5 text-slate-400"/></button>
+                </div>
+                <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl mb-6 border border-indigo-100 dark:border-indigo-800">
+                    <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Rencana Produksi (Qty)</label>
+                    <div className="flex gap-2">
+                        <input type="number" value={target} onChange={e=>setTarget(e.target.value)} className="flex-1 p-2 rounded-lg font-bold text-slate-800 outline-none border border-indigo-200 focus:ring-2 focus:ring-indigo-500" />
+                        <span className="p-2 font-bold text-slate-500 bg-white/50 rounded-lg border border-indigo-100">Pcs</span>
+                    </div>
+                </div>
+                <div className="max-h-[40vh] overflow-y-auto space-y-2 mb-6 pr-1">
+                    <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 mb-2">Estimasi Belanja Bahan:</h4>
+                    {materials.map((m, i) => {
+                        const totalNeed = (m.usage * target);
+                        const packsToBuy = Math.ceil(totalNeed / m.content); 
+                        return (
+                            <div key={i} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg text-sm border border-slate-100 dark:border-slate-700">
+                                <div><p className="font-bold text-slate-800 dark:text-white">{m.name}</p><p className="text-[10px] text-slate-500">Butuh: {formatNumberDisplay(totalNeed)} {m.unit}</p></div>
+                                <div className="text-right"><p className="font-bold text-indigo-600">{packsToBuy} Pack</p><p className="text-[10px] text-slate-400">Est. {formatIDR(packsToBuy * m.price)}</p></div>
+                            </div>
+                        )
+                    })}
+                </div>
+                <button onClick={() => window.print()} className="w-full py-3 bg-slate-800 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-700 transition"><Printer className="w-4 h-4"/> Cetak Rencana Belanja</button>
+            </div>
+        </div>
+    );
+};
+
+
 // ============================================================================
 // CALCULATOR TAB
 // ============================================================================
-const CalculatorTab = () => {
+const CalculatorTab = ({ licenseInfo }) => {
   const [calcMode, setCalcMode] = useState('detail');
   const [simpleModal, setSimpleModal] = useState(0);
   const [product, setProduct] = useState({ name: '', type: 'Makanan', image: null });
@@ -302,6 +374,8 @@ const CalculatorTab = () => {
   const [savedRecipes, setSavedRecipes] = useState([]);
   const [showLoad, setShowLoad] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [showPlanner, setShowPlanner] = useState(false); // State Pro
+
 
   const calcRow = (price, content, usage) => (!content || content === 0) ? 0 : (price / content) * usage;
   const updateMat = (id, f, v) => setMaterials(prev => prev.map(m => m.id===id ? {...m, [f]:v, cost: calcRow(f==='price'?v:m.price, f==='content'?v:m.content, f==='usage'?v:m.usage)} : m));
@@ -351,12 +425,17 @@ const CalculatorTab = () => {
   const projNetProfitMonth = projOmzetMonth - projProdCostMonth - projFixedCostMonth;
 
   useEffect(() => { setSavedRecipes(JSON.parse(localStorage.getItem('hpp_pro_db') || '[]')); }, []);
-  const save = () => {
+    const save = () => {
     if(!product.name) return alert("Isi nama produk dulu!");
+    // LOGIC PRO: Limit Basic User max 5 resep
+    if (!isPro(licenseInfo) && savedRecipes.length >= 5) {
+        return alert("Versi BASIC hanya bisa simpan 5 Resep. Upgrade ke PRO untuk Unlimited!");
+    }
     const data = { id: Date.now(), product, materials, variableOps, fixedOps, production, hppBersih, finalPrice };
     setSavedRecipes(prev => { const n = [...prev, data]; localStorage.setItem('hpp_pro_db', JSON.stringify(n)); return n; });
     alert("Data Tersimpan!");
   };
+
   const load = (r) => {
     setProduct(r.product); setMaterials(r.materials); setVariableOps(r.variableOps); setFixedOps(r.fixedOps||[]);
     setProduction(r.production); setShowLoad(false);
@@ -654,9 +733,15 @@ const CalculatorTab = () => {
          <Button variant="secondary" onClick={()=>setShowLoad(true)} icon={FolderOpen} className="col-span-1">Load</Button>
          <Button variant="primary" onClick={save} icon={Save} className="col-span-2">Simpan Data</Button>
       </div>
+      <Button variant="secondary" onClick={() => isPro(licenseInfo) ? setShowPlanner(true) : alert("Fitur PRO Only")} className={`w-full py-3 mb-2 border-indigo-200 text-indigo-700 ${!isPro(licenseInfo)&&'opacity-60'}`} icon={Layers}>
+        Smart Planner {isPro(licenseInfo) ? '' : '(PRO)'}
+      </Button>
+
       <Button variant="success" onClick={handleExportExcel} disabled={isExporting} icon={FileSpreadsheet} className="w-full py-3 rounded-xl bg-emerald-600 border-none text-white shadow-lg shadow-emerald-500/20 text-xs">
         {isExporting ? 'Mengekspor...' : 'Export Laporan (.xlsx)'}
       </Button>
+
+      {showPlanner && <SmartPlannerModal materials={materials} onClose={()=>setShowPlanner(false)} />}
 
       {/* Load Modal */}
       {showLoad && (
@@ -693,11 +778,12 @@ const CalculatorTab = () => {
 // 3. TAB: PROFILE TOKO
 // ============================================================================
 
-const ProfileTab = () => {
+const ProfileTab = ({ licenseInfo }) => {
   const [profile, setProfile] = useState({
     name: '', address: '', wa: '', logo: null, adminName: '',
     payment: { qris: null, ewallets: [], bank: [] }
   });
+  const [priceTier, setPriceTier] = useState('retail');
   const [products, setProducts] = useState([]); 
   const [newProd, setNewProd] = useState({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
   const [showAdd, setShowAdd] = useState(false);
@@ -882,7 +968,17 @@ const ProfileTab = () => {
                        <NumericInput value={newProd.stock} onChange={v=>setNewProd({...newProd, stock:v})} className="bg-slate-50 dark:bg-slate-800" />
                    </div>
               </div>
-              <NumericInput placeholder="Harga Jual" value={newProd.price} onChange={v=>setNewProd({...newProd, price:v})} prefix="Rp" label="Harga Jual" />
+              <NumericInput placeholder="Harga Jual" value={newProd.price} 
+              {/* FITUR PRO: HARGA BERTINGKAT */}
+              {isPro(licenseInfo) && (
+                  <div className="grid grid-cols-2 gap-2 mt-2 p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-100 dark:border-indigo-800">
+                      <div className="col-span-2 text-[10px] font-bold text-indigo-500 uppercase flex items-center gap-1"><Crown className="w-3 h-3"/> Pro Pricing</div>
+                      <NumericInput placeholder="Grosir" value={newProd.priceGrosir || 0} onChange={v=>setNewProd({...newProd, priceGrosir:v})} prefix="Rp" label="Harga Grosir" className="text-xs" />
+                      <NumericInput placeholder="App Online" value={newProd.priceOjol || 0} onChange={v=>setNewProd({...newProd, priceOjol:v})} prefix="Rp" label="Harga App Online" className="text-xs" />
+                  </div>
+              )}
+
+onChange={v=>setNewProd({...newProd, price:v})} prefix="Rp" label="Harga Jual" />
               <div className="flex gap-2 pt-2"><Button variant="secondary" className="flex-1" onClick={()=>setShowAdd(false)}>Batal</Button><Button className="flex-1" onClick={addProduct}>Simpan</Button></div>
             </div>
           </Card>
@@ -1013,7 +1109,7 @@ const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buy
     );
 };
 
-const PosTab = () => {
+const PosTab = ({ licenseInfo }) => {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
@@ -1040,14 +1136,21 @@ const PosTab = () => {
     localStorage.setItem('active_orders_db', JSON.stringify(ords));
   };
 
-  const addToCart = (p) => {
+    const addToCart = (p) => {
     if(p.stock <= 0) return alert("Stok habis!");
+    
+    // LOGIC TIER PRICE
+    let finalPrice = p.price;
+    if(priceTier === 'grosir' && p.priceGrosir > 0) finalPrice = p.priceGrosir;
+    if(priceTier === 'ojol' && p.priceOjol > 0) finalPrice = p.priceOjol;
+
     setCart(prev => {
-        const exist = prev.find(i => i.id === p.id);
+        const exist = prev.find(i => i.id === p.id && i.price === finalPrice); // Cek ID DAN Harga (karena harga bisa beda)
         if(exist && exist.qty >= p.stock) return prev;
-        return exist ? prev.map(i => i.id === p.id ? {...i, qty: i.qty+1} : i) : [...prev, {...p, qty: 1}];
+        return exist ? prev.map(i => (i.id === p.id && i.price === finalPrice) ? {...i, qty: i.qty+1} : i) : [...prev, {...p, qty: 1, price: finalPrice}];
     });
   };
+
 
   const updateQty = (id, d) => {
     setCart(prev => prev.map(i => {
@@ -1130,13 +1233,24 @@ const PosTab = () => {
   const ReceiptModal = ({ order, onClose }) => (
       <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in zoom-in duration-300">
           <div className="bg-white w-full max-w-xs p-6 shadow-2xl relative text-slate-900">
-              <div className="text-center border-b-2 border-dashed border-slate-900 pb-4 mb-4">
-                  {profile.logo && <img src={profile.logo} className="w-16 h-16 mx-auto mb-2 object-contain grayscale"/>}
-                  <h2 className="font-black text-xl uppercase tracking-wider text-slate-900">{profile.name || "Nama Toko"}</h2>
-                  <p className="text-xs font-bold text-slate-800 mt-1">{profile.address}</p>
-                  <p className="text-xs font-bold text-slate-800">{profile.wa}</p>
-                  <p className="text-[10px] font-bold text-slate-600 mt-2">{order.id} • {new Date(order.date).toLocaleString()}</p>
-              </div>
+                              <div className="text-center border-b-2 border-dashed border-slate-900 pb-4 mb-4">
+                    {/* LOGIC PRO BRANDING */}
+                    {isPro(licenseInfo) ? (
+                        <>
+                            {profile.logo && <img src={profile.logo} className="h-12 mx-auto mb-2 object-contain grayscale"/>}
+                            <h2 className="font-black text-xl uppercase tracking-wider text-slate-900">{profile.name}</h2>
+                            <p className="text-xs font-bold text-slate-800 mt-1">{profile.address}</p>
+                        </>
+                    ) : (
+                        <>
+                            <h2 className="font-black text-xl uppercase tracking-wider text-slate-900">{profile.name}</h2>
+                            <p className="text-[9px] text-slate-400 italic mt-1">Powered by CostLab App (Basic)</p>
+                        </>
+                    )}
+                    <p className="text-xs font-bold text-slate-800">{profile.wa}</p>
+                    <p className="text-[10px] font-bold text-slate-600 mt-2">{order.id} • {new Date(order.date).toLocaleString()}</p>
+                </div>
+
               <div className="text-xs mb-4 text-slate-900 font-bold">
                   <div className="flex justify-between mb-1"><span>Pembeli:</span><span className="font-black">{order.buyer}</span></div>
                   <div className="flex justify-between"><span>Admin:</span><span>{profile.adminName || 'Admin'}</span></div>
@@ -1185,8 +1299,21 @@ const PosTab = () => {
             <div className="flex-1 overflow-y-auto">
                 <div className="relative mb-4">
                     <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
-                    <input className="w-full bg-white dark:bg-slate-900 rounded-xl pl-9 pr-4 py-2 text-sm outline-none shadow-sm dark:text-white" placeholder="Cari produk..." value={search} onChange={e=>setSearch(e.target.value)} />
+                                   <div className="relative mb-4 flex gap-2">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
+                        <input className="w-full bg-white dark:bg-slate-900 rounded-xl pl-9 pr-4 py-2 text-sm outline-none shadow-sm dark:text-white" placeholder="Cari produk..." value={search} onChange={e=>setSearch(e.target.value)} />
+                    </div>
+                    {/* DROPDOWN TIER PRO */}
+                    {isPro(licenseInfo) && (
+                        <select value={priceTier} onChange={e=>setPriceTier(e.target.value)} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 text-xs font-bold outline-none cursor-pointer">
+                            <option value="retail">Ecer</option>
+                            <option value="grosir">Grosir</option>
+                            <option value="ojol">Ojol</option>
+                        </select>
+                    )}
                 </div>
+
                 {/* Product Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-32">
                     {products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())).map(p => (
@@ -1315,7 +1442,7 @@ const PosTab = () => {
 // 5. TAB: REPORT
 // ============================================================================
 
-const ReportTab = () => {
+const ReportTab = ({ licenseInfo }) => {
   const [filter, setFilter] = useState('month');
   const [txs, setTxs] = useState([]);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -1413,6 +1540,10 @@ const ReportTab = () => {
            {['today','month','all'].map(k => (<button key={k} onClick={()=>setFilter(k)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold capitalize ${filter===k ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>{k==='all'?'Semua':k==='today'?'Hari Ini':'Bulan Ini'}</button>))}
         </div>
       </div>
+
+      {/* FITUR PRO: MENU MATRIX */}
+      {isPro(licenseInfo) && <MenuEngineeringTab />} 
+
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card className="relative overflow-hidden">
@@ -1646,6 +1777,9 @@ const App = () => {
   useEffect(() => {
     const checkBanStatus = async () => {
       const saved = localStorage.getItem('app_license');
+
+
+
       if(!saved) return;
       const data = JSON.parse(saved);
 
@@ -1732,6 +1866,22 @@ const App = () => {
       else document.documentElement.classList.remove('dark');
   };
 
+  // --- [START] LOGIC AUTO LOGOUT ---
+  useEffect(() => {
+    if(!licenseInfo) return; // Kalau belum login, diam saja
+
+    const interval = setInterval(async () => {
+        // Kirim sinyal 'heartbeat' ke server Google Script
+        // Agar server tahu device ini masih aktif.
+        // Jika server menerima login baru dari device lain, token di server berubah.
+        syncSession('heartbeat', licenseInfo);
+    }, 15000); // Cek setiap 15 detik
+
+    return () => clearInterval(interval);
+  }, [licenseInfo]);
+  // --- [END] LOGIC AUTO LOGOUT ---
+
+
   // --- RENDER BLOCKING SCREENS ---
   
   if (isBanned) return <BannedScreen id={licenseInfo?.id || "UNKNOWN"} />;
@@ -1760,15 +1910,17 @@ const App = () => {
           </div>
         </div>
 
-        {/* MAIN CONTENT */}
+                {/* MAIN CONTENT */}
         <div className="animate-enter pt-6 pb-28">
-          {active==='calc' && <CalculatorTab/>}
-          {/* Note: Profile, Pos, Report tabs use standard Card/Button components defined above, so they will automatically look premium */}
-          {active==='profile' && <ProfileTab/>} 
-          {active==='pos' && <PosTab/>}
-          {active==='report' && <ReportTab/>}
-          {active==='settings' && <SettingsTab/>}
+          {/* Update: Kirim licenseInfo ke semua Tab agar fitur Pro bisa dicek di dalam tab */}
+          {active==='calc' && <CalculatorTab licenseInfo={licenseInfo} />}
+          
+          {active==='profile' && <ProfileTab licenseInfo={licenseInfo} />} 
+          {active==='pos' && <PosTab licenseInfo={licenseInfo} />}
+          {active==='report' && <ReportTab licenseInfo={licenseInfo} />}
+          {active==='settings' && <SettingsTab licenseInfo={licenseInfo} />}
         </div>
+
 
       {/* BOTTOM NAV FLOATING */}
 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
