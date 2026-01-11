@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 // --- CONFIG BARU (GANTI URL DI BAWAH INI) ---
-const LOG_API_URL = "PASTE_URL_GOOGLE_SCRIPT_TADI_DISINI"; 
+const LOG_API_URL = "Https://script.google.com/macros/s/AKfycbx60xl2xjJCJGjo5MMCdE8tAALzVTY0Z0RoLmwFsm2UndwXRwZ_5wq85usR9ANWcq4dZg/exec"; 
 const SESSION_TOKEN = `sess_${Date.now()}_${Math.random().toString(36).substr(2,9)}`; // Token unik per tab
 
 // Helper Cek Pro
