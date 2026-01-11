@@ -1403,6 +1403,28 @@ const PosTab = ({ licenseInfo }) => {
 };
 
 // ============================================================================
+// 5. TAB: REPORT (Placeholder agar tidak error)
+// ============================================================================
+const ReportTab = ({ licenseInfo }) => {
+  return (
+    <div className="max-w-xl mx-auto p-4">
+      <Card title="Laporan Keuangan" icon={BarChart3}>
+        <div className="flex flex-col items-center justify-center py-12 text-center space-y-3">
+           <div className="p-4 bg-indigo-50 dark:bg-slate-800 rounded-full text-indigo-500">
+             <BarChart3 className="w-10 h-10" />
+           </div>
+           <h3 className="font-bold text-slate-800 dark:text-white">Fitur Segera Hadir</h3>
+           <p className="text-xs text-slate-500 max-w-xs">
+             Modul pelaporan keuangan dan grafik analisis sedang dalam pengembangan.
+           </p>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+
+// ============================================================================
 // 6. TAB: SETTINGS (UPDATED WITH LICENSE INFO)
 // ============================================================================
 
