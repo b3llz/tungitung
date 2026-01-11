@@ -1,3 +1,5 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
   Save, FolderOpen, RotateCcw, Info, CheckCircle, 
