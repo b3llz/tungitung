@@ -1,4 +1,4 @@
-Import { 
+import { 
   Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
   Save, FolderOpen, RotateCcw, Info, CheckCircle, 
   TrendingUp, Package, Zap, DollarSign, Menu, X, 
