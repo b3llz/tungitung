@@ -968,8 +968,16 @@ const ProfileTab = ({ licenseInfo }) => {
                        <NumericInput value={newProd.stock} onChange={v=>setNewProd({...newProd, stock:v})} className="bg-slate-50 dark:bg-slate-800" />
                    </div>
               </div>
-              <NumericInput placeholder="Harga Jual" value={newProd.price} 
-              {/* FITUR PRO: HARGA BERTINGKAT */}
+                           
+              <NumericInput 
+                  placeholder="Harga Jual" 
+                  value={newProd.price} 
+                  onChange={v=>setNewProd({...newProd, price:v})} 
+                  prefix="Rp" 
+                  label="Harga Jual (Retail)" 
+              />
+
+      
               {isPro(licenseInfo) && (
                   <div className="grid grid-cols-2 gap-2 mt-2 p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-100 dark:border-indigo-800">
                       <div className="col-span-2 text-[10px] font-bold text-indigo-500 uppercase flex items-center gap-1"><Crown className="w-3 h-3"/> Pro Pricing</div>
