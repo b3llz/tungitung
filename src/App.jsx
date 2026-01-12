@@ -11,7 +11,7 @@ import {
   Store, CreditCard, Wallet, Smartphone, Printer, Receipt,
   AlertCircle, Check, Settings, RefreshCw, User, Award,
   Lock, Unlock, Key, ShieldCheck, Calendar, AlertTriangle, 
-  ShieldAlert, ShieldCheck as ShieldOk, LockKeyhole,
+  ShieldAlert, ShieldCheck as ShieldOk,
   QrCode, Banknote, Coins, CreditCard as CardIcon, 
   UserCircle2, Wallet2, FileText
 } from 'lucide-react';
@@ -268,7 +268,7 @@ const RestoredScreen = ({ onContinue }) => (
           <h1 className="text-3xl font-black text-white mb-3 tracking-tight">AKSES DIBUKA</h1>
           <p className="text-slate-300 text-sm mb-8 px-6 leading-relaxed">Terima kasih telah melakukan konfirmasi. Status keamanan Anda telah dipulihkan.</p>
           <button onClick={onContinue} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-2xl transition shadow-xl shadow-emerald-500/20 active:scale-[0.98] flex items-center justify-center gap-2">
-             <LockKeyhole className="w-4 h-4"/> Lanjutkan Login
+             <Lock className="w-4 h-4"/> Lanjutkan Login
           </button>
       </div>
   </div>
@@ -323,7 +323,7 @@ const LockScreen = ({ onUnlock, id }) => {
        <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md"></div>
        <div className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-[2rem] p-8 shadow-2xl space-y-6 relative z-10 border border-white/10 animate-enter">
           <div className="text-center">
-             <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-indigo-500/40 text-white rotate-3"><LockKeyhole className="w-10 h-10"/></div>
+             <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-indigo-500/40 text-white rotate-3"><Lock className="w-10 h-10"/></div>
              <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">CostLab</h2>
              <p className="text-sm text-slate-500 mt-1 font-medium">Aplikasi Premium Manajemen Bisnis</p>
           </div>
@@ -2118,4 +2118,3 @@ const App = () => {
 };
 
 export default App; 
-
