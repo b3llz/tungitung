@@ -1871,7 +1871,29 @@ const App = () => {
              </div>
           </div>
           <div className="flex gap-2">
-             {licenseInfo && <span className="hidden sm:block text-[10px] font-bold bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-full border border-indigo-100">Hi, {licenseInfo.tenant}</span>}
+            {licenseInfo && (
+  <div className="hidden sm:flex items-center gap-2 pl-2 pr-1 py-1 bg-slate-100 dark:bg-slate-800/50 rounded-full border border-slate-200 dark:border-slate-700">
+    {/* Nama User */}
+    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
+      {licenseInfo.tenant}
+    </span>
+
+    {/* Badge Status (Logic Pro/Basic) */}
+    {isPro(licenseInfo) ? (
+      // TAMPILAN PRO (MAHAL: Emas & Mahkota)
+      <div className="flex items-center gap-1 bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-600 text-white px-2 py-1 rounded-full shadow-lg shadow-amber-500/30 border border-white/20">
+        <Crown className="w-3 h-3 fill-white/30" />
+        <span className="text-[9px] font-black tracking-widest">PRO</span>
+      </div>
+    ) : (
+      // TAMPILAN BASIC (Silver Elegan)
+      <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded-full border border-slate-300 dark:border-slate-600">
+        <span className="text-[9px] font-bold tracking-wider">BASIC</span>
+      </div>
+    )}
+  </div>
+)}
+
              <button onClick={toggleDarkMode} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 transition">
                 {dark ? <Sun className="w-4 h-4"/> : <Moon className="w-4 h-4"/>}
              </button>
@@ -1921,5 +1943,4 @@ const App = () => {
 };
 
 export default App; 
-
 
