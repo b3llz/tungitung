@@ -439,6 +439,41 @@ const PremiumPriceSelector = ({ currentTier, onChange }) => {
 };
 
 
+// --- KOMPONEN UI: PREMIUM DROPDOWN (PENGGANTI SELECT BAWAAN) ---
+const PremiumSelect = ({ label, value, options, onChange, className="" }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => { if (ref.current && !ref.current.contains(event.target)) setOpen(false); };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [ref]);
+
+  return (
+    <div className={`relative ${className}`} ref={ref}>
+      {label && <label className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 block ml-1">{label}</label>}
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-white rounded-xl px-4 py-3 text-sm font-bold shadow-sm hover:border-indigo-400 transition-all outline-none active:scale-[0.98]">
+        <span className="truncate">{value}</span>
+        <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
+      </button>
+      
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto z-[60] animate-in fade-in zoom-in-95 duration-100 custom-scrollbar ring-1 ring-black/5">
+             {options.map((opt) => (
+               <div key={opt} onClick={() => { onChange(opt); setOpen(false); }} className={`px-4 py-2.5 text-sm font-bold cursor-pointer transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0 ${value === opt ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
+                 {opt}
+               </div>
+             ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+
+
 // [FITUR PRO] MODAL SMART PLANNER
 const SmartPlannerModal = ({ materials, onClose }) => {
     const [target, setTarget] = useState(100);
@@ -549,16 +584,74 @@ const CalculatorTab = ({ licenseInfo }) => {
   const projNetProfitMonth = projOmzetMonth - projProdCostMonth - projFixedCostMonth;
 
   useEffect(() => { setSavedRecipes(JSON.parse(localStorage.getItem('hpp_pro_db') || '[]')); }, []);
-    const save = () => {
+      const save = () => {
     if(!product.name) return alert("Isi nama produk dulu!");
     // LOGIC PRO: Limit Basic User max 5 resep
     if (!isPro(licenseInfo) && savedRecipes.length >= 5) {
         return alert("Versi BASIC hanya bisa simpan 5 Resep. Upgrade ke PRO untuk Unlimited!");
     }
+    
+    // 1. SIMPAN RESEP (Local Database)
     const data = { id: Date.now(), product, materials, variableOps, fixedOps, production, hppBersih, finalPrice };
     setSavedRecipes(prev => { const n = [...prev, data]; localStorage.setItem('hpp_pro_db', JSON.stringify(n)); return n; });
-    alert("Data Tersimpan!");
+
+    // 2. OTOMATIS: Update Etalase Produk (Profile Tab -> Produk Jadi)
+    const currentProducts = JSON.parse(localStorage.getItem('product_stock_db') || '[]');
+    const existingProdIndex = currentProducts.findIndex(p => p.name.toLowerCase() === product.name.toLowerCase());
+    
+    // Gunakan gambar placeholder jika user tidak upload
+    const prodImage = product.image || null; 
+
+    const newProductItem = {
+        id: existingProdIndex >= 0 ? currentProducts[existingProdIndex].id : `p_${Date.now()}`,
+        name: product.name,
+        price: finalPrice, // Harga jual rekomendasi dari kalkulator
+        hpp: hppBersih,
+        stock: existingProdIndex >= 0 ? currentProducts[existingProdIndex].stock : 0, // Stok jangan di-reset kalau sudah ada
+        type: product.type,
+        image: prodImage,
+        // Default harga bertingkat (bisa diedit nanti di menu Produk)
+        priceGrosir: 0, 
+        priceOjol: 0 
+    };
+
+    let updatedProducts;
+    if (existingProdIndex >= 0) {
+        updatedProducts = [...currentProducts];
+        updatedProducts[existingProdIndex] = { ...updatedProducts[existingProdIndex], ...newProductItem };
+    } else {
+        updatedProducts = [...currentProducts, newProductItem];
+    }
+    localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
+
+    // 3. OTOMATIS: Update Gudang Bahan Baku (Profile Tab -> Bahan Baku)
+    const currentRawMaterials = JSON.parse(localStorage.getItem('raw_material_db') || '[]');
+    let updatedRawMaterials = [...currentRawMaterials];
+
+    materials.forEach(mat => {
+        if(!mat.name) return;
+        const matIdx = updatedRawMaterials.findIndex(m => m.name.toLowerCase() === mat.name.toLowerCase());
+        
+        if (matIdx >= 0) {
+            // Jika bahan sudah ada, update harga beli terakhirnya
+            updatedRawMaterials[matIdx].lastPrice = mat.price;
+        } else {
+            // Jika bahan baru, daftarkan ke gudang
+            updatedRawMaterials.push({
+                id: `rm_${Date.now()}_${Math.random().toString(36).substr(2,5)}`,
+                name: mat.name,
+                unit: mat.unit, // Satuan dasar (misal: gr)
+                stock: 0, // Stok awal 0, user nanti input manual pas belanja
+                lastPrice: mat.price,
+                category: 'Bahan Baku'
+            });
+        }
+    });
+    localStorage.setItem('raw_material_db', JSON.stringify(updatedRawMaterials));
+
+    alert("Data Tersimpan! Produk otomatis masuk Etalase & Bahan Baku terdaftar di Gudang.");
   };
+
 
   const load = (r) => {
     setProduct(r.product); setMaterials(r.materials); setVariableOps(r.variableOps); setFixedOps(r.fixedOps||[]);
@@ -637,7 +730,11 @@ const CalculatorTab = ({ licenseInfo }) => {
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 block">Isi Kemasan</label>
                       <div className="flex">
                         <input type="number" className="w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-l-lg py-2 pl-2 text-sm font-bold outline-none" placeholder="1000" value={m.content} onChange={e=>updateMat(m.id,'content',parseFloat(e.target.value))} />
-                        <select className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 border-l-0 rounded-r-lg px-1 text-xs font-bold text-slate-600 dark:text-slate-300 outline-none cursor-pointer w-16" value={m.unit} onChange={e=>updateMat(m.id,'unit',e.target.value)}>{MATERIAL_UNITS.map(u => <option key={u} value={u}>{u}</option>)}</select>
+
+                     <div className="w-24 shrink-0">
+  <PremiumSelect value={m.unit} options={MATERIAL_UNITS} onChange={v=>updateMat(m.id,'unit',v)} className="!rounded-l-none" />
+</div>
+
                       </div>
                     </div>
                     <div className="col-span-2 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700 mt-1 flex items-center justify-between gap-3">
@@ -903,31 +1000,35 @@ const CalculatorTab = ({ licenseInfo }) => {
 // ============================================================================
 
 const ProfileTab = ({ licenseInfo }) => {
-  const [profile, setProfile] = useState({
-    name: '', address: '', wa: '', logo: null, adminName: '',
-    payment: { qris: null, ewallets: [], bank: [] }
-  });
-  const [priceTier, setPriceTier] = useState('retail');
-  const [products, setProducts] = useState([]); 
-  const [newProd, setNewProd] = useState({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
-  const [showAdd, setShowAdd] = useState(false);
+  const [profile, setProfile] = useState({ name: '', address: '', wa: '', logo: null, adminName: '', payment: { qris: null, ewallets: [], bank: [] } });
+  const [products, setProducts] = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([]);
+  
+  // State UI
   const [activeSec, setActiveSec] = useState('info'); 
+  const [showAdd, setShowAdd] = useState(false);
+  const [showRawMat, setShowRawMat] = useState(false); // Toggle Stok
+  const [cropSrc, setCropSrc] = useState(null); // Untuk memicu modal crop
+  
+  // State Form Baru
+  const [newProd, setNewProd] = useState({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
   const [newWallet, setNewWallet] = useState({ type: 'Gopay', number: '' });
   const [newBank, setNewBank] = useState({ bank: '', number: '' });
+
+  // Load Data
   useEffect(() => {
     const saved = localStorage.getItem('store_profile');
     if (saved) setProfile(JSON.parse(saved));
     const savedProd = localStorage.getItem('product_stock_db');
     if (savedProd) setProducts(JSON.parse(savedProd));
+    const savedRaw = localStorage.getItem('raw_material_db');
+    if (savedRaw) setRawMaterials(JSON.parse(savedRaw));
   }, []);
-  const saveProfile = (newP) => {
-    setProfile(newP);
-    localStorage.setItem('store_profile', JSON.stringify(newP));
-  };
-  const saveProducts = (newP) => {
-    setProducts(newP);
-    localStorage.setItem('product_stock_db', JSON.stringify(newP));
-  };
+
+  const saveProfile = (newP) => { setProfile(newP); localStorage.setItem('store_profile', JSON.stringify(newP)); };
+  const saveProducts = (newP) => { setProducts(newP); localStorage.setItem('product_stock_db', JSON.stringify(newP)); };
+  const saveRaw = (newR) => { setRawMaterials(newR); localStorage.setItem('raw_material_db', JSON.stringify(newR)); };
+
   const addProduct = () => {
     if(!newProd.name) return alert("Nama produk wajib diisi");
     const item = { id: `p_${Date.now()}`, ...newProd, hpp: newProd.price*0.7 }; 
@@ -935,8 +1036,10 @@ const ProfileTab = ({ licenseInfo }) => {
     setShowAdd(false);
     setNewProd({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
   };
+
   const deleteProduct = (id) => saveProducts(products.filter(p => p.id !== id));
   const updateStock = (id, delta) => saveProducts(products.map(p => p.id === id ? {...p, stock: Math.max(0, p.stock + delta)} : p));
+
   const addWallet = () => {
     if(!newWallet.number) return;
     saveProfile({...profile, payment: {...profile.payment, ewallets: [...profile.payment.ewallets, newWallet]}});
@@ -948,81 +1051,113 @@ const ProfileTab = ({ licenseInfo }) => {
     saveProfile({...profile, payment: {...profile.payment, bank: [...profile.payment.bank, newBank]}});
     setNewBank({bank: '', number: ''});
   };
+
+  // Helper Konversi Unit Dinamis
+  const convertUnit = (val, from, to) => {
+      if(from === to) return val;
+      if(from === 'gr' && to === 'kg') return val / 1000;
+      if(from === 'kg' && to === 'gr') return val * 1000;
+      if(from === 'ml' && to === 'liter') return val / 1000;
+      if(from === 'liter' && to === 'ml') return val * 1000;
+      return val; 
+  };
+
   return (
     <div className="max-w-xl mx-auto pb-24 px-4 space-y-4">
+      {/* Tab Navigasi Profile */}
       <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
         {[
             {id:'info', l:'Identitas', i:Store}, 
             {id:'payment', l:'Pembayaran', i:CreditCard}, 
             {id:'stock', l:'Manajemen Stok', i:Box}
         ].map(t => (
-            <button key={t.id} onClick={()=>setActiveSec(t.id)} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition ${activeSec===t.id ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+            <button key={t.id} onClick={()=>setActiveSec(t.id)} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-xs font-bold transition-all ${activeSec===t.id ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                 <t.i className="w-3.5 h-3.5"/> {t.l}
             </button>
         ))}
       </div>
 
+      {/* --- IDENTITAS TOKO (DENGAN CROPPER) --- */}
       {activeSec === 'info' && (
-        <Card title="Identitas Toko">
-            <div className="space-y-4">
+        <Card title="Identitas Toko" className="border-t-4 border-t-indigo-500">
+            <div className="space-y-6">
                 <div className="flex justify-center">
-                    <div className="w-24 h-24 bg-slate-50 dark:bg-slate-800 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center relative overflow-hidden group">
-                        {profile.logo ? <img src={profile.logo} className="w-full h-full object-cover"/> : <ImageIcon className="w-8 h-8 text-slate-300"/>}
-                        <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {if(e.target.files[0]) { const r = new FileReader();
-                        r.onload=v=>saveProfile({...profile, logo:v.target.result}); r.readAsDataURL(e.target.files[0]); }}}/>
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition"><Edit3 className="w-5 h-5 text-white"/></div>
+                    <div className="relative group cursor-pointer">
+                        <div className="w-28 h-28 bg-slate-50 dark:bg-slate-800 rounded-full border-4 border-slate-100 dark:border-slate-700 shadow-xl overflow-hidden flex items-center justify-center">
+                            {profile.logo ? <img src={profile.logo} className="w-full h-full object-cover"/> : <Store className="w-10 h-10 text-slate-300"/>}
+                        </div>
+                        <label className="absolute bottom-0 right-0 bg-indigo-600 text-white p-2.5 rounded-full shadow-lg hover:bg-indigo-500 transition active:scale-90 border-2 border-white dark:border-slate-900">
+                            <Edit3 className="w-4 h-4"/>
+                            <input type="file" className="hidden" accept="image/*" onChange={e => {
+                                if(e.target.files[0]) { 
+                                    const r = new FileReader(); 
+                                    r.onload=v=>setCropSrc(v.target.result); // Trigger Crop Modal
+                                    r.readAsDataURL(e.target.files[0]); 
+                                }
+                            }}/>
+                        </label>
                     </div>
                 </div>
-                <div className="space-y-2">
-                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Nama Toko</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 font-bold text-sm outline-none" value={profile.name} onChange={e=>saveProfile({...profile, name:e.target.value})} placeholder="Contoh: Kopi Kenangan Mantan"/></div>
-                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Alamat Lengkap</label><textarea className="w-full bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-sm outline-none h-20" value={profile.address} onChange={e=>saveProfile({...profile, address:e.target.value})} placeholder="Jl. Mawar No. 12, Jakarta..."/></div>
-                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">WhatsApp Admin</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-sm outline-none font-bold" value={profile.wa} onChange={e=>saveProfile({...profile, wa:e.target.value})} placeholder="0812..."/></div>
-                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">Nama Admin (Kasir)</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-sm outline-none font-bold" value={profile.adminName} onChange={e=>saveProfile({...profile, adminName:e.target.value})} placeholder="Nama Anda"/></div>
+                
+                <div className="space-y-4 px-2">
+                    <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">Nama Toko</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm outline-none focus:border-indigo-500 transition" value={profile.name} onChange={e=>saveProfile({...profile, name:e.target.value})} placeholder="Contoh: D'Shan Guitar"/></div>
+                    <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">Alamat Lengkap</label><textarea className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm outline-none h-24 focus:border-indigo-500 transition resize-none" value={profile.address} onChange={e=>saveProfile({...profile, address:e.target.value})} placeholder="Alamat detail..."/></div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">WhatsApp</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm outline-none font-bold" value={profile.wa} onChange={e=>saveProfile({...profile, wa:e.target.value})} placeholder="08..."/></div>
+                        <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">Nama Kasir</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm outline-none font-bold" value={profile.adminName} onChange={e=>saveProfile({...profile, adminName:e.target.value})} placeholder="Nama Anda"/></div>
+                    </div>
                 </div>
             </div>
         </Card>
       )}
 
+      {/* --- PEMBAYARAN (DENGAN PREMIUM SELECT) --- */}
       {activeSec === 'payment' && (
         <div className="space-y-4">
-            <Card title="QRIS" help="Upload gambar QRIS toko agar bisa discan pembeli">
-                <div className="w-full h-48 bg-slate-50 dark:bg-slate-800 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center relative overflow-hidden group">
-                  {profile.payment.qris ?
-                  <img src={profile.payment.qris} className="w-full h-full object-contain"/> : <div className="text-center text-slate-400"><ImageIcon className="w-8 h-8 mx-auto mb-2"/><p className="text-xs">Upload QRIS</p></div>}
-                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {if(e.target.files[0]) { const r = new FileReader();
-                    r.onload=v=>saveProfile({...profile, payment: {...profile.payment, qris:v.target.result}}); r.readAsDataURL(e.target.files[0]); }}}/>
+            <Card title="QRIS Toko">
+                <div className="w-full h-48 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center relative overflow-hidden group hover:border-indigo-400 transition">
+                   {profile.payment.qris ? <img src={profile.payment.qris} className="w-full h-full object-contain p-4"/> : <div className="text-center text-slate-400"><QrCode className="w-10 h-10 mx-auto mb-2 opacity-50"/><p className="text-xs font-bold">Upload QRIS</p></div>}
+                   <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {if(e.target.files[0]) { const r = new FileReader(); r.onload=v=>saveProfile({...profile, payment: {...profile.payment, qris:v.target.result}}); r.readAsDataURL(e.target.files[0]); }}}/>
                 </div>
             </Card>
-            <Card title="E-Wallet & Bank">
-                <div className="space-y-4">
-                    <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl space-y-2">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Tambah E-Wallet</label>
-                        <div className="flex gap-2 flex-wrap sm:flex-nowrap">
-                            <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold px-2 py-2 outline-none w-full sm:w-auto" value={newWallet.type} onChange={e=>setNewWallet({...newWallet, type:e.target.value})}>{WALLET_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
-                            <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs outline-none w-full sm:w-auto" placeholder="Nomor HP" value={newWallet.number} onChange={e=>setNewWallet({...newWallet, number:e.target.value})}/>
-                            <Button onClick={addWallet} className="py-2 px-4 shrink-0">Add</Button>
+            
+            <Card title="Rekening & E-Wallet">
+                <div className="space-y-6">
+                    {/* E-Wallet Section */}
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                        <label className="text-[10px] font-black text-indigo-500 uppercase mb-3 block">Tambah E-Wallet</label>
+                        <div className="flex gap-2">
+                            <div className="w-32 shrink-0">
+                                <PremiumSelect value={newWallet.type} options={WALLET_TYPES} onChange={v=>setNewWallet({...newWallet, type:v})} />
+                            </div>
+                            <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm font-bold outline-none" placeholder="0812..." value={newWallet.number} onChange={e=>setNewWallet({...newWallet, number:e.target.value})}/>
+                            <Button onClick={addWallet} className="px-4 rounded-xl shrink-0 aspect-square flex items-center justify-center"><Plus className="w-5 h-5"/></Button>
                         </div>
-                       <div className="flex flex-wrap gap-2 mt-2">
+                        <div className="flex flex-wrap gap-2 mt-3">
                             {profile.payment.ewallets.map((w,i) => (
-                                <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-xs font-bold shadow-sm">
-                                    <span className="text-indigo-600">{w.type}</span> <span className="text-slate-700 dark:text-slate-300">{w.number}</span>
-                                    <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, ewallets: profile.payment.ewallets.filter((_,x)=>x!==i)}})}><X className="w-3 h-3 text-red-500"/></button>
+                                <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                                    <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded">{w.type}</span> 
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{w.number}</span>
+                                    <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, ewallets: profile.payment.ewallets.filter((_,x)=>x!==i)}})}><X className="w-3.5 h-3.5 text-slate-400 hover:text-red-500"/></button>
                                 </div>
                             ))}
                         </div>
                     </div>
-                    <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl space-y-2">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase">Tambah Bank</label>
-                         <div className="flex gap-2 flex-wrap sm:flex-nowrap">
-                            <input className="w-full sm:w-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2 text-xs font-bold outline-none" placeholder="Bank" value={newBank.bank} onChange={e=>setNewBank({...newBank, bank:e.target.value})}/>
-                            <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs outline-none w-full sm:w-auto" placeholder="No. Rekening" value={newBank.number} onChange={e=>setNewBank({...newBank, number:e.target.value})}/>
-                            <Button onClick={addBank} className="py-2 px-4 shrink-0">Add</Button>
+
+                    {/* Bank Section */}
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                        <label className="text-[10px] font-black text-emerald-500 uppercase mb-3 block">Tambah Bank</label>
+                         <div className="flex gap-2">
+                            <input className="w-24 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-bold outline-none" placeholder="BCA" value={newBank.bank} onChange={e=>setNewBank({...newBank, bank:e.target.value})}/>
+                            <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm font-bold outline-none" placeholder="No. Rekening" value={newBank.number} onChange={e=>setNewBank({...newBank, number:e.target.value})}/>
+                            <Button onClick={addBank} className="px-4 rounded-xl shrink-0 aspect-square flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20"><Plus className="w-5 h-5"/></Button>
                         </div>
-                         <div className="flex flex-wrap gap-2 mt-2">
-                             {profile.payment.bank.map((b,i) => (
-                                <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-xs font-bold shadow-sm">
-                                    <span className="text-emerald-600 uppercase">{b.bank}</span> <span className="text-slate-700 dark:text-slate-300">{b.number}</span>
-                                    <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, bank: profile.payment.bank.filter((_,x)=>x!==i)}})}><X className="w-3 h-3 text-red-500"/></button>
+                         <div className="flex flex-wrap gap-2 mt-3">
+                              {profile.payment.bank.map((b,i) => (
+                                <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                                    <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded uppercase">{b.bank}</span> 
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{b.number}</span>
+                                    <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, bank: profile.payment.bank.filter((_,x)=>x!==i)}})}><X className="w-3.5 h-3.5 text-slate-400 hover:text-red-500"/></button>
                                 </div>
                             ))}
                         </div>
@@ -1032,97 +1167,218 @@ const ProfileTab = ({ licenseInfo }) => {
         </div>
       )}
 
+      {/* --- MANAJEMEN STOK (100% SESUAI REQ) --- */}
       {activeSec === 'stock' && (
         <div className="space-y-4">
-             <div className="flex justify-between items-center">
-                <h3 className="font-bold text-slate-800 dark:text-white">Daftar Produk ({products.length})</h3>
-                <Button onClick={()=>setShowAdd(true)} icon={Plus}>Tambah Produk</Button>
-            </div>
-            <div className="space-y-3">
-                {products.length === 0 && <p className="text-center text-slate-400 text-xs py-10">Belum ada produk. Tambahkan sekarang.</p>}
-                {products.map(p => (
-                    <div key={p.id} className="bg-white dark:bg-slate-900 p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 flex gap-3 items-center">
-                         <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-lg overflow-hidden shrink-0">
-                             {p.image ? <img src={p.image} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-slate-300">{p.name[0]}</div>}
+             {/* Toggle Switcher Mahal */}
+             <div className="bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl flex mb-6 relative">
+                 <button onClick={()=>setShowRawMat(false)} className={`flex-1 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all relative z-10 ${!showRawMat ? 'text-indigo-600 dark:text-white' : 'text-slate-400'}`}>
+                    Produk Jadi
+                 </button>
+                 <button onClick={()=>setShowRawMat(true)} className={`flex-1 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all relative z-10 ${showRawMat ? 'text-indigo-600 dark:text-white' : 'text-slate-400'}`}>
+                    Bahan Baku
+                 </button>
+                 {/* Sliding Background */}
+                 <div className={`absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-white dark:bg-slate-700 rounded-lg shadow-sm transition-transform duration-300 ${showRawMat ? 'translate-x-[calc(100%+6px)]' : 'translate-x-0'}`}></div>
+             </div>
+
+             {!showRawMat ? (
+                // === VIEW 1: STOK PRODUK JADI ===
+                <div className="animate-in slide-in-from-left-4 duration-300">
+                    <div className="flex justify-between items-center mb-4">
+                        <div className="flex items-center gap-3">
+                             <div className="p-2 bg-indigo-600 rounded-lg text-white shadow-lg shadow-indigo-500/30"><Box className="w-5 h-5"/></div>
+                             <div>
+                                <h3 className="font-black text-lg text-slate-800 dark:text-white leading-none">Etalase Produk</h3>
+                                <p className="text-[10px] font-bold text-slate-400 mt-0.5">{products.length} Item Terdaftar</p>
+                             </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                            <div className="flex justify-between">
-                                <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">{p.name}</h4>
-                                <span className="text-[10px] px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-slate-500 font-bold">{p.type}</span>
-                            </div>
-                            <p className="text-indigo-600 font-bold text-xs">{formatIDR(p.price)}</p>
-                        </div>
-                        <div className="flex flex-col items-end gap-1">
-                             <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 rounded-lg p-1">
-                                <button onClick={()=>updateStock(p.id, -1)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm flex items-center justify-center text-xs font-bold hover:bg-slate-100">-</button>
-                                <span className="w-6 text-center text-xs font-bold">{p.stock}</span>
-                                <button onClick={()=>updateStock(p.id, 1)} className="w-6 h-6 bg-white dark:bg-slate-700 rounded shadow-sm flex items-center justify-center text-xs font-bold hover:bg-slate-100">+</button>
-                            </div>
-                             <button onClick={()=>deleteProduct(p.id)} className="text-[10px] text-red-400 hover:text-red-600">Hapus</button>
-                        </div>
+                        <Button onClick={()=>setShowAdd(true)} icon={Plus} className="px-5 py-2.5 text-xs shadow-lg shadow-indigo-500/20">Tambah</Button>
                     </div>
-                ))}
-            </div>
+
+                    <div className="space-y-3 pb-24">
+                        {products.length === 0 && <div className="text-center py-10 text-slate-400 text-xs font-bold border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">Belum ada produk.<br/>Klik Tambah untuk memulai.</div>}
+                        {products.map(p => (
+                            <div key={p.id} className="bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex gap-4 items-center group hover:border-indigo-500/50 hover:shadow-indigo-500/10 transition-all duration-300">
+                                <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-xl overflow-hidden shrink-0 border border-slate-100 dark:border-slate-700 relative">
+                                    {p.image ? <img src={p.image} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-slate-300 text-xl">{p.name[0]}</div>}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate">{p.name}</h4>
+                                        <span className="text-[9px] px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-md text-slate-500 font-black uppercase tracking-wider">{p.type}</span>
+                                    </div>
+                                    <p className="text-indigo-600 font-black text-sm">{formatIDR(p.price)}</p>
+                                </div>
+                                {/* Stok Controller Mahal */}
+                                <div className="flex flex-col items-end gap-2">
+                                     <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                                        <button onClick={()=>updateStock(p.id, -1)} className="w-8 h-8 bg-white dark:bg-slate-700 rounded-lg shadow-sm flex items-center justify-center text-sm font-bold hover:text-red-500 hover:bg-red-50 transition active:scale-90">-</button>
+                                        <span className="w-10 text-center text-sm font-black text-slate-800 dark:text-white">{p.stock}</span>
+                                        <button onClick={()=>updateStock(p.id, 1)} className="w-8 h-8 bg-white dark:bg-slate-700 rounded-lg shadow-sm flex items-center justify-center text-sm font-bold hover:text-emerald-500 hover:bg-emerald-50 transition active:scale-90">+</button>
+                                    </div>
+                                    <button onClick={()=>deleteProduct(p.id)} className="text-[10px] font-bold text-slate-300 hover:text-red-500 transition px-2">Hapus Item</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+             ) : (
+                 // === VIEW 2: STOK BAHAN BAKU (DENGAN CONVERTER) ===
+                 <div className="animate-in slide-in-from-right-4 duration-300 space-y-4 pb-24">
+                     {/* Summary Card */}
+                     <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-6 rounded-[2rem] relative overflow-hidden shadow-xl shadow-indigo-600/30">
+                         <div className="relative z-10">
+                             <div className="flex items-center gap-3 mb-2 opacity-80">
+                                 <Layers className="w-5 h-5"/>
+                                 <span className="text-xs font-bold uppercase tracking-widest">Total Aset Bahan</span>
+                             </div>
+                             <p className="text-4xl font-black tracking-tight mb-2">{formatIDR(rawMaterials.reduce((a,b)=>a+(b.lastPrice * (b.stock || 0)), 0))}</p>
+                             <div className="flex gap-4 mt-4">
+                                 <div><p className="text-[10px] opacity-60 font-bold uppercase">Jenis Bahan</p><p className="font-bold">{rawMaterials.length}</p></div>
+                                 <div><p className="text-[10px] opacity-60 font-bold uppercase">Status Gudang</p><p className="font-bold text-emerald-300">Aman</p></div>
+                             </div>
+                         </div>
+                         <div className="absolute right-0 top-0 bottom-0 w-32 bg-white/5 skew-x-12 -mr-10"></div>
+                     </div>
+
+                     <div className="grid grid-cols-1 gap-3">
+                         {rawMaterials.length === 0 && <div className="text-center py-10 text-slate-400 text-xs font-bold bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">Simpan resep di menu Kalkulator<br/>untuk mengisi data ini otomatis.</div>}
+                         
+                         {rawMaterials.map((rm, idx) => {
+                             // Logic Unit Switcher per Item
+                             const baseUnit = rm.unit || 'gr';
+                             const [viewUnit, setViewUnit] = useState(baseUnit); // Local state for view
+                             
+                             // Opsi Unit berdasarkan base unit
+                             const unitOptions = baseUnit === 'gr' ? ['gr', 'kg'] : baseUnit === 'ml' ? ['ml', 'liter'] : [baseUnit];
+                             const displayValue = convertUnit(rm.stock || 0, baseUnit, viewUnit);
+
+                             return (
+                                 <div key={rm.id} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col gap-3">
+                                     <div className="flex justify-between items-start">
+                                         <div className="flex items-center gap-3">
+                                              <div className="w-10 h-10 bg-orange-50 dark:bg-orange-900/20 text-orange-600 rounded-xl flex items-center justify-center font-bold text-xs shadow-sm">
+                                                  {idx+1}
+                                              </div>
+                                              <div>
+                                                  <h4 className="font-bold text-slate-800 dark:text-white text-sm">{rm.name}</h4>
+                                                  <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Stok Gudang</p>
+                                              </div>
+                                         </div>
+                                         <div className="text-right">
+                                             <p className="text-[10px] font-bold text-slate-400 uppercase">Nilai Aset</p>
+                                             <p className="text-indigo-600 font-black text-sm">{formatIDR((rm.stock||0) * rm.lastPrice)}</p>
+                                         </div>
+                                     </div>
+                                     
+                                     {/* Converter Area */}
+                                     <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-1.5 flex items-center justify-between border border-slate-100 dark:border-slate-700">
+                                         {/* Dropdown Unit Selector (Mahal) */}
+                                         <div className="flex items-center">
+                                            {unitOptions.length > 1 ? (
+                                                <div className="flex bg-white dark:bg-slate-700 rounded-lg p-1 shadow-sm">
+                                                    {unitOptions.map(u => (
+                                                        <button key={u} onClick={()=>setViewUnit(u)} className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all ${viewUnit === u ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>
+                                                            {u}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ) : <span className="px-3 text-xs font-bold text-slate-500">{baseUnit}</span>}
+                                         </div>
+
+                                         <div className="flex items-center gap-3 pr-3">
+                                             <span className="text-xl font-black text-slate-800 dark:text-white tracking-tight">
+                                                 {parseFloat(displayValue.toFixed(2))} <span className="text-xs text-slate-400 font-bold ml-0.5">{viewUnit}</span>
+                                             </span>
+                                         </div>
+                                     </div>
+                                     
+                                     <div className="flex justify-end">
+                                          <button onClick={()=>{
+                                             const add = prompt(`Tambah stok ${rm.name} (satuan basis: ${baseUnit}):`, "0");
+                                             if(add) {
+                                                 const n = rawMaterials.map(x => x.id===rm.id ? {...x, stock: (x.stock||0) + parseFloat(add)} : x);
+                                                 saveRaw(n);
+                                             }
+                                         }} className="text-xs font-bold text-indigo-600 hover:text-indigo-500 flex items-center gap-1 py-1 px-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition">
+                                             <Plus className="w-3 h-3"/> Tambah Stok Manual
+                                         </button>
+                                     </div>
+                                 </div>
+                             );
+                         })}
+                     </div>
+                 </div>
+             )}
         </div>
       )}
 
+      {/* --- MODAL TAMBAH PRODUK (100% MAHAL & CLEAN) --- */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
-          <Card className="w-full max-w-sm" title="Tambah Produk Baru">
-            <div className="space-y-3">
-              <div className="flex justify-center">
-                <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center relative overflow-hidden border-2 border-dashed border-slate-300">
-                  {newProd.image ? <img src={newProd.image} className="w-full h-full object-cover"/> : <ImageIcon className="w-6 h-6 text-slate-300"/>}
-                  <input type="file" className="absolute inset-0 opacity-0" onChange={e=>{if(e.target.files[0]){const r=new FileReader();r.onload=v=>setNewProd({...newProd,image:v.target.result});r.readAsDataURL(e.target.files[0]);}}}/>
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 sm:p-6 bg-white/80 dark:bg-black/80 backdrop-blur-md animate-fade-in">
+          <Card className="w-full max-w-sm max-h-[90vh] overflow-y-auto shadow-2xl border-slate-200 dark:border-slate-700 ring-1 ring-black/5" title="Tambah Produk Baru">
+            <div className="space-y-4">
+              <div className="flex justify-center py-2">
+                <div className="w-24 h-24 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center relative overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700 group hover:border-indigo-500 transition cursor-pointer">
+                  {newProd.image ? <img src={newProd.image} className="w-full h-full object-cover"/> : <div className="text-center text-slate-300"><ImageIcon className="w-8 h-8 mx-auto"/><span className="text-[9px] font-bold">Upload Foto</span></div>}
+                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e=>{if(e.target.files[0]){const r=new FileReader();r.onload=v=>setNewProd({...newProd,image:v.target.result});r.readAsDataURL(e.target.files[0]);}}}/>
                 </div>
               </div>
+
               <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase">Nama Produk</label>
-                  <input className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg outline-none border border-slate-200 dark:border-slate-700 text-sm font-bold" value={newProd.name} onChange={e=>setNewProd({...newProd, name:e.target.value})} />
+                  <label className="text-[10px] font-bold text-slate-400 uppercase mb-1.5 block ml-1">Nama Produk</label>
+                  <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 rounded-xl outline-none border border-slate-200 dark:border-slate-700 text-sm font-bold focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition dark:text-white placeholder:text-slate-300" placeholder="Contoh: Kopi Susu Gula Aren" value={newProd.name} onChange={e=>setNewProd({...newProd, name:e.target.value})} />
               </div>
+
               <div className="flex gap-3">
                    <div className="flex-1">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase">Jenis</label>
-                       <select className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg outline-none border border-slate-200 dark:border-slate-700 text-sm font-bold" value={newProd.type} onChange={e=>setNewProd({...newProd, type:e.target.value})}>
-                           {['Makanan','Minuman','Fashion','Jasa','Lainnya'].map(t=><option key={t} value={t}>{t}</option>)}
-                       </select>
+                       <PremiumSelect label="Kategori" value={newProd.type} options={['Makanan','Minuman','Fashion','Jasa','Lainnya']} onChange={v=>setNewProd({...newProd, type:v})} />
                    </div>
-                   <div className="w-24">
-                       <label className="text-[10px] font-bold text-slate-400 uppercase">Stok Awal</label>
-                       <NumericInput value={newProd.stock} onChange={v=>setNewProd({...newProd, stock:v})} className="bg-slate-50 dark:bg-slate-800" />
+                   <div className="w-28">
+                       <NumericInput label="Stok Awal" value={newProd.stock} onChange={v=>setNewProd({...newProd, stock:v})} className="bg-slate-50 dark:bg-slate-900" />
                    </div>
               </div>
                            
-                          {/* --- BAGIAN YANG RUSAK BIASANYA DISINI --- */}
               <NumericInput 
-                  placeholder="Harga Jual" 
+                  placeholder="0" 
                   value={newProd.price} 
                   onChange={v=>setNewProd({...newProd, price:v})} 
                   prefix="Rp" 
                   label="Harga Jual (Retail)" 
+                  className="bg-slate-50 dark:bg-slate-900"
               />
 
-              {/* FITUR PRO: HARGA BERTINGKAT */}
               {isPro(licenseInfo) && (
-                  <div className="grid grid-cols-2 gap-2 mt-2 p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-100 dark:border-indigo-800">
-                      <div className="col-span-2 text-[10px] font-bold text-indigo-500 uppercase flex items-center gap-1"><Crown className="w-3 h-3"/> Pro Pricing</div>
-                      <NumericInput placeholder="Grosir" value={newProd.priceGrosir || 0} onChange={v=>setNewProd({...newProd, priceGrosir:v})} prefix="Rp" label="Harga Grosir" className="text-xs" />
-                      <NumericInput placeholder="App Online" value={newProd.priceOjol || 0} onChange={v=>setNewProd({...newProd, priceOjol:v})} prefix="Rp" label="Harga App Online" className="text-xs" />
+                  <div className="space-y-2 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
+                      <div className="text-[10px] font-black text-indigo-500 uppercase flex items-center gap-1 mb-1"><Crown className="w-3 h-3"/> Pro Pricing Strategy</div>
+                      <div className="grid grid-cols-2 gap-3">
+                          <NumericInput placeholder="Grosir" value={newProd.priceGrosir || 0} onChange={v=>setNewProd({...newProd, priceGrosir:v})} prefix="Rp" label="Harga Grosir" className="text-xs bg-white dark:bg-slate-800" />
+                          <NumericInput placeholder="App Online" value={newProd.priceOjol || 0} onChange={v=>setNewProd({...newProd, priceOjol:v})} prefix="Rp" label="Harga App Online" className="text-xs bg-white dark:bg-slate-800" />
+                      </div>
                   </div>
               )}
 
-onChange={v=>setNewProd({...newProd, price:v})} prefix="Rp" label="Harga Jual" />
-              <div className="flex gap-2 pt-2"><Button variant="secondary" className="flex-1" onClick={()=>setShowAdd(false)}>Batal</Button><Button className="flex-1" onClick={addProduct}>Simpan</Button></div>
+              <div className="flex gap-3 pt-2">
+                  <Button variant="outline" className="flex-1 py-3" onClick={()=>setShowAdd(false)}>Batal</Button>
+                  <Button className="flex-1 py-3" onClick={addProduct}>Simpan Produk</Button>
+              </div>
             </div>
           </Card>
         </div>
+      )}
+
+      {/* --- CROPPER MODAL (HIDDEN LOGIC) --- */}
+      {cropSrc && (
+         <ImageCropperModal imageSrc={cropSrc} onCropComplete={(img)=>{ saveProfile({...profile, logo: img}); setCropSrc(null); }} onClose={()=>setCropSrc(null)} />
       )}
     </div>
   );
 };
 
+
 // ============================================================================
-// 4. TAB: POS (KASIR) - FIXED CLEAN VERSION
+// 4. TAB: POS (KASIR) - FIXED COMPLETE VERSION
 // ============================================================================
 
 // Mengubah konsep Sidebar menjadi Modal Popup agar tidak tertutup Navbar
@@ -1376,7 +1632,7 @@ const PosTab = ({ licenseInfo }) => {
   };
 
   const ReceiptModal = ({ order, onClose }) => (
-      <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in zoom-in duration-300">
+      <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-white/60 dark:bg-black/80 backdrop-blur-md animate-in fade-in zoom-in duration-300">
           <div className="bg-white w-full max-w-xs p-6 shadow-2xl relative text-slate-900">
              <div className="text-center border-b-2 border-dashed border-slate-900 pb-4 mb-4">
                 {isPro(licenseInfo) ? (
@@ -1452,30 +1708,65 @@ const PosTab = ({ licenseInfo }) => {
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-32">
-                    {products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())).map(p => (
-                        <div key={p.id} onClick={()=>addToCart(p)} className={`bg-white dark:bg-slate-900 p-2.5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition group ${p.stock>0 ? 'cursor-pointer hover:border-indigo-500 hover:scale-[1.02]' : 'opacity-60 grayscale cursor-not-allowed'}`}>
-                            <div className="aspect-square bg-slate-100 dark:bg-slate-800 rounded-xl mb-2.5 overflow-hidden relative">
-                                {p.image ? <img src={p.image} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-slate-300">{p.name[0]}</div>}
-                                <div className={`absolute bottom-1 right-1 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md shadow-sm ${p.stock>0?'bg-slate-900/80':'bg-red-500'}`}>{p.stock > 0 ? `${p.stock} Stok` : 'Habis'}</div>
+                    {products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())).map(p => {
+                        // --- PERBAIKAN LOGIKA HARGA DINAMIS ---
+                        let displayPrice = p.price;
+                        let priceLabel = "Retail";
+                        
+                        // Cek Tier Harga yang dipilih user
+                        if (priceTier === 'grosir' && p.priceGrosir > 0) { 
+                            displayPrice = p.priceGrosir; 
+                            priceLabel = "Grosir"; 
+                        }
+                        if (priceTier === 'ojol' && p.priceOjol > 0) { 
+                            displayPrice = p.priceOjol; 
+                            priceLabel = "App Online"; 
+                        }
+
+                        return (
+                            <div key={p.id} onClick={()=>addToCart(p)} className={`bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-all duration-300 group ${p.stock>0 ? 'cursor-pointer hover:border-indigo-500 hover:shadow-indigo-500/10 hover:-translate-y-1' : 'opacity-60 grayscale cursor-not-allowed'}`}>
+                                <div className="aspect-square bg-slate-50 dark:bg-slate-800 rounded-xl mb-3 overflow-hidden relative">
+                                    {p.image ? <img src={p.image} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"/> : <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-slate-300">{p.name[0]}</div>}
+                                    
+                                    {/* Badge Stok Mahal */}
+                                    <div className={`absolute bottom-1 right-1 text-white text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg shadow-sm ${p.stock>0?'bg-slate-900/90 backdrop-blur-md':'bg-red-500'}`}>
+                                        {p.stock > 0 ? `${p.stock} Ready` : 'Habis'}
+                                    </div>
+                                </div>
+                                
+                                <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate mb-1">{p.name}</h4>
+                                
+                                <div className="flex justify-between items-end">
+                                    <div className="flex flex-col">
+                                        {/* Label Kategori Harga Aktif */}
+                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">{priceLabel}</span>
+                                        <p className="text-indigo-600 font-black text-sm">{formatIDR(displayPrice)}</p>
+                                    </div>
+                                    <button className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center text-indigo-600 hover:bg-indigo-600 hover:text-white transition-colors shadow-sm">
+                                        <Plus className="w-4 h-4"/>
+                                    </button>
+                                </div>
                             </div>
-                            <h4 className="font-bold text-slate-800 dark:text-white text-xs truncate">{p.name}</h4>
-                            <p className="text-indigo-600 font-bold text-[10px] mt-0.5">{formatIDR(p.price)}</p>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 
+            {/* POPUP CART & FLOATING BUTTON */}
             <CartPopup showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile}/>
             
             {cart.length > 0 && (
                 <div className="fixed bottom-24 left-0 right-0 px-4 z-30 flex justify-center animate-slide-up">
-                    <div onClick={() => setShowCart(true)} className="w-full max-w-md bg-slate-900 dark:bg-black text-white p-4 rounded-2xl shadow-2xl shadow-slate-900/40 flex justify-between items-center cursor-pointer border border-white/10 backdrop-blur-xl group hover:scale-[1.02] transition-all duration-300">
+                    <div 
+                        onClick={() => setShowCart(true)} 
+                        className="w-full max-w-md bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl text-slate-900 dark:text-white p-4 rounded-2xl shadow-2xl shadow-slate-200/50 dark:shadow-black/50 flex justify-between items-center cursor-pointer border border-white/50 dark:border-white/10 group hover:scale-[1.02] transition-all duration-300"
+                    >
                         <div className="flex flex-col">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">{totalCartQty} Item Dipilih</span>
                             <span className="text-lg font-black tracking-tight">{formatIDR(totalCartPrice)}</span>
                         </div>
                         <div className="flex items-center gap-3">
-                             <div className="h-8 w-[1px] bg-white/20"></div>
+                             <div className="h-8 w-[1px] bg-slate-200 dark:bg-slate-700"></div>
                              <button className="flex items-center gap-2 font-bold text-sm bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl transition shadow-lg shadow-indigo-600/20 group-hover:shadow-indigo-600/40">
                                 <ShoppingCart className="w-4 h-4"/> Checkout
                              </button>
@@ -1569,6 +1860,7 @@ const PosTab = ({ licenseInfo }) => {
 // ============================================================================
 // 5. TAB: REPORT (VERSI LENGKAP)
 // ============================================================================
+
 
 const ReportTab = ({ licenseInfo }) => {
   const [filter, setFilter] = useState('month');
@@ -1808,20 +2100,40 @@ const ReportTab = ({ licenseInfo }) => {
 // 6. TAB: SETTINGS (UPDATED WITH SULTAN BADGE)
 // ============================================================================
 
-const SettingsTab = () => {
-    const [licenseInfo, setLicenseInfo] = useState(null);
+const SettingsTab = ({ licenseInfo }) => { // Pastikan menerima props licenseInfo
+    
+    // --- 1. PINDAHKAN LOGIC RETAIL MODE KE SINI (DI DALAM KURUNG KURAWAL) ---
+    const [retailMode, setRetailMode] = useState(false);
+    
+    useEffect(() => {
+        setRetailMode(localStorage.getItem('retail_mode') === 'true');
+    }, []);
+
+    const toggleRetail = () => {
+        const n = !retailMode;
+        setRetailMode(n);
+        localStorage.setItem('retail_mode', n ? 'true' : 'false');
+        if(n) alert("MODE RETAIL AKTIF!\nFitur Scanner Barcode Cepat & Mass Stock Opname telah diaktifkan.");
+        else alert("Mode Retail Non-Aktif.");
+    };
+    // ------------------------------------------------------------------------
+
+    const [licenseInfoState, setLicenseInfoState] = useState(null); // Rename local state jika perlu, atau gunakan props langsung
     const [timeLeft, setTimeLeft] = useState('');
 
     useEffect(() => {
         const saved = localStorage.getItem('app_license');
-        if (saved) { setLicenseInfo(JSON.parse(saved)); }
+        if (saved) { setLicenseInfoState(JSON.parse(saved)); }
     }, []);
 
+    // Gunakan prop licenseInfo atau state lokal, pastikan konsisten
+    const info = licenseInfo || licenseInfoState; 
+
     useEffect(() => {
-        if (!licenseInfo?.validUntil) return;
+        if (!info?.validUntil) return;
         const updateTimer = () => {
             const now = new Date();
-            const end = new Date(licenseInfo.validUntil);
+            const end = new Date(info.validUntil);
             const diff = end - now;
             if (diff <= 0) { setTimeLeft("Kedaluwarsa"); } 
             else {
@@ -1835,7 +2147,7 @@ const SettingsTab = () => {
         updateTimer();
         const interval = setInterval(updateTimer, 1000);
         return () => clearInterval(interval);
-    }, [licenseInfo]);
+    }, [info]);
 
     const handleResetAll = () => {
         if(confirm("PERINGATAN: Reset data akan menghapus semua simpanan dan lisensi. Lanjutkan?")) {
@@ -1850,7 +2162,25 @@ const SettingsTab = () => {
             <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-8 tracking-tight">Pengaturan</h1>
             
             <div className="space-y-6">
-                {licenseInfo && (
+
+                {/* Card Retail Mode */}
+                <Card title="Mode Aplikasi" icon={LayoutGrid}>
+                    <div className="flex justify-between items-center py-1">
+                        <div className="pr-4">
+                            <h4 className="font-bold text-sm text-slate-800 dark:text-white">Retail Murni (Minimarket)</h4>
+                            <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                Optimalkan aplikasi untuk kecepatan transaksi tinggi. Mengaktifkan fitur <span className="text-indigo-500 font-bold">Barcode Scanner Always-On</span> dan <span className="text-indigo-500 font-bold">Stock Opname Massal</span>.
+                            </p>
+                        </div>
+
+                        {/* Toggle Switch Mahal */}
+                        <div onClick={toggleRetail} className={`w-14 h-8 rounded-full p-1 cursor-pointer transition-colors duration-300 flex items-center shadow-inner ${retailMode ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`}>
+                            <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${retailMode ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                        </div>
+                    </div>
+                </Card>
+
+                {info && (
                     <Card 
                         title="Status Lisensi" 
                         icon={ShieldCheck} 
@@ -1858,7 +2188,7 @@ const SettingsTab = () => {
                     >
                         {/* --- BAGIAN BARU: BADGE MAHAL DI SETTINGS --- */}
                         <div className="flex justify-center -mt-2 mb-6">
-                             {isPro(licenseInfo) ? (
+                             {isPro(info) ? (
                                 <div className="flex items-center gap-2 bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-600 text-white px-5 py-2 rounded-full shadow-xl shadow-amber-500/40 border border-white/30 scale-110">
                                     <Crown className="w-5 h-5 fill-white/40 animate-pulse" />
                                     <span className="text-xs font-black tracking-[0.2em]">MEMBER PRO SULTAN</span>
@@ -1869,7 +2199,6 @@ const SettingsTab = () => {
                                 </div>
                              )}
                         </div>
-                        {/* ------------------------------------------- */}
 
                         <div className="bg-indigo-600 text-white p-5 rounded-2xl mb-5 text-center shadow-lg shadow-indigo-500/20">
                              <p className="text-[10px] font-bold uppercase text-indigo-200 mb-1 tracking-widest">Sisa Masa Aktif</p>
@@ -1879,15 +2208,15 @@ const SettingsTab = () => {
                         <div className="space-y-4 text-sm px-2">
                             <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
                                 <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-4 h-4 text-slate-400"/> User</span>
-                                <span className="font-bold text-slate-800 dark:text-white">{licenseInfo.tenant}</span>
+                                <span className="font-bold text-slate-800 dark:text-white">{info.tenant}</span>
                             </div>
                             <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
                                 <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Shield className="w-4 h-4 text-slate-400"/> ID Aplikasi</span>
-                                <span className="font-mono font-bold text-slate-800 dark:text-white bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">{licenseInfo.id}</span>
+                                <span className="font-mono font-bold text-slate-800 dark:text-white bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">{info.id}</span>
                             </div>
                             <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
                                  <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Calendar className="w-4 h-4 text-slate-400"/> Berakhir</span>
-                                <span className="font-bold text-slate-800 dark:text-white">{new Date(licenseInfo.validUntil).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                                <span className="font-bold text-slate-800 dark:text-white">{new Date(info.validUntil).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
                             </div>
                          </div>
                     </Card>
@@ -1905,6 +2234,7 @@ const SettingsTab = () => {
         </div>
     );
 };
+
 
 
 // ============================================================================
