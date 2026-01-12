@@ -1643,7 +1643,7 @@ const ReportTab = ({ licenseInfo }) => {
 
 
 // ============================================================================
-// 6. TAB: SETTINGS (UPDATED WITH LICENSE INFO)
+// 6. TAB: SETTINGS (UPDATED WITH SULTAN BADGE)
 // ============================================================================
 
 const SettingsTab = () => {
@@ -1689,35 +1689,47 @@ const SettingsTab = () => {
             
             <div className="space-y-6">
                 {licenseInfo && (
-    <Card 
-        title="Status Lisensi" 
-        icon={ShieldCheck} 
-        // FIX: Menambahkan dark:from-slate-800 dark:to-slate-900 agar card menjadi gelap saat mode dark
-        className="border-indigo-100 dark:border-slate-700 bg-gradient-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-900"
-    >
-        {/* ... sisa konten card tetap sama ... */}
-        <div className="bg-indigo-600 text-white p-5 rounded-2xl mb-5 text-center shadow-lg shadow-indigo-500/20">
-             <p className="text-[10px] font-bold uppercase text-indigo-200 mb-1 tracking-widest">Sisa Masa Aktif</p>
-             <p className="text-xl font-black font-mono">{timeLeft}</p>
-        </div>
-        {/* ... pertahankan kode konten di bawahnya (div className="space-y-4...") ... */}
-        <div className="space-y-4 text-sm px-2">
-            {/* ... isi card ... */}
-            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                 <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-4 h-4 text-slate-400"/> User</span>
-                <span className="font-bold text-slate-800 dark:text-white">{licenseInfo.tenant}</span>
-            </div>
-            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Shield className="w-4 h-4 text-slate-400"/> ID Aplikasi</span>
-                <span className="font-mono font-bold text-slate-800 dark:text-white bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">{licenseInfo.id}</span>
-            </div>
-            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                 <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Calendar className="w-4 h-4 text-slate-400"/> Berakhir</span>
-                <span className="font-bold text-slate-800 dark:text-white">{new Date(licenseInfo.validUntil).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
-            </div>
-         </div>
-    </Card>
-)}
+                    <Card 
+                        title="Status Lisensi" 
+                        icon={ShieldCheck} 
+                        className="border-indigo-100 dark:border-slate-700 bg-gradient-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-900"
+                    >
+                        {/* --- BAGIAN BARU: BADGE MAHAL DI SETTINGS --- */}
+                        <div className="flex justify-center -mt-2 mb-6">
+                             {isPro(licenseInfo) ? (
+                                <div className="flex items-center gap-2 bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-600 text-white px-5 py-2 rounded-full shadow-xl shadow-amber-500/40 border border-white/30 scale-110">
+                                    <Crown className="w-5 h-5 fill-white/40 animate-pulse" />
+                                    <span className="text-xs font-black tracking-[0.2em]">MEMBER PRO SULTAN</span>
+                                </div>
+                             ) : (
+                                <div className="flex items-center gap-2 bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-4 py-1.5 rounded-full border border-slate-300 dark:border-slate-600">
+                                    <span className="text-xs font-bold tracking-wider">MEMBER BASIC</span>
+                                </div>
+                             )}
+                        </div>
+                        {/* ------------------------------------------- */}
+
+                        <div className="bg-indigo-600 text-white p-5 rounded-2xl mb-5 text-center shadow-lg shadow-indigo-500/20">
+                             <p className="text-[10px] font-bold uppercase text-indigo-200 mb-1 tracking-widest">Sisa Masa Aktif</p>
+                             <p className="text-xl font-black font-mono">{timeLeft}</p>
+                        </div>
+
+                        <div className="space-y-4 text-sm px-2">
+                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-4 h-4 text-slate-400"/> User</span>
+                                <span className="font-bold text-slate-800 dark:text-white">{licenseInfo.tenant}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Shield className="w-4 h-4 text-slate-400"/> ID Aplikasi</span>
+                                <span className="font-mono font-bold text-slate-800 dark:text-white bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">{licenseInfo.id}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                                 <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Calendar className="w-4 h-4 text-slate-400"/> Berakhir</span>
+                                <span className="font-bold text-slate-800 dark:text-white">{new Date(licenseInfo.validUntil).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                            </div>
+                         </div>
+                    </Card>
+                )}
 
                 <Card title="Zona Bahaya" icon={AlertCircle} className="border-rose-100 dark:border-rose-900/30">
                     <p className="text-xs font-medium text-slate-500 mb-4 leading-relaxed">
@@ -1731,6 +1743,7 @@ const SettingsTab = () => {
         </div>
     );
 };
+
 
 // ============================================================================
 // APP SHELL (SECURITY & LOGIC CENTER)
