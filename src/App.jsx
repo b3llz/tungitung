@@ -13,16 +13,17 @@ import {
   Lock, Unlock, Key, ShieldCheck, Calendar, AlertTriangle, 
   ShieldAlert, ShieldCheck as ShieldOk,
   QrCode, Banknote, Coins, CreditCard as CardIcon, 
-  UserCircle2, Wallet2, FileText
+  UserCircle2, Wallet2, FileText, ChevronDown, ChevronUp,
+  Minimize2, Maximize2
 } from 'lucide-react';
 
-// --- IMPORT LIBRARY BARU ---
+// --- IMPORT LIBRARY ---
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, increment, runTransaction, onSnapshot } from "firebase/firestore";
 import currency from "currency.js";
 import Cropper from "react-easy-crop";
 
-// --- KONFIGURASI FIREBASE (WAJIB DIGANTI DENGAN PUNYAMU) ---
+// --- KONFIGURASI FIREBASE (SESUAIKAN DENGAN MILIKMU) ---
 const firebaseConfig = {
   apiKey: "ISI_API_KEY_DARI_FIREBASE_CONSOLE",
   authDomain: "PROJECT_ID.firebaseapp.com",
@@ -35,83 +36,16 @@ const firebaseConfig = {
 // Inisialisasi Database
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const BRANCH_ID = "PUSAT"; // ID Cabang (Bisa diganti per HP)
+const BRANCH_ID = "PUSAT";
 
-// Helper Uang Presisi (Agar Akurat 100%)
+// Helper & Config
 const money = (val) => currency(val, { symbol: '', decimal: ',', separator: '.', precision: 0 });
-
-// --- CONFIG LAMA ---
 const LOG_API_URL = "https://script.google.com/macros/s/AKfycbx60xl2xjJCJGjo5MMCdE8tAALzVTY0Z0RoLmwFsm2UndwXRwZ_5wq85usR9ANWcq4dZg/exec"; 
 const SESSION_TOKEN = `sess_${Date.now()}_${Math.random().toString(36).substr(2,9)}`;
 const isPro = (info) => info && (info.type === 'PRO' || info.type === 'PREMIUM');
-// ... (lanjutkan kode fungsi syncSession dan lainnya ke bawah)
-
-// Fungsi Sync ke Server (Login & Auto Logout)
-const syncSession = async (action, info) => {
-    try {
-        if(!info) return;
-        // Ambil IP (Optional, kalau gagal lanjut aja)
-        let ip = 'Unknown';
-        try { const r = await fetch('https://api.ipify.org?format=json'); const j = await r.json(); ip = j.ip; } catch(e){}
-        
-        // Kirim ke Google Script
-        await fetch(LOG_API_URL, {
-            method: 'POST',
-            mode: 'no-cors', // Penting untuk Google Script
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                action, id: info.id, tenant: info.tenant, 
-                sessionToken: SESSION_TOKEN, ip: ip, 
-                device: navigator.userAgent 
-            })
-        });
-    } catch(e) { console.log("Sync Silent Fail"); }
-};
-
-// ============================================================================
-// CONFIGURATION (WAJIB DIISI DEVELOPER)
-// ============================================================================
 const BLACKLIST_URL = "https://gist.githubusercontent.com/b3llz/07d95837ff27524b875990b5bd3bbe83/raw/blocklist.json"; 
 const SECRET_KEY = "RAHASIA_DAPUR_123"; 
 
-// ============================================================================
-// 0. UTILS & CONSTANTS
-// ============================================================================
-
-const loadXLSX = async () => {
-  if (window.XLSX) return window.XLSX;
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
-    script.onload = () => resolve(window.XLSX);
-    script.onerror = () => reject(new Error("Gagal memuat library Excel"));
-    document.head.appendChild(script);
-  });
-};
-
-const loadCrypto = async () => {
-    if (window.CryptoJS) return window.CryptoJS;
-    return new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js";
-        script.onload = () => resolve(window.CryptoJS);
-        script.onerror = () => reject(new Error("Gagal memuat library Crypto"));
-        document.head.appendChild(script);
-    });
-};
-
-const MATERIAL_UNITS = ['gr', 'kg', 'pcs', 'ml', 'liter', 'butir', 'sdm', 'sdt', 'pack', 'botol', 'cup'];
-const VARIABLE_COST_TYPES = {
-  'Bahan Baku': { label: 'Total Kapasitas', units: ['gram', 'kilogram', 'ml', 'liter', 'pcs'], icon: Package },
-  'Kemasan': { label: 'Jumlah Isi', units: ['pcs', 'unit', 'pack', 'box'], icon: Box },
-  'Operasional': { label: 'Total Pemakaian', units: ['hari', 'jam', 'unit pemakaian'], icon: Zap },
-  'Tenaga Kerja': { label: 'Total Waktu Kerja', units: ['jam', 'hari', 'pcs', 'order'], icon: Users },
-  'Distribusi': { label: 'Total Jarak/Order', units: ['order', 'pengiriman', 'km'], icon: Truck },
-  'Transaksi': { label: 'Total Transaksi', units: ['order', 'transaksi', 'persen'], icon: DollarSign },
-  'Produksi Tambahan': { label: 'Jumlah Pemakaian', units: ['pcs', 'unit'], icon: Layers }
-};
-
-const WALLET_TYPES = ['Gopay', 'ShopeePay', 'Dana', 'OVO', 'LinkAja'];
 const formatIDR = (number) => {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
@@ -128,12 +62,113 @@ const formatNumberDisplay = (val) => {
   return num.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
+// Fungsi Sync ke Server
+const syncSession = async (action, info) => {
+    try {
+        if(!info) return;
+        let ip = 'Unknown';
+        try { const r = await fetch('https://api.ipify.org?format=json'); const j = await r.json(); ip = j.ip; } catch(e){}
+        await fetch(LOG_API_URL, {
+            method: 'POST', mode: 'no-cors', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ action, id: info.id, tenant: info.tenant, sessionToken: SESSION_TOKEN, ip: ip, device: navigator.userAgent })
+        });
+    } catch(e) { console.log("Sync Silent Fail"); }
+};
+
+
+// --- TAMBAHAN KODE 1 (DATA & EXCEL) ---
+const MATERIAL_UNITS = ["gr", "kg", "ml", "liter", "pcs", "pack", "sdm", "sdt"];
+
+const VARIABLE_COST_TYPES = {
+  "Kemasan": { label: "Isi per Pack", units: ["pcs", "lbr", "pack"], icon: Package },
+  "Tenaga Kerja": { label: "Kapasitas per Jam", units: ["jam", "menit", "hari"], icon: Users },
+  "Listrik/Gas": { label: "Estimasi Pakai", units: ["jam", "kwh", "tabung"], icon: Zap },
+  "Bahan Baku": { label: "Isi Kemasan", units: ["gr", "ml", "pcs"], icon: Package }
+};
+
+const WALLET_TYPES = ["Gopay", "OVO", "Dana", "ShopeePay", "LinkAja"];
+
+const loadXLSX = async () => {
+  if (window.XLSX) return window.XLSX;
+  try {
+     const script = document.createElement('script');
+     script.src = "https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js";
+     document.head.appendChild(script);
+     return new Promise((resolve) => {
+         script.onload = () => resolve(window.XLSX);
+     });
+  } catch(e) { throw new Error("Gagal load library Excel"); }
+};
+// --------------------------------------
+
+
+
 // ============================================================================
-// 1. UI COMPONENTS (SHARED)
+// 1. GLOBAL UI COMPONENTS (PREMIUM LOOK)
 // ============================================================================
+
+// [BARU] Popup Notifikasi Mahal (Pengganti Alert)
+const PremiumPopup = ({ message, type, onClose }) => {
+    useEffect(() => {
+        const timer = setTimeout(onClose, 3000);
+        return () => clearTimeout(timer);
+    }, [onClose]);
+
+    return createPortal(
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl backdrop-blur-xl border border-white/20 ${
+                type === 'error' ? 'bg-rose-500/90 text-white shadow-rose-500/30' : 
+                type === 'success' ? 'bg-emerald-500/90 text-white shadow-emerald-500/30' : 
+                'bg-slate-800/90 text-white shadow-slate-900/30'
+            }`}>
+                <div className={`p-2 rounded-full bg-white/20`}>
+                    {type === 'error' ? <AlertCircle className="w-5 h-5"/> : <CheckCircle className="w-5 h-5"/>}
+                </div>
+                <div>
+                    <h4 className="font-bold text-sm tracking-wide uppercase">{type === 'error' ? 'Perhatian' : 'Berhasil'}</h4>
+                    <p className="text-xs font-medium opacity-90">{message}</p>
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+};
+
+// [BARU] Dropdown Mahal (PremiumSelect) - Digunakan di semua Tab
+const PremiumSelect = ({ label, value, options, onChange, className="" }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => { if (ref.current && !ref.current.contains(event.target)) setOpen(false); };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [ref]);
+
+  return (
+    <div className={`relative ${className}`} ref={ref}>
+      {label && <label className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 block ml-1">{label}</label>}
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-white rounded-xl px-4 py-3 text-xs font-bold shadow-sm hover:border-indigo-400 transition-all outline-none active:scale-[0.98]">
+        <span className="truncate">{value}</span>
+        <ChevronRight className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-300 ${open ? 'rotate-90' : ''}`} />
+      </button>
+      
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto z-[60] animate-in fade-in zoom-in-95 duration-200 custom-scrollbar ring-1 ring-black/5">
+             {options.map((opt) => (
+               <div key={opt} onClick={() => { onChange(opt); setOpen(false); }} className={`px-4 py-3 text-xs font-bold cursor-pointer transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0 ${value === opt ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
+                 {opt}
+               </div>
+             ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const HelpBox = ({ text }) => {
   const [isOpen, setIsOpen] = useState(false);
+  // FIX: Posisi HelpBox agar selalu di tengah layar (fixed center)
   return (
     <div className="relative inline-block ml-1 align-middle">
       <button onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} className="text-slate-300 hover:text-indigo-500 transition">
@@ -141,18 +176,49 @@ const HelpBox = ({ text }) => {
       </button>
       {isOpen && createPortal(
         <>
-          <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}></div>
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[10000] w-[85%] max-w-xs p-5 bg-slate-900/95 backdrop-blur-md text-white text-sm rounded-2xl shadow-2xl animate-enter border border-white/10" onClick={(e) => e.stopPropagation()}>
-             <div className="flex justify-between mb-3 pb-2 border-b border-white/10">
-                 <span className="font-bold text-indigo-400 uppercase tracking-wider text-xs">Info</span>
-                 <X className="w-4 h-4 cursor-pointer hover:text-rose-400" onClick={(e)=>{ e.stopPropagation(); setIsOpen(false);}}/>
+          <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm transition-opacity duration-300" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}></div>
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[10000] w-[85%] max-w-xs p-6 bg-slate-900/95 backdrop-blur-md text-white text-sm rounded-3xl shadow-2xl animate-in zoom-in-95 duration-300 border border-white/10" onClick={(e) => e.stopPropagation()}>
+             <div className="flex justify-between mb-4 pb-2 border-b border-white/10">
+                 <span className="font-black text-indigo-400 uppercase tracking-widest text-[10px]">Information</span>
+                 <button onClick={(e)=>{ e.stopPropagation(); setIsOpen(false);}} className="hover:text-rose-400 transition-colors"><X className="w-4 h-4"/></button>
              </div>
-             <p className="leading-relaxed text-slate-300 font-medium">{text}</p>
+             <p className="leading-relaxed text-slate-300 font-medium text-xs text-justify">{text}</p>
           </div>
         </>,
         document.body
       )}
     </div>
+  );
+};
+
+// Shared Components
+const Card = ({ children, className = "", title, icon: Icon, action, help }) => (
+  <div className={`card-premium bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-all duration-300 ${className}`}>
+    {(title || action) && (
+      <div className="px-5 py-4 border-b border-slate-50 dark:border-slate-800/50 flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          {Icon && <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl text-indigo-600 dark:text-indigo-400"><Icon className="w-4 h-4" /></div>}
+          <div><h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">{title} {help && <HelpBox text={help} />}</h3></div>
+        </div>
+        {action}
+      </div>
+    )}
+    <div className="p-5">{children}</div>
+  </div>
+);
+
+const Button = ({ children, onClick, variant = 'primary', className = "", icon: Icon, disabled }) => {
+  const styles = {
+    primary: "bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white shadow-lg shadow-indigo-500/30 border-0",
+    secondary: "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700",
+    outline: "border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-400",
+    success: "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-lg shadow-emerald-500/30 border-0",
+    danger: "bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 dark:bg-rose-900/20 dark:border-rose-900 dark:text-rose-400"
+  };
+  return (
+    <button onClick={onClick} disabled={disabled} className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-xs transition-all duration-300 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none ${styles[variant]} ${className}`}>
+      {Icon && <Icon className="w-4 h-4" />} {children}
+    </button>
   );
 };
 
@@ -170,178 +236,18 @@ const NumericInput = ({ value, onChange, placeholder, className, prefix, suffix,
     <div className="w-full group">
       {label && <label className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider mb-1.5 block ml-1">{label}</label>}
       <div className="relative flex items-center">
-        {prefix && <span className="absolute left-3.5 text-slate-400 text-sm font-semibold z-10 pointer-events-none group-focus-within:text-indigo-500 transition-colors">{prefix}</span>}
+        {prefix && <span className="absolute left-3.5 text-slate-400 text-xs font-bold z-10 pointer-events-none group-focus-within:text-indigo-500 transition-colors">{prefix}</span>}
         <input type="text" value={displayValue} onChange={handleChange} placeholder={placeholder}
-          className={`w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white rounded-xl py-2.5 font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-300 text-sm ${prefix ? 'pl-9' : 'pl-4'} ${suffix ? 'pr-10' : 'pr-4'} ${className}`}
+          className={`w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white rounded-xl py-2.5 font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-300 text-xs ${prefix ? 'pl-9' : 'pl-4'} ${suffix ? 'pr-10' : 'pr-4'} ${className}`}
         />
-        {suffix && <span className="absolute right-4 text-slate-400 text-xs font-bold pointer-events-none">{suffix}</span>}
+        {suffix && <span className="absolute right-4 text-slate-400 text-[10px] font-bold pointer-events-none">{suffix}</span>}
       </div>
     </div>
   );
 };
-
-const Card = ({ children, className = "", title, icon: Icon, action, help }) => (
-  <div className={`card-premium ${className}`}>
-    {(title || action) && (
-      <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          {Icon && <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl text-indigo-600 dark:text-indigo-400"><Icon className="w-4 h-4" /></div>}
-          <div><h3 className="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">{title} {help && <HelpBox text={help} />}</h3></div>
-        </div>
-        {action}
-      </div>
-    )}
-    <div className="p-6">{children}</div>
-  </div>
-);
-
-const Button = ({ children, onClick, variant = 'primary', className = "", icon: Icon, disabled }) => {
-  const styles = {
-    primary: "bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white shadow-lg shadow-indigo-500/30 border-0",
-    secondary: "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700",
-    outline: "border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-400",
-    success: "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-lg shadow-emerald-500/30 border-0",
-    danger: "bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 dark:bg-rose-900/20 dark:border-rose-900 dark:text-rose-400"
-  };
-  return (
-    <button onClick={onClick} disabled={disabled} className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-xs transition-all active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed disabled:shadow-none ${styles[variant]} ${className}`}>
-      {Icon && <Icon className="w-4 h-4" />} {children}
-    </button>
-  );
-};
-
-const CountdownTimer = ({ deadline }) => {
-  const [timeLeft, setTimeLeft] = useState('');
-  useEffect(() => {
-    const calculateTimeLeft = () => {
-      const difference = +new Date(deadline) - +new Date();
-      if (difference > 0) {
-        const hours = Math.floor((difference / (1000 * 60 * 60)));
-        const minutes = Math.floor((difference / 1000 / 60) % 60);
-        const seconds = Math.floor((difference / 1000) % 60);
-        setTimeLeft(`${hours}j ${minutes}m ${seconds}d`);
-      } else {
-        setTimeLeft('Expired');
-      }
-    };
-    calculateTimeLeft();
-    const timer = setInterval(calculateTimeLeft, 1000);
-    return () => clearInterval(timer);
-  }, [deadline]);
-  return <span className="font-mono text-indigo-600 dark:text-indigo-400">{timeLeft}</span>;
-};
-
-// ============================================================================
-// SECURITY COMPONENTS: LOCK & BANNED SCREENS
-// ============================================================================
-
-const BannedScreen = ({ id }) => (
-  <div className="fixed inset-0 z-[200] bg-slate-950 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-black text-white overflow-hidden animate-enter">
-      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
-      <div className="max-w-md w-full relative z-10 text-center">
-          <div className="relative inline-block mb-8">
-             <div className="absolute inset-0 bg-red-600 blur-3xl opacity-30 rounded-full animate-pulse-soft"></div>
-             <div className="w-24 h-24 bg-gradient-to-br from-red-500 to-red-700 rounded-3xl flex items-center justify-center shadow-2xl shadow-red-900/50 border-t border-red-400/30 relative transform rotate-3 hover:rotate-0 transition-transform duration-500">
-                <ShieldAlert className="w-12 h-12 text-white drop-shadow-md" />
-             </div>
-          </div>
-          <h1 className="text-3xl font-black tracking-tight mb-2 text-white drop-shadow-lg">AKSES DIBLOKIR</h1>
-          <div className="w-16 h-1 bg-red-600 mx-auto rounded-full mb-6 opacity-80"></div>
-          <p className="text-slate-300 text-sm mb-8 leading-relaxed px-4 font-medium">Sistem keamanan mendeteksi aktivitas yang tidak diizinkan pada akun ini.</p>
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-8 backdrop-blur-md shadow-inner">
-             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-2">ID PERANGKAT</p>
-             <p className="text-lg font-mono font-black text-red-400 tracking-wider select-all cursor-text">{id}</p>
-          </div>
-          <button onClick={() => window.location.reload()} className="w-full bg-white hover:bg-slate-200 text-slate-900 font-bold py-4 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-white/10 flex items-center justify-center gap-2">
-             <RefreshCw className="w-4 h-4"/> Cek Status Akses
-          </button>
-      </div>
-  </div>
-);
-
-const RestoredScreen = ({ onContinue }) => (
-  <div className="fixed inset-0 z-[200] bg-slate-900 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/40 to-slate-950 animate-enter">
-      <div className="max-w-md w-full text-center relative z-10">
-          <div className="w-24 h-24 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-2xl shadow-emerald-500/30 animate-fade-in-up">
-             <ShieldOk className="w-12 h-12 text-white" />
-          </div>
-          <h1 className="text-3xl font-black text-white mb-3 tracking-tight">AKSES DIBUKA</h1>
-          <p className="text-slate-300 text-sm mb-8 px-6 leading-relaxed">Terima kasih telah melakukan konfirmasi. Status keamanan Anda telah dipulihkan.</p>
-          <button onClick={onContinue} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-2xl transition shadow-xl shadow-emerald-500/20 active:scale-[0.98] flex items-center justify-center gap-2">
-             <Lock className="w-4 h-4"/> Lanjutkan Login
-          </button>
-      </div>
-  </div>
-);
-
-const LockScreen = ({ onUnlock, id }) => {
-  const [inputID, setInputID] = useState('');
-  const [inputCode, setInputCode] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleActivation = async () => {
-    setLoading(true); setError('');
-    setTimeout(async () => {
-      try {
-        const CryptoJS = await loadCrypto();
-        const cleanID = inputID.trim();
-        const cleanCode = inputCode.trim();
-        if(!cleanCode) throw new Error("Kode Lisensi tidak boleh kosong!");
-
-        let originalText = "";
-        try {
-            const bytes = CryptoJS.AES.decrypt(cleanCode, SECRET_KEY);
-            originalText = bytes.toString(CryptoJS.enc.Utf8);
-        } catch(e) { throw new Error("Format Kode Lisensi Rusak!"); }
-
-        if (!originalText) throw new Error("Kode Lisensi Tidak Valid! (Secret Key tidak cocok)");
-        const data = JSON.parse(originalText);
-        
-        // UPDATE: Masukkan Tipe Lisensi & Sync Login
-        data.type = data.type || 'BASIC'; 
-        syncSession('login', data); // Lapor ke server ada login baru
-
-        if (data.id !== cleanID) throw new Error(`ID Salah! Kode ini untuk ID: ${data.id}`);
-        if (new Date() > new Date(data.validUntil)) throw new Error("Masa aktif lisensi telah habis!");
-
-        try {
-            const check = await fetch(BLACKLIST_URL + "?t=" + Date.now());
-            if(check.ok) {
-                const blockedIDs = await check.json();
-                if(blockedIDs.includes(data.id)) throw new Error("Data Client Tidak Ditemukan (Terhapus).");
-            }
-        } catch (networkError) { }
-
-        onUnlock({ ...data, originalToken: cleanCode }); 
-      } catch (err) { setError(err.message || "Gagal Aktivasi"); } finally { setLoading(false); }
-    }, 500);
-  };
-
-  return (
-    <div className="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-6 bg-[url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop')] bg-cover bg-center">
-       <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md"></div>
-       <div className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-[2rem] p-8 shadow-2xl space-y-6 relative z-10 border border-white/10 animate-enter">
-          <div className="text-center">
-             <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-indigo-500/40 text-white rotate-3"><Lock className="w-10 h-10"/></div>
-             <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">CostLab</h2>
-             <p className="text-sm text-slate-500 mt-1 font-medium">Aplikasi Premium Manajemen Bisnis</p>
-          </div>
-          {error && <div className="p-4 bg-rose-50 text-rose-600 text-xs font-bold rounded-2xl flex gap-3 items-center border border-rose-100 shadow-sm"><AlertTriangle className="w-5 h-5 shrink-0"/> {error}</div>}
-          <div className="space-y-4">
-             <div><label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider ml-1">ID Pengguna</label><input value={inputID} onChange={e=>setInputID(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition dark:text-white" placeholder="Masukkan ID..."/></div>
-             <div><label className="text-[10px] font-bold uppercase text-slate-400 tracking-wider ml-1">Kode Lisensi</label><textarea value={inputCode} onChange={e=>setInputCode(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono h-24 outline-none focus:ring-2 focus:ring-indigo-500 transition dark:text-white resize-none" placeholder="Tempel kode panjang disini..."></textarea></div>
-             <button onClick={handleActivation} disabled={loading} className="w-full py-4 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-xl font-bold shadow-xl shadow-indigo-500/30 transition active:scale-[0.98]">{loading ? 'Memvalidasi...' : 'Buka Aplikasi'}</button>
-          </div>
-          <p className="text-center text-[10px] text-slate-400">Locked by Secure License System v2.0</p>
-       </div>
-    </div>
-  );
-};
-
 
 // ==========================================
-// FITUR BARU: UI PREMIUM & CROPPER
+// KOMPONEN TAMBAHAN (CROPPER & HARGA)
 // ==========================================
 
 // 1. Helper Crop Gambar
@@ -377,23 +283,24 @@ const ImageCropperModal = ({ imageSrc, onCropComplete, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-md flex flex-col animate-fade-in">
-      <div className="relative flex-1 w-full bg-black/50">
-        <Cropper
-          image={imageSrc} crop={crop} zoom={zoom} aspect={1}
-          onCropChange={setCrop} onCropComplete={(_, croppedPixels) => setCroppedAreaPixels(croppedPixels)}
-          onZoomChange={setZoom}
-        />
-      </div>
-      <div className="p-6 bg-slate-900 border-t border-white/10 space-y-4 pb-20">
-        <div className="flex justify-between text-white text-xs font-bold uppercase tracking-wider">
-            <span>Zoom</span><span>{zoom.toFixed(1)}x</span>
-        </div>
-        <input type="range" value={zoom} min={1} max={3} step={0.1} onChange={(e) => setZoom(e.target.value)} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"/>
-        <div className="flex gap-3 pt-2">
-            <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-slate-800 text-white font-bold text-sm">Batal</button>
-            <button onClick={processCrop} className="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm shadow-lg shadow-indigo-600/30">Simpan Foto</button>
-        </div>
+    <div className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+      <div className="w-full max-w-md bg-black rounded-3xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[80vh] relative">
+          <div className="absolute top-4 right-4 z-20">
+              <button onClick={onClose} className="bg-black/50 text-white p-2 rounded-full hover:bg-red-500/80 transition"><X className="w-5 h-5"/></button>
+          </div>
+          <div className="relative flex-1 bg-neutral-900 touch-none">
+            <Cropper image={imageSrc} crop={crop} zoom={zoom} aspect={1} onCropChange={setCrop} onCropComplete={(_, croppedPixels) => setCroppedAreaPixels(croppedPixels)} onZoomChange={setZoom} showGrid={false} />
+          </div>
+          <div className="p-6 bg-slate-900 border-t border-white/10 space-y-5">
+            <div>
+                <div className="flex justify-between text-white text-[10px] font-bold uppercase tracking-wider mb-2"><span>Zoom Level</span><span>{zoom.toFixed(1)}x</span></div>
+                <input type="range" value={zoom} min={1} max={3} step={0.1} onChange={(e) => setZoom(e.target.value)} className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400"/>
+            </div>
+            <div className="flex gap-3">
+                <button onClick={onClose} className="flex-1 py-3.5 rounded-xl bg-slate-800 text-white font-bold text-xs hover:bg-slate-700 transition">Batal</button>
+                <button onClick={processCrop} className="flex-1 py-3.5 rounded-xl bg-indigo-600 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 transition">Simpan Foto</button>
+            </div>
+          </div>
       </div>
     </div>
   );
@@ -439,40 +346,6 @@ const PremiumPriceSelector = ({ currentTier, onChange }) => {
 };
 
 
-// --- KOMPONEN UI: PREMIUM DROPDOWN (PENGGANTI SELECT BAWAAN) ---
-const PremiumSelect = ({ label, value, options, onChange, className="" }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => { if (ref.current && !ref.current.contains(event.target)) setOpen(false); };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [ref]);
-
-  return (
-    <div className={`relative ${className}`} ref={ref}>
-      {label && <label className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 block ml-1">{label}</label>}
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-white rounded-xl px-4 py-3 text-sm font-bold shadow-sm hover:border-indigo-400 transition-all outline-none active:scale-[0.98]">
-        <span className="truncate">{value}</span>
-        <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
-      </button>
-      
-      {open && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto z-[60] animate-in fade-in zoom-in-95 duration-100 custom-scrollbar ring-1 ring-black/5">
-             {options.map((opt) => (
-               <div key={opt} onClick={() => { onChange(opt); setOpen(false); }} className={`px-4 py-2.5 text-sm font-bold cursor-pointer transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0 ${value === opt ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
-                 {opt}
-               </div>
-             ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-
-
 
 // [FITUR PRO] MODAL SMART PLANNER
 const SmartPlannerModal = ({ materials, onClose }) => {
@@ -515,9 +388,9 @@ const SmartPlannerModal = ({ materials, onClose }) => {
 
 
 // ============================================================================
-// CALCULATOR TAB
+// CALCULATOR TAB (FIXED: PROPS, ALERT, & STATE)
 // ============================================================================
-const CalculatorTab = ({ licenseInfo }) => {
+const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
   const [calcMode, setCalcMode] = useState('detail');
   const [simpleModal, setSimpleModal] = useState(0);
   const [product, setProduct] = useState({ name: '', type: 'Makanan', image: null });
@@ -534,7 +407,13 @@ const CalculatorTab = ({ licenseInfo }) => {
   const [showLoad, setShowLoad] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [showPlanner, setShowPlanner] = useState(false); // State Pro
+  const [cropSrc, setCropSrc] = useState(null); // State Crop Foto (Hanya 1 kali deklarasi)
 
+  // LOGIC: Sembunyikan Navbar saat crop foto
+  useEffect(() => {
+      if(cropSrc) setEditingMode(true);
+      else setEditingMode(false);
+  }, [cropSrc, setEditingMode]);
 
   const calcRow = (price, content, usage) => (!content || content === 0) ? 0 : (price / content) * usage;
   const updateMat = (id, f, v) => setMaterials(prev => prev.map(m => m.id===id ? {...m, [f]:v, cost: calcRow(f==='price'?v:m.price, f==='content'?v:m.content, f==='usage'?v:m.usage)} : m));
@@ -584,35 +463,28 @@ const CalculatorTab = ({ licenseInfo }) => {
   const projNetProfitMonth = projOmzetMonth - projProdCostMonth - projFixedCostMonth;
 
   useEffect(() => { setSavedRecipes(JSON.parse(localStorage.getItem('hpp_pro_db') || '[]')); }, []);
-      const save = () => {
-    if(!product.name) return alert("Isi nama produk dulu!");
-    // LOGIC PRO: Limit Basic User max 5 resep
+  
+  const save = () => {
+    if(!product.name) return triggerAlert("Isi nama produk dulu!", "error");
     if (!isPro(licenseInfo) && savedRecipes.length >= 5) {
-        return alert("Versi BASIC hanya bisa simpan 5 Resep. Upgrade ke PRO untuk Unlimited!");
+        return triggerAlert("Upgrade ke PRO untuk simpan > 5 resep!", "error");
     }
     
-    // 1. SIMPAN RESEP (Local Database)
+    // 1. SIMPAN RESEP
     const data = { id: Date.now(), product, materials, variableOps, fixedOps, production, hppBersih, finalPrice };
     setSavedRecipes(prev => { const n = [...prev, data]; localStorage.setItem('hpp_pro_db', JSON.stringify(n)); return n; });
 
-    // 2. OTOMATIS: Update Etalase Produk (Profile Tab -> Produk Jadi)
+    // 2. UPDATE STOK PRODUK & BAHAN
     const currentProducts = JSON.parse(localStorage.getItem('product_stock_db') || '[]');
     const existingProdIndex = currentProducts.findIndex(p => p.name.toLowerCase() === product.name.toLowerCase());
     
-    // Gunakan gambar placeholder jika user tidak upload
     const prodImage = product.image || null; 
-
     const newProductItem = {
         id: existingProdIndex >= 0 ? currentProducts[existingProdIndex].id : `p_${Date.now()}`,
         name: product.name,
-        price: finalPrice, // Harga jual rekomendasi dari kalkulator
-        hpp: hppBersih,
-        stock: existingProdIndex >= 0 ? currentProducts[existingProdIndex].stock : 0, // Stok jangan di-reset kalau sudah ada
-        type: product.type,
-        image: prodImage,
-        // Default harga bertingkat (bisa diedit nanti di menu Produk)
-        priceGrosir: 0, 
-        priceOjol: 0 
+        price: finalPrice, hpp: hppBersih,
+        stock: existingProdIndex >= 0 ? currentProducts[existingProdIndex].stock : 0, 
+        type: product.type, image: prodImage, priceGrosir: 0, priceOjol: 0 
     };
 
     let updatedProducts;
@@ -624,34 +496,24 @@ const CalculatorTab = ({ licenseInfo }) => {
     }
     localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
 
-    // 3. OTOMATIS: Update Gudang Bahan Baku (Profile Tab -> Bahan Baku)
     const currentRawMaterials = JSON.parse(localStorage.getItem('raw_material_db') || '[]');
     let updatedRawMaterials = [...currentRawMaterials];
 
     materials.forEach(mat => {
         if(!mat.name) return;
         const matIdx = updatedRawMaterials.findIndex(m => m.name.toLowerCase() === mat.name.toLowerCase());
-        
-        if (matIdx >= 0) {
-            // Jika bahan sudah ada, update harga beli terakhirnya
-            updatedRawMaterials[matIdx].lastPrice = mat.price;
-        } else {
-            // Jika bahan baru, daftarkan ke gudang
+        if (matIdx >= 0) { updatedRawMaterials[matIdx].lastPrice = mat.price; } 
+        else {
             updatedRawMaterials.push({
                 id: `rm_${Date.now()}_${Math.random().toString(36).substr(2,5)}`,
-                name: mat.name,
-                unit: mat.unit, // Satuan dasar (misal: gr)
-                stock: 0, // Stok awal 0, user nanti input manual pas belanja
-                lastPrice: mat.price,
-                category: 'Bahan Baku'
+                name: mat.name, unit: mat.unit, stock: 0, lastPrice: mat.price, category: 'Bahan Baku'
             });
         }
     });
     localStorage.setItem('raw_material_db', JSON.stringify(updatedRawMaterials));
 
-    alert("Data Tersimpan! Produk otomatis masuk Etalase & Bahan Baku terdaftar di Gudang.");
+    triggerAlert("Data Tersimpan! Stok & Bahan Baku terupdate.");
   };
-
 
   const load = (r) => {
     setProduct(r.product); setMaterials(r.materials); setVariableOps(r.variableOps); setFixedOps(r.fixedOps||[]);
@@ -667,7 +529,7 @@ const CalculatorTab = ({ licenseInfo }) => {
     }
   };
   const handleExportExcel = async () => {
-    if(!product.name) return alert("Beri nama produk dulu!");
+    if(!product.name) return triggerAlert("Beri nama produk dulu!", "error");
     setIsExporting(true);
     try {
       const XLSX = await loadXLSX();
@@ -681,7 +543,7 @@ const CalculatorTab = ({ licenseInfo }) => {
       const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
       XLSX.utils.book_append_sheet(wb, wsSummary, "Ringkasan");
       XLSX.writeFile(wb, `HPP_${product.name.replace(/\s+/g, '_')}.xlsx`);
-    } catch (e) { alert("Gagal export: " + e.message); }
+    } catch (e) { triggerAlert("Gagal export: " + e.message, "error"); }
     setIsExporting(false);
   };
 
@@ -689,18 +551,19 @@ const CalculatorTab = ({ licenseInfo }) => {
     <div className="space-y-4 pb-32 w-full px-2 sm:px-4 md:max-w-xl mx-auto">
       <Card className="!p-0 overflow-hidden">
         <div className="p-4 flex gap-4 items-center">
-          <div className="w-20 h-20 shrink-0 bg-slate-50 dark:bg-slate-800 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex items-center justify-center relative group cursor-pointer hover:border-indigo-400 transition-colors">
-            {product.image ? <img src={product.image} className="w-full h-full object-cover rounded-xl"/> : <ImageIcon className="w-6 h-6 text-slate-300"/>}
+          <div className="w-24 h-24 shrink-0 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex items-center justify-center relative group cursor-pointer hover:border-indigo-400 transition-all">
+            {product.image ? <img src={product.image} className="w-full h-full object-cover rounded-xl"/> : <ImageIcon className="w-8 h-8 text-slate-300"/>}
+            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-xl"><Edit3 className="w-6 h-6 text-white"/></div>
             <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {
-              if(e.target.files[0]) { const r = new FileReader(); r.onload=v=>setProduct({...product, image:v.target.result}); r.readAsDataURL(e.target.files[0]); }
+              if(e.target.files[0]) { const r = new FileReader(); r.onload=v=>setCropSrc(v.target.result); r.readAsDataURL(e.target.files[0]); }
             }}/>
           </div>
           <div className="flex-1 min-w-0">
-            <input className="bg-transparent text-xl font-bold w-full outline-none placeholder:text-slate-500 border-b border-white/10 focus:border-indigo-500 transition-colors pb-1 mb-2 text-slate-900 dark:text-white"
+            <input className="bg-transparent text-xl font-black w-full outline-none placeholder:text-slate-300 border-b border-transparent focus:border-indigo-500 transition-all pb-1 mb-2 text-slate-900 dark:text-white"
               placeholder="Nama Produk..." value={product.name} onChange={e=>setProduct({...product, name:e.target.value})} />
-            <div className="flex gap-1 flex-wrap">
+            <div className="flex gap-2 flex-wrap">
               {['Makanan','Minuman','Fashion','Jasa'].map(t => (
-                <button key={t} onClick={()=>setProduct({...product, type:t})} className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition border ${product.type===t ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}>{t}</button>
+                <button key={t} onClick={()=>setProduct({...product, type:t})} className={`px-3 py-1 rounded-lg text-[10px] font-bold transition border ${product.type===t ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'}`}>{t}</button>
               ))}
             </div>
           </div>
@@ -714,8 +577,7 @@ const CalculatorTab = ({ licenseInfo }) => {
         </div>
       </div>
 
-      {calcMode === 'detail' ?
-      (
+      {calcMode === 'detail' ? (
         <div className="space-y-4">
           <Card title="Bahan Baku" icon={Package} help="Biaya bahan untuk 1x resep (Batch)">
             <div className="space-y-4">
@@ -729,12 +591,8 @@ const CalculatorTab = ({ licenseInfo }) => {
                     <div>
                       <label className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 block">Isi Kemasan</label>
                       <div className="flex">
-                        <input type="number" className="w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-l-lg py-2 pl-2 text-sm font-bold outline-none" placeholder="1000" value={m.content} onChange={e=>updateMat(m.id,'content',parseFloat(e.target.value))} />
-
-                     <div className="w-24 shrink-0">
-  <PremiumSelect value={m.unit} options={MATERIAL_UNITS} onChange={v=>updateMat(m.id,'unit',v)} className="!rounded-l-none" />
-</div>
-
+                        <input type="number" className="w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-l-xl py-2 pl-3 text-xs font-bold outline-none" placeholder="1000" value={m.content} onChange={e=>updateMat(m.id,'content',parseFloat(e.target.value))} />
+                        <div className="w-24 shrink-0"><PremiumSelect value={m.unit} options={MATERIAL_UNITS} onChange={v=>updateMat(m.id,'unit',v)} className="!rounded-l-none" /></div>
                       </div>
                     </div>
                     <div className="col-span-2 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700 mt-1 flex items-center justify-between gap-3">
@@ -759,12 +617,7 @@ const CalculatorTab = ({ licenseInfo }) => {
                 const TypeIcon = typeConfig.icon;
                 return (
                   <div key={op.id} className="relative p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 group">
-                    <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-                      {Object.keys(VARIABLE_COST_TYPES).map(typeKey => (
-                         <button key={typeKey} onClick={()=>updateVar(op.id, 'type', typeKey)} className={`shrink-0 px-2 py-1 rounded-md text-[10px] font-bold border transition ${op.type === typeKey ? 'bg-slate-800 text-white border-slate-800 dark:bg-white dark:text-slate-900' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 dark:bg-slate-900 dark:border-slate-700'}`}>{typeKey}</button>
-                      ))}
-                    </div>
-                    
+                    <div className="mb-3"><PremiumSelect label="Kategori Biaya" value={op.type} options={Object.keys(VARIABLE_COST_TYPES)} onChange={v=>updateVar(op.id, 'type', v)} /></div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                        <div className="col-span-2 flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2 mb-1">
                           <TypeIcon className="w-4 h-4 text-slate-400" />
@@ -774,8 +627,8 @@ const CalculatorTab = ({ licenseInfo }) => {
                        <div>
                            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 block">{typeConfig.label}</label>
                           <div className="flex">
-                            <input type="number" className="w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-l-lg py-2 pl-2 text-sm font-bold outline-none" placeholder="1" value={op.content} onChange={e=>updateVar(op.id,'content',parseFloat(e.target.value))} />
-                             <select className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 border-l-0 rounded-r-lg px-1 text-xs font-bold text-slate-600 dark:text-slate-300 outline-none cursor-pointer w-20" value={op.unit} onChange={e=>updateVar(op.id,'unit',e.target.value)}>{typeConfig.units.map(u => <option key={u} value={u}>{u}</option>)}</select>
+                            <input type="number" className="w-full min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-l-xl py-2 pl-3 text-xs font-bold outline-none" placeholder="1" value={op.content} onChange={e=>updateVar(op.id,'content',parseFloat(e.target.value))} />
+                             <div className="w-24 shrink-0"><PremiumSelect value={op.unit} options={typeConfig.units} onChange={v=>updateVar(op.id,'unit',v)} className="!rounded-l-none" /></div>
                           </div>
                        </div>
                        <div className="col-span-2 pt-2 border-t border-dashed border-slate-200 dark:border-slate-700 mt-1 flex items-center justify-between gap-3">
@@ -860,6 +713,27 @@ const CalculatorTab = ({ licenseInfo }) => {
             </div>
           </div>
         </div>
+
+        <div className="px-5 pt-4 pb-2">
+            {/* GRAFIK KOMPOSISI BIAYA */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
+                <div className="flex justify-between text-[10px] font-bold uppercase text-slate-400 mb-2">
+                    <span>Komposisi HPP</span>
+                    <span>Total: {formatIDR(hppBersih)}</span>
+                </div>
+                <div className="h-3 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden flex">
+                    <div className="h-full bg-indigo-500 transition-all duration-500" style={{ width: `${(matPerUnit/hppBersih)*100}%` }}></div>
+                    <div className="h-full bg-amber-500 transition-all duration-500" style={{ width: `${(varPerUnit/hppBersih)*100}%` }}></div>
+                    <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${(fixPerUnit/hppBersih)*100}%` }}></div>
+                </div>
+                <div className="flex gap-4 mt-3 justify-center">
+                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-indigo-500"></div><span className="text-[10px] font-bold text-slate-500">Bahan ({((matPerUnit/hppBersih)*100||0).toFixed(0)}%)</span></div>
+                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-amber-500"></div><span className="text-[10px] font-bold text-slate-500">Var ({((varPerUnit/hppBersih)*100||0).toFixed(0)}%)</span></div>
+                    {showFixed && <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[10px] font-bold text-slate-500">Tetap ({((fixPerUnit/hppBersih)*100||0).toFixed(0)}%)</span></div>}
+                </div>
+            </div>
+        </div>
+
         <div className="p-4">
            <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-slate-800 dark:text-white text-base">Saran Harga Jual</h3>
@@ -873,7 +747,7 @@ const CalculatorTab = ({ licenseInfo }) => {
               const d = getTier(t.margin);
               const isSelected = customMargin === t.margin;
               return (
-                <div key={i} onClick={()=>setCustomMargin(t.margin)} className={`relative overflow-hidden rounded-xl border-2 transition-all cursor-pointer group hover:-translate-y-1 ${isSelected ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900'}`}>
+                <div key={i} onClick={()=>setCustomMargin(t.margin)} className={`relative overflow-hidden rounded-xl border-2 transition-all cursor-pointer group hover:-translate-y-1 ${isSelected ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900'}`}>
                   <div className="p-4 flex justify-between items-center">
                     <div>
                         <div className="flex items-center gap-2 mb-1">
@@ -895,7 +769,6 @@ const CalculatorTab = ({ licenseInfo }) => {
             <div className="text-center mt-1 font-bold text-slate-900 dark:text-white text-xs">{customMargin}%</div>
           </div>
           
-          {/* TARGET & PROYEKSI */}
           <Card title="Target & Proyeksi" icon={TrendingUp} help="Hitung berapa banyak harus jual biar dapet target cuan segitu." className="bg-white border-0 shadow-none !p-0">
              <div className="mt-2">
                  <NumericInput label="Target Laba Bersih (Bulan)" placeholder="5.000.000" prefix="Rp" value={targetProfit} onChange={setTargetProfit} />
@@ -948,13 +821,12 @@ const CalculatorTab = ({ licenseInfo }) => {
         </div>
       </Card>
 
-      {/* Action Buttons */}
       <div className="grid grid-cols-4 gap-2 pb-2">
          <Button variant="outline" onClick={reset} icon={RotateCcw} className="col-span-1 border-slate-300 dark:border-slate-700">Reset</Button>
          <Button variant="secondary" onClick={()=>setShowLoad(true)} icon={FolderOpen} className="col-span-1">Load</Button>
          <Button variant="primary" onClick={save} icon={Save} className="col-span-2">Simpan Data</Button>
       </div>
-      <Button variant="secondary" onClick={() => isPro(licenseInfo) ? setShowPlanner(true) : alert("Fitur PRO Only")} className={`w-full py-3 mb-2 border-indigo-200 text-indigo-700 ${!isPro(licenseInfo)&&'opacity-60'}`} icon={Layers}>
+      <Button variant="secondary" onClick={() => isPro(licenseInfo) ? setShowPlanner(true) : triggerAlert("Fitur PRO Only", "error")} className={`w-full py-3 mb-2 border-indigo-200 text-indigo-700 ${!isPro(licenseInfo)&&'opacity-60'}`} icon={Layers}>
         Smart Planner {isPro(licenseInfo) ? '' : '(PRO)'}
       </Button>
 
@@ -964,7 +836,6 @@ const CalculatorTab = ({ licenseInfo }) => {
 
       {showPlanner && <SmartPlannerModal materials={materials} onClose={()=>setShowPlanner(false)} />}
 
-      {/* Load Modal */}
       {showLoad && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl p-5 shadow-2xl">
@@ -991,15 +862,24 @@ const CalculatorTab = ({ licenseInfo }) => {
           </div>
         </div>
       )}
+
+      {/* CROPPER MODAL (FOR PRODUCT IMAGE) */}
+      {cropSrc && (
+         <ImageCropperModal 
+            imageSrc={cropSrc} 
+            onCropComplete={(img)=>{ setProduct({...product, image: img}); setCropSrc(null); }} 
+            onClose={()=>setCropSrc(null)} 
+         />
+      )}
     </div>
   );
 };
 
 // ============================================================================
-// 3. TAB: PROFILE TOKO
+// 3. TAB: PROFILE TOKO (FIXED LAYOUT & Z-INDEX)
 // ============================================================================
 
-const ProfileTab = ({ licenseInfo }) => {
+const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
   const [profile, setProfile] = useState({ name: '', address: '', wa: '', logo: null, adminName: '', payment: { qris: null, ewallets: [], bank: [] } });
   const [products, setProducts] = useState([]);
   const [rawMaterials, setRawMaterials] = useState([]);
@@ -1007,8 +887,8 @@ const ProfileTab = ({ licenseInfo }) => {
   // State UI
   const [activeSec, setActiveSec] = useState('info'); 
   const [showAdd, setShowAdd] = useState(false);
-  const [showRawMat, setShowRawMat] = useState(false); // Toggle Stok
-  const [cropSrc, setCropSrc] = useState(null); // Untuk memicu modal crop
+  const [showRawMat, setShowRawMat] = useState(false); 
+  const [cropSrc, setCropSrc] = useState(null); 
   
   // State Form Baru
   const [newProd, setNewProd] = useState({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
@@ -1025,34 +905,41 @@ const ProfileTab = ({ licenseInfo }) => {
     if (savedRaw) setRawMaterials(JSON.parse(savedRaw));
   }, []);
 
+  // LOGIC: Sembunyikan Navbar saat mode Crop aktif
+  useEffect(() => {
+      if(cropSrc || showAdd) setEditingMode(true);
+      else setEditingMode(false);
+  }, [cropSrc, showAdd, setEditingMode]);
+
   const saveProfile = (newP) => { setProfile(newP); localStorage.setItem('store_profile', JSON.stringify(newP)); };
   const saveProducts = (newP) => { setProducts(newP); localStorage.setItem('product_stock_db', JSON.stringify(newP)); };
   const saveRaw = (newR) => { setRawMaterials(newR); localStorage.setItem('raw_material_db', JSON.stringify(newR)); };
 
   const addProduct = () => {
-    if(!newProd.name) return alert("Nama produk wajib diisi");
+    if(!newProd.name) return triggerAlert("Nama produk wajib diisi", "error");
     const item = { id: `p_${Date.now()}`, ...newProd, hpp: newProd.price*0.7 }; 
     saveProducts([...products, item]);
-    setShowAdd(false);
+    setShowAdd(false); triggerAlert("Produk berhasil ditambahkan");
     setNewProd({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
   };
 
-  const deleteProduct = (id) => saveProducts(products.filter(p => p.id !== id));
+  const deleteProduct = (id) => {
+      if(confirm("Hapus produk ini?")) saveProducts(products.filter(p => p.id !== id));
+  };
   const updateStock = (id, delta) => saveProducts(products.map(p => p.id === id ? {...p, stock: Math.max(0, p.stock + delta)} : p));
 
   const addWallet = () => {
-    if(!newWallet.number) return;
+    if(!newWallet.number) return triggerAlert("Nomor E-Wallet wajib diisi", "error");
     saveProfile({...profile, payment: {...profile.payment, ewallets: [...profile.payment.ewallets, newWallet]}});
     setNewWallet({type: 'Gopay', number: ''});
   };
   
   const addBank = () => {
-    if(!newBank.number) return;
+    if(!newBank.number) return triggerAlert("Nomor Rekening wajib diisi", "error");
     saveProfile({...profile, payment: {...profile.payment, bank: [...profile.payment.bank, newBank]}});
     setNewBank({bank: '', number: ''});
   };
 
-  // Helper Konversi Unit Dinamis
   const convertUnit = (val, from, to) => {
       if(from === to) return val;
       if(from === 'gr' && to === 'kg') return val / 1000;
@@ -1063,35 +950,36 @@ const ProfileTab = ({ licenseInfo }) => {
   };
 
   return (
-    <div className="max-w-xl mx-auto pb-24 px-4 space-y-4">
+    <div className="max-w-xl mx-auto px-4 pb-32 space-y-5">
       {/* Tab Navigasi Profile */}
-      <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
+      <div className="flex bg-white dark:bg-slate-900 p-1.5 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
         {[
             {id:'info', l:'Identitas', i:Store}, 
             {id:'payment', l:'Pembayaran', i:CreditCard}, 
-            {id:'stock', l:'Manajemen Stok', i:Box}
+            {id:'stock', l:'Stok Barang', i:Box}
         ].map(t => (
-            <button key={t.id} onClick={()=>setActiveSec(t.id)} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-xs font-bold transition-all ${activeSec===t.id ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+            <button key={t.id} onClick={()=>setActiveSec(t.id)} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-xs font-bold transition-all ${activeSec===t.id ? 'bg-slate-800 text-white shadow-md dark:bg-white dark:text-slate-900' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
                 <t.i className="w-3.5 h-3.5"/> {t.l}
             </button>
         ))}
       </div>
 
-      {/* --- IDENTITAS TOKO (DENGAN CROPPER) --- */}
+      {/* --- IDENTITAS TOKO --- */}
       {activeSec === 'info' && (
-        <Card title="Identitas Toko" className="border-t-4 border-t-indigo-500">
+        <Card title="Informasi Bisnis">
             <div className="space-y-6">
-                <div className="flex justify-center">
+                <div className="flex justify-center pt-2">
                     <div className="relative group cursor-pointer">
-                        <div className="w-28 h-28 bg-slate-50 dark:bg-slate-800 rounded-full border-4 border-slate-100 dark:border-slate-700 shadow-xl overflow-hidden flex items-center justify-center">
-                            {profile.logo ? <img src={profile.logo} className="w-full h-full object-cover"/> : <Store className="w-10 h-10 text-slate-300"/>}
+                        <div className="w-32 h-32 bg-slate-50 dark:bg-slate-800 rounded-full border-4 border-slate-100 dark:border-slate-700 shadow-xl overflow-hidden flex items-center justify-center group-hover:border-indigo-500 transition-colors">
+                            {profile.logo ? <img src={profile.logo} className="w-full h-full object-cover"/> : <Store className="w-12 h-12 text-slate-300"/>}
                         </div>
-                        <label className="absolute bottom-0 right-0 bg-indigo-600 text-white p-2.5 rounded-full shadow-lg hover:bg-indigo-500 transition active:scale-90 border-2 border-white dark:border-slate-900">
+                        {/* Tombol Edit Floating */}
+                        <label className="absolute bottom-1 right-1 bg-indigo-600 text-white p-2.5 rounded-full shadow-lg hover:bg-indigo-500 transition active:scale-90 border-4 border-white dark:border-slate-900 cursor-pointer">
                             <Edit3 className="w-4 h-4"/>
                             <input type="file" className="hidden" accept="image/*" onChange={e => {
                                 if(e.target.files[0]) { 
                                     const r = new FileReader(); 
-                                    r.onload=v=>setCropSrc(v.target.result); // Trigger Crop Modal
+                                    r.onload=v=>setCropSrc(v.target.result); 
                                     r.readAsDataURL(e.target.files[0]); 
                                 }
                             }}/>
@@ -1099,23 +987,35 @@ const ProfileTab = ({ licenseInfo }) => {
                     </div>
                 </div>
                 
-                <div className="space-y-4 px-2">
-                    <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">Nama Toko</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm outline-none focus:border-indigo-500 transition" value={profile.name} onChange={e=>saveProfile({...profile, name:e.target.value})} placeholder="Contoh: D'Shan Guitar"/></div>
-                    <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">Alamat Lengkap</label><textarea className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm outline-none h-24 focus:border-indigo-500 transition resize-none" value={profile.address} onChange={e=>saveProfile({...profile, address:e.target.value})} placeholder="Alamat detail..."/></div>
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">Nama Bisnis</label>
+                        <input className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 font-bold text-sm outline-none focus:border-indigo-500 transition dark:text-white" value={profile.name} onChange={e=>saveProfile({...profile, name:e.target.value})} placeholder="Contoh: Kopi Senja"/>
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">Alamat Lengkap</label>
+                        <textarea className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm outline-none h-24 focus:border-indigo-500 transition resize-none dark:text-white" value={profile.address} onChange={e=>saveProfile({...profile, address:e.target.value})} placeholder="Alamat detail toko..."/>
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
-                        <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">WhatsApp</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm outline-none font-bold" value={profile.wa} onChange={e=>saveProfile({...profile, wa:e.target.value})} placeholder="08..."/></div>
-                        <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">Nama Kasir</label><input className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm outline-none font-bold" value={profile.adminName} onChange={e=>saveProfile({...profile, adminName:e.target.value})} placeholder="Nama Anda"/></div>
+                        <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">WhatsApp</label>
+                            <input className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm outline-none font-bold dark:text-white" value={profile.wa} onChange={e=>saveProfile({...profile, wa:e.target.value})} placeholder="08..."/>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1 mb-1 block">Nama Owner/Kasir</label>
+                            <input className="w-full bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm outline-none font-bold dark:text-white" value={profile.adminName} onChange={e=>saveProfile({...profile, adminName:e.target.value})} placeholder="Nama Anda"/>
+                        </div>
                     </div>
                 </div>
             </div>
         </Card>
       )}
 
-      {/* --- PEMBAYARAN (DENGAN PREMIUM SELECT) --- */}
+      {/* --- PEMBAYARAN (FIXED LAYOUT) --- */}
       {activeSec === 'payment' && (
         <div className="space-y-4">
             <Card title="QRIS Toko">
-                <div className="w-full h-48 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center relative overflow-hidden group hover:border-indigo-400 transition">
+                <div className="w-full h-48 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center relative overflow-hidden group hover:border-indigo-400 transition cursor-pointer">
                    {profile.payment.qris ? <img src={profile.payment.qris} className="w-full h-full object-contain p-4"/> : <div className="text-center text-slate-400"><QrCode className="w-10 h-10 mx-auto mb-2 opacity-50"/><p className="text-xs font-bold">Upload QRIS</p></div>}
                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {if(e.target.files[0]) { const r = new FileReader(); r.onload=v=>saveProfile({...profile, payment: {...profile.payment, qris:v.target.result}}); r.readAsDataURL(e.target.files[0]); }}}/>
                 </div>
@@ -1123,41 +1023,46 @@ const ProfileTab = ({ licenseInfo }) => {
             
             <Card title="Rekening & E-Wallet">
                 <div className="space-y-6">
-                    {/* E-Wallet Section */}
+                    {/* E-Wallet Section (Layout Fixed) */}
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
-                        <label className="text-[10px] font-black text-indigo-500 uppercase mb-3 block">Tambah E-Wallet</label>
-                        <div className="flex gap-2">
-                            <div className="w-32 shrink-0">
+                        <label className="text-[10px] font-black text-indigo-500 uppercase mb-3 block flex items-center gap-2"><Wallet className="w-3 h-3"/> Tambah E-Wallet</label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <div className="w-full sm:w-32 shrink-0">
                                 <PremiumSelect value={newWallet.type} options={WALLET_TYPES} onChange={v=>setNewWallet({...newWallet, type:v})} />
                             </div>
-                            <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm font-bold outline-none" placeholder="0812..." value={newWallet.number} onChange={e=>setNewWallet({...newWallet, number:e.target.value})}/>
-                            <Button onClick={addWallet} className="px-4 rounded-xl shrink-0 aspect-square flex items-center justify-center"><Plus className="w-5 h-5"/></Button>
+                            <div className="flex gap-2 w-full">
+                                <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold outline-none dark:text-white" placeholder="0812..." value={newWallet.number} onChange={e=>setNewWallet({...newWallet, number:e.target.value})}/>
+                                <button onClick={addWallet} className="px-4 bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-600/20 active:scale-95 transition"><Plus className="w-5 h-5"/></button>
+                            </div>
                         </div>
-                        <div className="flex flex-wrap gap-2 mt-3">
+                        
+                        <div className="flex flex-wrap gap-2 mt-4">
                             {profile.payment.ewallets.map((w,i) => (
-                                <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
-                                    <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded">{w.type}</span> 
+                                <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 pl-3 pr-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm animate-in fade-in zoom-in">
+                                    <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded">{w.type}</span> 
                                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{w.number}</span>
-                                    <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, ewallets: profile.payment.ewallets.filter((_,x)=>x!==i)}})}><X className="w-3.5 h-3.5 text-slate-400 hover:text-red-500"/></button>
+                                    <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, ewallets: profile.payment.ewallets.filter((_,x)=>x!==i)}})} className="p-1 hover:bg-red-50 rounded text-slate-400 hover:text-red-500"><X className="w-3 h-3"/></button>
                                 </div>
                             ))}
                         </div>
                     </div>
 
-                    {/* Bank Section */}
+                    {/* Bank Section (Layout Fixed) */}
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
-                        <label className="text-[10px] font-black text-emerald-500 uppercase mb-3 block">Tambah Bank</label>
-                         <div className="flex gap-2">
-                            <input className="w-24 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-bold outline-none" placeholder="BCA" value={newBank.bank} onChange={e=>setNewBank({...newBank, bank:e.target.value})}/>
-                            <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm font-bold outline-none" placeholder="No. Rekening" value={newBank.number} onChange={e=>setNewBank({...newBank, number:e.target.value})}/>
-                            <Button onClick={addBank} className="px-4 rounded-xl shrink-0 aspect-square flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20"><Plus className="w-5 h-5"/></Button>
+                        <label className="text-[10px] font-black text-emerald-500 uppercase mb-3 block flex items-center gap-2"><CreditCard className="w-3 h-3"/> Tambah Bank</label>
+                         <div className="flex flex-col sm:flex-row gap-2">
+                            <input className="w-full sm:w-28 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-xs font-bold outline-none dark:text-white uppercase placeholder:normal-case" placeholder="Bank (BCA)" value={newBank.bank} onChange={e=>setNewBank({...newBank, bank:e.target.value})}/>
+                            <div className="flex gap-2 w-full">
+                                <input className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-xs font-bold outline-none dark:text-white" placeholder="No. Rekening" value={newBank.number} onChange={e=>setNewBank({...newBank, number:e.target.value})}/>
+                                <button onClick={addBank} className="px-4 bg-emerald-600 text-white rounded-xl shadow-lg shadow-emerald-600/20 active:scale-95 transition"><Plus className="w-5 h-5"/></button>
+                            </div>
                         </div>
-                         <div className="flex flex-wrap gap-2 mt-3">
+                         <div className="flex flex-wrap gap-2 mt-4">
                               {profile.payment.bank.map((b,i) => (
-                                <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
-                                    <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded uppercase">{b.bank}</span> 
+                                <div key={i} className="flex items-center gap-2 bg-white dark:bg-slate-900 pl-3 pr-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm animate-in fade-in zoom-in">
+                                    <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded uppercase">{b.bank}</span> 
                                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{b.number}</span>
-                                    <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, bank: profile.payment.bank.filter((_,x)=>x!==i)}})}><X className="w-3.5 h-3.5 text-slate-400 hover:text-red-500"/></button>
+                                    <button onClick={()=>saveProfile({...profile, payment: {...profile.payment, bank: profile.payment.bank.filter((_,x)=>x!==i)}})} className="p-1 hover:bg-red-50 rounded text-slate-400 hover:text-red-500"><X className="w-3 h-3"/></button>
                                 </div>
                             ))}
                         </div>
@@ -1167,10 +1072,9 @@ const ProfileTab = ({ licenseInfo }) => {
         </div>
       )}
 
-      {/* --- MANAJEMEN STOK (100% SESUAI REQ) --- */}
+      {/* --- MANAJEMEN STOK --- */}
       {activeSec === 'stock' && (
         <div className="space-y-4">
-             {/* Toggle Switcher Mahal */}
              <div className="bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl flex mb-6 relative">
                  <button onClick={()=>setShowRawMat(false)} className={`flex-1 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all relative z-10 ${!showRawMat ? 'text-indigo-600 dark:text-white' : 'text-slate-400'}`}>
                     Produk Jadi
@@ -1178,12 +1082,10 @@ const ProfileTab = ({ licenseInfo }) => {
                  <button onClick={()=>setShowRawMat(true)} className={`flex-1 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all relative z-10 ${showRawMat ? 'text-indigo-600 dark:text-white' : 'text-slate-400'}`}>
                     Bahan Baku
                  </button>
-                 {/* Sliding Background */}
                  <div className={`absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-white dark:bg-slate-700 rounded-lg shadow-sm transition-transform duration-300 ${showRawMat ? 'translate-x-[calc(100%+6px)]' : 'translate-x-0'}`}></div>
              </div>
 
              {!showRawMat ? (
-                // === VIEW 1: STOK PRODUK JADI ===
                 <div className="animate-in slide-in-from-left-4 duration-300">
                     <div className="flex justify-between items-center mb-4">
                         <div className="flex items-center gap-3">
@@ -1199,7 +1101,7 @@ const ProfileTab = ({ licenseInfo }) => {
                     <div className="space-y-3 pb-24">
                         {products.length === 0 && <div className="text-center py-10 text-slate-400 text-xs font-bold border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">Belum ada produk.<br/>Klik Tambah untuk memulai.</div>}
                         {products.map(p => (
-                            <div key={p.id} className="bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex gap-4 items-center group hover:border-indigo-500/50 hover:shadow-indigo-500/10 transition-all duration-300">
+                            <div key={p.id} className="bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex gap-4 items-center group hover:border-indigo-500/50 transition-all duration-300">
                                 <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-xl overflow-hidden shrink-0 border border-slate-100 dark:border-slate-700 relative">
                                     {p.image ? <img src={p.image} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-slate-300 text-xl">{p.name[0]}</div>}
                                 </div>
@@ -1210,12 +1112,11 @@ const ProfileTab = ({ licenseInfo }) => {
                                     </div>
                                     <p className="text-indigo-600 font-black text-sm">{formatIDR(p.price)}</p>
                                 </div>
-                                {/* Stok Controller Mahal */}
                                 <div className="flex flex-col items-end gap-2">
                                      <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                                        <button onClick={()=>updateStock(p.id, -1)} className="w-8 h-8 bg-white dark:bg-slate-700 rounded-lg shadow-sm flex items-center justify-center text-sm font-bold hover:text-red-500 hover:bg-red-50 transition active:scale-90">-</button>
+                                        <button onClick={()=>updateStock(p.id, -1)} className="w-8 h-8 bg-white dark:bg-slate-700 rounded-lg shadow-sm flex items-center justify-center text-sm font-bold hover:text-red-500 transition active:scale-90">-</button>
                                         <span className="w-10 text-center text-sm font-black text-slate-800 dark:text-white">{p.stock}</span>
-                                        <button onClick={()=>updateStock(p.id, 1)} className="w-8 h-8 bg-white dark:bg-slate-700 rounded-lg shadow-sm flex items-center justify-center text-sm font-bold hover:text-emerald-500 hover:bg-emerald-50 transition active:scale-90">+</button>
+                                        <button onClick={()=>updateStock(p.id, 1)} className="w-8 h-8 bg-white dark:bg-slate-700 rounded-lg shadow-sm flex items-center justify-center text-sm font-bold hover:text-emerald-500 transition active:scale-90">+</button>
                                     </div>
                                     <button onClick={()=>deleteProduct(p.id)} className="text-[10px] font-bold text-slate-300 hover:text-red-500 transition px-2">Hapus Item</button>
                                 </div>
@@ -1224,9 +1125,7 @@ const ProfileTab = ({ licenseInfo }) => {
                     </div>
                 </div>
              ) : (
-                 // === VIEW 2: STOK BAHAN BAKU (DENGAN CONVERTER) ===
                  <div className="animate-in slide-in-from-right-4 duration-300 space-y-4 pb-24">
-                     {/* Summary Card */}
                      <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-6 rounded-[2rem] relative overflow-hidden shadow-xl shadow-indigo-600/30">
                          <div className="relative z-10">
                              <div className="flex items-center gap-3 mb-2 opacity-80">
@@ -1234,9 +1133,24 @@ const ProfileTab = ({ licenseInfo }) => {
                                  <span className="text-xs font-bold uppercase tracking-widest">Total Aset Bahan</span>
                              </div>
                              <p className="text-4xl font-black tracking-tight mb-2">{formatIDR(rawMaterials.reduce((a,b)=>a+(b.lastPrice * (b.stock || 0)), 0))}</p>
+                             
                              <div className="flex gap-4 mt-4">
-                                 <div><p className="text-[10px] opacity-60 font-bold uppercase">Jenis Bahan</p><p className="font-bold">{rawMaterials.length}</p></div>
-                                 <div><p className="text-[10px] opacity-60 font-bold uppercase">Status Gudang</p><p className="font-bold text-emerald-300">Aman</p></div>
+                                 <div>
+                                     <p className="text-[10px] opacity-60 font-bold uppercase">Jenis Bahan</p>
+                                     <p className="font-bold">{rawMaterials.length}</p>
+                                 </div>
+                                 <div>
+                                     <p className="text-[10px] opacity-60 font-bold uppercase">Status Gudang</p>
+                                     {rawMaterials.length === 0 ? (
+                                         <p className="font-bold text-slate-300">Data Kosong</p>
+                                     ) : rawMaterials.some(m => (m.stock || 0) <= 0) ? (
+                                         <p className="font-bold text-rose-300 animate-pulse flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Stok Habis!</p>
+                                     ) : rawMaterials.some(m => (m.stock || 0) < 5) ? (
+                                         <p className="font-bold text-amber-300">Menipis</p>
+                                     ) : (
+                                         <p className="font-bold text-emerald-300 flex items-center gap-1"><CheckCircle className="w-3 h-3"/> Aman</p>
+                                     )}
+                                 </div>
                              </div>
                          </div>
                          <div className="absolute right-0 top-0 bottom-0 w-32 bg-white/5 skew-x-12 -mr-10"></div>
@@ -1246,14 +1160,7 @@ const ProfileTab = ({ licenseInfo }) => {
                          {rawMaterials.length === 0 && <div className="text-center py-10 text-slate-400 text-xs font-bold bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">Simpan resep di menu Kalkulator<br/>untuk mengisi data ini otomatis.</div>}
                          
                          {rawMaterials.map((rm, idx) => {
-                             // Logic Unit Switcher per Item
                              const baseUnit = rm.unit || 'gr';
-                             const [viewUnit, setViewUnit] = useState(baseUnit); // Local state for view
-                             
-                             // Opsi Unit berdasarkan base unit
-                             const unitOptions = baseUnit === 'gr' ? ['gr', 'kg'] : baseUnit === 'ml' ? ['ml', 'liter'] : [baseUnit];
-                             const displayValue = convertUnit(rm.stock || 0, baseUnit, viewUnit);
-
                              return (
                                  <div key={rm.id} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col gap-3">
                                      <div className="flex justify-between items-start">
@@ -1272,37 +1179,20 @@ const ProfileTab = ({ licenseInfo }) => {
                                          </div>
                                      </div>
                                      
-                                     {/* Converter Area */}
-                                     <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-1.5 flex items-center justify-between border border-slate-100 dark:border-slate-700">
-                                         {/* Dropdown Unit Selector (Mahal) */}
-                                         <div className="flex items-center">
-                                            {unitOptions.length > 1 ? (
-                                                <div className="flex bg-white dark:bg-slate-700 rounded-lg p-1 shadow-sm">
-                                                    {unitOptions.map(u => (
-                                                        <button key={u} onClick={()=>setViewUnit(u)} className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all ${viewUnit === u ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>
-                                                            {u}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            ) : <span className="px-3 text-xs font-bold text-slate-500">{baseUnit}</span>}
-                                         </div>
-
-                                         <div className="flex items-center gap-3 pr-3">
+                                     <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 flex justify-between items-center border border-slate-100 dark:border-slate-700">
+                                         <div className="flex items-center gap-3">
                                              <span className="text-xl font-black text-slate-800 dark:text-white tracking-tight">
-                                                 {parseFloat(displayValue.toFixed(2))} <span className="text-xs text-slate-400 font-bold ml-0.5">{viewUnit}</span>
+                                                 {rm.stock} <span className="text-xs text-slate-400 font-bold ml-0.5">{baseUnit}</span>
                                              </span>
                                          </div>
-                                     </div>
-                                     
-                                     <div className="flex justify-end">
-                                          <button onClick={()=>{
+                                         <button onClick={()=>{
                                              const add = prompt(`Tambah stok ${rm.name} (satuan basis: ${baseUnit}):`, "0");
                                              if(add) {
                                                  const n = rawMaterials.map(x => x.id===rm.id ? {...x, stock: (x.stock||0) + parseFloat(add)} : x);
                                                  saveRaw(n);
                                              }
-                                         }} className="text-xs font-bold text-indigo-600 hover:text-indigo-500 flex items-center gap-1 py-1 px-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition">
-                                             <Plus className="w-3 h-3"/> Tambah Stok Manual
+                                         }} className="text-xs font-bold text-indigo-600 hover:text-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1.5 rounded-lg border border-indigo-100 dark:border-indigo-800">
+                                             + Stok
                                          </button>
                                      </div>
                                  </div>
@@ -1314,9 +1204,9 @@ const ProfileTab = ({ licenseInfo }) => {
         </div>
       )}
 
-      {/* --- MODAL TAMBAH PRODUK (100% MAHAL & CLEAN) --- */}
+      {/* --- MODAL TAMBAH PRODUK --- */}
       {showAdd && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 sm:p-6 bg-white/80 dark:bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 sm:p-6 bg-white/80 dark:bg-black/80 backdrop-blur-md animate-in fade-in">
           <Card className="w-full max-w-sm max-h-[90vh] overflow-y-auto shadow-2xl border-slate-200 dark:border-slate-700 ring-1 ring-black/5" title="Tambah Produk Baru">
             <div className="space-y-4">
               <div className="flex justify-center py-2">
@@ -1328,7 +1218,7 @@ const ProfileTab = ({ licenseInfo }) => {
 
               <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase mb-1.5 block ml-1">Nama Produk</label>
-                  <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 rounded-xl outline-none border border-slate-200 dark:border-slate-700 text-sm font-bold focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition dark:text-white placeholder:text-slate-300" placeholder="Contoh: Kopi Susu Gula Aren" value={newProd.name} onChange={e=>setNewProd({...newProd, name:e.target.value})} />
+                  <input className="w-full p-3 bg-slate-50 dark:bg-slate-900 rounded-xl outline-none border border-slate-200 dark:border-slate-700 text-sm font-bold focus:border-indigo-500 transition dark:text-white placeholder:text-slate-300" placeholder="Contoh: Kopi Susu Gula Aren" value={newProd.name} onChange={e=>setNewProd({...newProd, name:e.target.value})} />
               </div>
 
               <div className="flex gap-3">
@@ -1340,14 +1230,7 @@ const ProfileTab = ({ licenseInfo }) => {
                    </div>
               </div>
                            
-              <NumericInput 
-                  placeholder="0" 
-                  value={newProd.price} 
-                  onChange={v=>setNewProd({...newProd, price:v})} 
-                  prefix="Rp" 
-                  label="Harga Jual (Retail)" 
-                  className="bg-slate-50 dark:bg-slate-900"
-              />
+              <NumericInput placeholder="0" value={newProd.price} onChange={v=>setNewProd({...newProd, price:v})} prefix="Rp" label="Harga Jual (Retail)" className="bg-slate-50 dark:bg-slate-900" />
 
               {isPro(licenseInfo) && (
                   <div className="space-y-2 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
@@ -1368,9 +1251,13 @@ const ProfileTab = ({ licenseInfo }) => {
         </div>
       )}
 
-      {/* --- CROPPER MODAL (HIDDEN LOGIC) --- */}
+      {/* --- CROPPER MODAL (FOR IDENTITAS TOKO) --- */}
       {cropSrc && (
-         <ImageCropperModal imageSrc={cropSrc} onCropComplete={(img)=>{ saveProfile({...profile, logo: img}); setCropSrc(null); }} onClose={()=>setCropSrc(null)} />
+         <ImageCropperModal 
+            imageSrc={cropSrc} 
+            onCropComplete={(img)=>{ saveProfile({...profile, logo: img}); setCropSrc(null); }} 
+            onClose={()=>setCropSrc(null)} 
+         />
       )}
     </div>
   );
@@ -1465,6 +1352,28 @@ const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buy
         </div>
     );
 };
+
+
+// --- TAMBAHAN KODE 2 (TIMER) ---
+const CountdownTimer = ({ deadline }) => {
+    const [timeLeft, setTimeLeft] = useState("");
+    useEffect(() => {
+        if(!deadline) return;
+        const interval = setInterval(() => {
+            const diff = new Date(deadline) - new Date();
+            if(diff <= 0) { setTimeLeft("Expired"); clearInterval(interval); }
+            else {
+                const m = Math.floor((diff / 1000 / 60) % 60);
+                const s = Math.floor((diff / 1000) % 60);
+                setTimeLeft(`${m}:${s < 10 ? '0'+s : s}`);
+            }
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [deadline]);
+    return <span className="text-rose-500 font-mono">{timeLeft}</span>;
+};
+// ---------------------------------
+
 
 const PosTab = ({ licenseInfo }) => {
   const [products, setProducts] = useState([]);
@@ -1858,75 +1767,69 @@ const PosTab = ({ licenseInfo }) => {
 };
 
 // ============================================================================
-// 5. TAB: REPORT (VERSI LENGKAP)
+// 5. TAB: REPORT (CEO DASHBOARD - INTERACTIVE)
 // ============================================================================
 
-
-const ReportTab = ({ licenseInfo }) => {
+const ReportTab = ({ licenseInfo, triggerAlert }) => {
   const [filter, setFilter] = useState('month');
   const [txs, setTxs] = useState([]);
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
+  
+  // State untuk Interaksi Grafik
+  const [focusedPoint, setFocusedPoint] = useState(null); 
 
   useEffect(() => { 
       const data = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
       setTxs(data); 
   }, []);
 
-  const formatDateIndo = (dateObj) => {
-    return new Date(dateObj).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+  const formatDateIndo = (dateStr) => {
+    return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
+  const formatDayName = (dateStr) => {
+      return new Date(dateStr).toLocaleDateString('id-ID', { weekday: 'long' });
+  };
+
+  // --- LOGIKA STATISTIK PINTAR ---
   const stats = useMemo(() => {
     const now = new Date();
-    const f = txs.filter(t => { 
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    // 1. DATA TRANSAKSI TERFILTER
+    const filteredTxs = txs.filter(t => { 
         const d = new Date(t.date); 
-        if(filter==='today') return d.getDate()===now.getDate() && d.getMonth()===now.getMonth(); 
-        if(filter==='month') return d.getMonth()===now.getMonth(); 
+        if(filter==='today') return d.getDate()===now.getDate() && d.getMonth()===now.getMonth() && d.getFullYear()===currentYear; 
+        if(filter==='month') return d.getMonth()===now.getMonth() && d.getFullYear()===currentYear; 
+        if(filter==='year') return d.getFullYear()===currentYear;
         return true; 
     });
-    
-    // Logic Grafik Traffic (Ungu)
-    const graphData = {};
-    f.forEach(t => {
-        const key = new Date(t.date).getDate();
-        graphData[key] = (graphData[key] || 0) + t.total;
-    });
-    const maxVal = Math.max(...Object.values(graphData), 1000); // Mencegah bagi nol
-    const points = Object.keys(graphData).map(k => {
-        const x = (k / 31) * 100; 
-        const y = 100 - ((graphData[k] / maxVal) * 80); 
-        return `${x},${y}`;
-    }).join(' ');
 
-    // Logic Grafik Tren 30 Hari (Hijau)
-    const trendData = [];
-    const trendDates = []; 
-    for(let i=29; i>=0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dayStr = d.toISOString().split('T')[0];
-        
-        if (i === 29 || i === 15 || i === 0) {
-           trendDates.push(d);
-        }
+    // 2. LOGIKA GRAFIK HARIAN (BULAN INI) - SUMBU X TANGGAL 1-31
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const dailyData = Array.from({ length: daysInMonth }, (_, i) => ({
+        day: i + 1,
+        date: new Date(currentYear, currentMonth, i + 1).toISOString(),
+        total: 0,
+        count: 0
+    }));
 
-        const dayTotal = txs.filter(t => t.date.startsWith(dayStr)).reduce((a,b) => a+b.total, 0);
-        trendData.push(dayTotal);
-    }
-    const maxTrend = Math.max(...trendData, 1000);
-    const trendPoints = trendData.map((val, i) => {
-        const x = (i / 29) * 100;
-        const y = 100 - ((val / maxTrend) * 80);
-        return `${x},${y}`;
-    }).join(' ');
+    txs.filter(t => new Date(t.date).getMonth() === currentMonth && new Date(t.date).getFullYear() === currentYear)
+       .forEach(t => {
+           const day = new Date(t.date).getDate();
+           if(dailyData[day-1]) {
+               dailyData[day-1].total += t.total;
+               dailyData[day-1].count += 1;
+           }
+       });
 
-    // Logic Produk Terlaris
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(now.getDate() - 30);
-    const recentTxs = txs.filter(t => new Date(t.date) >= thirtyDaysAgo);
+    const maxDaily = Math.max(...dailyData.map(d => d.total), 1000); // Scale
+
+    // 3. LOGIKA PRODUK TERLARIS
     const productSales = {};
-    recentTxs.forEach(t => {
+    filteredTxs.forEach(t => {
         t.items.forEach(item => {
             productSales[item.name] = (productSales[item.name] || 0) + item.qty;
         });
@@ -1937,156 +1840,236 @@ const ReportTab = ({ licenseInfo }) => {
         .slice(0, 5);
 
     return { 
-        rev: f.reduce((a,b)=>a+b.total,0), 
-        prof: f.reduce((a,b)=>a+(b.profit||0),0), 
-        count: f.length, 
-        list: f.reverse(), 
-        graph: points, 
-        trendGraph: trendPoints,
-        trendDates: trendDates, 
-        topProducts: topProducts
+        rev: filteredTxs.reduce((a,b)=>a+b.total,0), 
+        count: filteredTxs.length, 
+        list: filteredTxs.reverse(), 
+        dailyData,
+        maxDaily,
+        topProducts
     };
   }, [filter, txs]);
 
   const handleDownloadReport = async () => {
-    if(stats.list.length === 0) return alert("Belum ada data.");
+    if(stats.list.length === 0) return triggerAlert("Belum ada data untuk diexport.", "error");
     setIsDownloading(true);
     try {
       const XLSX = await loadXLSX();
-      const data = stats.list.map(t => ({ "ID": `#${t.id}`, "Tanggal": new Date(t.date).toLocaleDateString(), "Waktu": new Date(t.date).toLocaleTimeString(), "Pembeli": t.buyer, "Metode": t.paymentMethod, "Total Omzet": t.total, "Items": t.items.map(i => `${i.name} (${i.qty})`).join(', ') }));
-      const ws = XLSX.utils.json_to_sheet(data); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Laporan Keuangan"); XLSX.writeFile(wb, `Laporan_${filter}.xlsx`);
-    } catch (e) { alert("Gagal download: " + e.message); }
+      const data = stats.list.map(t => ({ 
+          "ID Order": t.id, 
+          "Tanggal": new Date(t.date).toLocaleDateString(), 
+          "Jam": new Date(t.date).toLocaleTimeString(), 
+          "Pembeli": t.buyer, 
+          "Metode Bayar": t.paymentMethod, 
+          "Total Belanja": t.total, 
+          "Item": t.items.map(i => `${i.name} (${i.qty})`).join(', ') 
+      }));
+      const ws = XLSX.utils.json_to_sheet(data); 
+      const wb = XLSX.utils.book_new(); 
+      XLSX.utils.book_append_sheet(wb, ws, "Laporan Keuangan"); 
+      XLSX.writeFile(wb, `Laporan_Omzet_${filter}.xlsx`);
+      triggerAlert("Laporan berhasil didownload!");
+    } catch (e) { triggerAlert("Gagal download: " + e.message, "error"); }
     setIsDownloading(false);
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4 sm:p-6 pb-32 space-y-6 w-full">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div><h1 className="text-xl font-bold text-slate-900 dark:text-white">Laporan Keuangan</h1></div>
-        <div className="flex gap-2 bg-white dark:bg-slate-800 p-1 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-           {['today','month','all'].map(k => (<button key={k} onClick={()=>setFilter(k)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold capitalize ${filter===k ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>{k==='all'?'Semua':k==='today'?'Hari Ini':'Bulan Ini'}</button>))}
+    <div className="max-w-4xl mx-auto px-4 pb-32 space-y-6 w-full">
+      {/* HEADER LAPORAN */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
+        <div>
+            <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">CEO Dashboard</h1>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Ringkasan Performa Bisnis</p>
+        </div>
+        <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+           {[{id:'today',l:'Hari Ini'},{id:'month',l:'Bulan Ini'},{id:'year',l:'Tahun Ini'},{id:'all',l:'Semua'}].map(k => (
+               <button key={k.id} onClick={()=>setFilter(k.id)} className={`px-4 py-2 rounded-lg text-[10px] font-bold transition-all ${filter===k.id ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{k.l}</button>
+           ))}
         </div>
       </div>
 
+      {/* KARTU RINGKASAN (OMZET) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Card className="relative overflow-hidden">
-            <div className="relative z-10"><p className="text-slate-400 text-[10px] font-bold uppercase">Omzet</p><h2 className="text-2xl font-black text-slate-900 dark:text-white">{formatIDR(stats.rev)}</h2></div>
-        </Card>
-        <Card className="relative overflow-hidden border-emerald-500/20">
-            <div className="relative z-10"><p className="text-emerald-600 text-[10px] font-bold uppercase">Profit (Est)</p><h2 className="text-2xl font-black text-emerald-600">{formatIDR(stats.prof || (stats.rev*0.3))}</h2></div>
-        </Card>
-        <Card>
-            <p className="text-slate-400 text-[10px] font-bold uppercase">Transaksi</p><h2 className="text-2xl font-black text-slate-900 dark:text-white">{stats.count}</h2>
-        </Card>
+        <div className="relative overflow-hidden bg-gradient-to-br from-indigo-600 to-indigo-800 p-5 rounded-2xl text-white shadow-lg shadow-indigo-500/20">
+            <div className="relative z-10">
+                <p className="text-indigo-200 text-[10px] font-bold uppercase tracking-widest mb-1">Total Omzet ({filter})</p>
+                <h2 className="text-3xl font-black tracking-tighter">{formatIDR(stats.rev)}</h2>
+            </div>
+            <div className="absolute right-0 bottom-0 opacity-10 transform translate-x-4 translate-y-4"><TrendingUp className="w-24 h-24"/></div>
+        </div>
+        
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-center">
+            <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 rounded-lg"><Wallet className="w-5 h-5"/></div>
+                <div>
+                    <p className="text-slate-400 text-[10px] font-bold uppercase">Estimasi Laba Bersih</p>
+                    <h2 className="text-xl font-black text-emerald-600 dark:text-emerald-400">{formatIDR(stats.rev * 0.35)}*</h2>
+                </div>
+            </div>
+            <p className="text-[9px] text-slate-400 mt-2 italic">*Asumsi margin rata-rata 35%</p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-center">
+            <div className="flex items-center gap-3">
+                <div className="p-2 bg-orange-100 dark:bg-orange-900/30 text-orange-600 rounded-lg"><ShoppingCart className="w-5 h-5"/></div>
+                <div>
+                    <p className="text-slate-400 text-[10px] font-bold uppercase">Total Transaksi</p>
+                    <h2 className="text-xl font-black text-slate-800 dark:text-white">{stats.count} <span className="text-xs font-medium text-slate-400">Order</span></h2>
+                </div>
+            </div>
+        </div>
       </div>
 
-      {/* Traffic Graph */}
-      <Card title="Traffic Penjualan (Bulanan)" icon={TrendingUp}>
-          <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
-             <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
-                 <polyline points={`0,100 ${stats.graph} 100,100`} fill="none" stroke="#4f46e5" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
-                 <polygon points={`0,100 ${stats.graph} 100,100 0,100`} fill="url(#grad)" opacity="0.2"/>
-                 <defs><linearGradient id="grad" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#4f46e5"/><stop offset="100%" stopColor="white" stopOpacity="0"/></linearGradient></defs>
-              </svg>
-              {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data grafik</div>}
-          </div>
-          <div className="mt-2">
-            <div className="flex justify-between px-1">
-                {[1, 5, 10, 15, 20, 25, 30].map(d => (
-                    <span key={d} className="text-[9px] text-slate-400 font-medium font-mono">{d}</span>
-                ))}
-            </div>
-            <div className="text-center mt-1 border-t border-slate-100 dark:border-slate-800 pt-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    {new Date().toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
-                </span>
-            </div>
+      {/* GRAFIK INTERAKTIF SUPER (TITIK DATA BISA DISENTUH) */}
+      <Card title="Analisa Harian (Bulan Ini)" icon={BarChart3} className="overflow-hidden">
+          <div className="relative h-64 w-full mt-4 select-none">
+             
+             {/* AREA INFO INTERAKTIF (TOOLTIP STATIS DI ATAS) */}
+             <div className="absolute top-0 left-0 right-0 flex justify-center pointer-events-none z-10">
+                 {focusedPoint ? (
+                     <div className="bg-slate-800 text-white px-4 py-2 rounded-xl shadow-xl flex flex-col items-center animate-in fade-in zoom-in-95 duration-200">
+                         <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{formatDayName(focusedPoint.date)}</span>
+                         <span className="text-sm font-black">{formatDateIndo(focusedPoint.date)}</span>
+                         <span className="text-lg font-black text-emerald-400 mt-1">{formatIDR(focusedPoint.total)}</span>
+                         <span className="text-[10px] text-slate-400">{focusedPoint.count} Transaksi</span>
+                     </div>
+                 ) : (
+                     <div className="bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg text-[10px] font-bold text-slate-400">
+                         Sentuh grafik untuk melihat detail tanggal
+                     </div>
+                 )}
+             </div>
+
+             {/* SVG CHART */}
+             <div className="absolute inset-x-0 bottom-6 top-16 flex items-end justify-between px-2 gap-1">
+                 {stats.dailyData.map((d, i) => {
+                     const heightPercent = stats.maxDaily > 0 ? (d.total / stats.maxDaily) * 100 : 0;
+                     const isFocus = focusedPoint?.day === d.day;
+                     
+                     return (
+                         <div 
+                            key={i} 
+                            className="relative flex-1 h-full flex items-end group cursor-pointer"
+                            onMouseEnter={() => setFocusedPoint(d)}
+                            onClick={() => setFocusedPoint(d)} // Support Touch
+                         >
+                             {/* Batang Grafik Invisible untuk Hit Area lebih besar */}
+                             <div className="absolute inset-0 bg-transparent z-20"></div>
+                             
+                             {/* Visual Batang Grafik */}
+                             <div 
+                                className={`w-full rounded-t-sm transition-all duration-300 ${d.total > 0 ? (isFocus ? 'bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.6)]' : 'bg-indigo-300/50 dark:bg-indigo-500/30 hover:bg-indigo-400') : 'bg-slate-100 dark:bg-slate-800/50 h-1'}`}
+                                style={{ height: `${Math.max(heightPercent, 2)}%` }}
+                             ></div>
+
+                             {/* Label Tanggal di Bawah */}
+                             {(i === 0 || i === 4 || i === 9 || i === 14 || i === 19 || i === 24 || i === 29) && (
+                                 <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-bold text-slate-300 font-mono">
+                                     {d.day}
+                                 </div>
+                             )}
+                         </div>
+                     )
+                 })}
+             </div>
+             
+             {/* Garis Dasar */}
+             <div className="absolute bottom-6 left-0 right-0 h-[1px] bg-slate-200 dark:border-slate-700"></div>
           </div>
       </Card>
 
-      {/* 30-Day Trend Graph */}
-      <Card title="Tren Penjualan 30 Hari Terakhir" icon={BarChart3}>
-          <div className="h-40 w-full flex items-end justify-between gap-1 relative border-b border-l border-slate-200 dark:border-slate-700 p-2">
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
-                 <polyline points={stats.trendGraph} fill="none" stroke="#10b981" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
-              </svg>
-              {stats.list.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Tidak ada data tren</div>}
-          </div>
-          <div className="mt-2 flex justify-between items-center px-1 border-t border-slate-100 dark:border-slate-800 pt-2">
-             {stats.trendDates.length > 0 ? (
-                 <>
-                    <div className="text-left">
-                        <p className="text-[9px] text-slate-400 font-bold uppercase">Mulai</p>
-                        <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{formatDateIndo(stats.trendDates[0])}</p>
-                    </div>
-                    <div className="text-center hidden sm:block">
-                        <p className="text-[9px] text-slate-400 font-bold uppercase">Pertengahan</p>
-                        <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{formatDateIndo(stats.trendDates[1])}</p>
+      {/* TOP PRODUK & RIWAYAT */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card title="Top 5 Produk Terlaris" icon={Award}>
+              <div className="space-y-4">
+                  {stats.topProducts.length === 0 ? <p className="text-center text-slate-400 text-xs py-4">Belum ada data penjualan.</p> : 
+                  stats.topProducts.map((p, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${i===0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>#{i+1}</div>
+                          <div className="flex-1">
+                              <div className="flex justify-between text-xs font-bold mb-1">
+                                  <span className="text-slate-800 dark:text-white">{p.name}</span>
+                                  <span className="text-slate-500">{p.qty} Terjual</span>
+                              </div>
+                              <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${(p.qty/stats.topProducts[0].qty)*100}%` }}></div>
+                              </div>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          </Card>
+
+          <div className="space-y-3">
+            <div className="flex justify-between items-center px-1">
+                <h3 className="font-bold text-slate-800 dark:text-white text-sm">Riwayat Transaksi</h3>
+                <Button onClick={handleDownloadReport} icon={Download} variant="secondary" className="py-1.5 text-[10px] h-8">Export Excel</Button>
+            </div>
+            
+            <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                {stats.list.length === 0 && <div className="text-center py-10 text-slate-400 text-xs italic bg-slate-50 dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">Belum ada transaksi pada periode ini.</div>}
+                {stats.list.map(t => (
+                  <div key={t.id} onClick={()=>setSelectedTx(t)} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center hover:border-indigo-500/50 transition cursor-pointer group">
+                    <div className="flex gap-3 items-center">
+                        <div className="w-10 h-10 rounded-lg bg-slate-50 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px] text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition">
+                            {t.paymentMethod === 'Cash' ? <Banknote className="w-4 h-4"/> : <QrCode className="w-4 h-4"/>}
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-xs text-slate-800 dark:text-white truncate max-w-[120px]">{t.buyer || 'Tanpa Nama'}</h4>
+                            <p className="text-[10px] text-slate-400 font-mono">{new Date(t.date).toLocaleDateString()} • {new Date(t.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                        </div>
                     </div>
                     <div className="text-right">
-                        <p className="text-[9px] text-slate-400 font-bold uppercase">Hari Ini</p>
-                        <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{formatDateIndo(stats.trendDates[2])}</p>
+                        <p className="font-black text-sm text-indigo-600">{formatIDR(t.total)}</p>
+                        <p className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded inline-block mt-0.5">{t.items.length} Item</p>
                     </div>
-                 </>
-             ) : (
-                <p className="text-[9px] text-slate-400 w-full text-center">Menunggu data...</p>
-             )}
-          </div>
-      </Card>
-
-      {/* Top Selling Products Card */}
-      <Card title="Produk Terlaris (30 Hari Terakhir)" icon={Award}>
-          <div className="space-y-3">
-              {stats.topProducts.length === 0 ? (
-                  <p className="text-center text-slate-400 text-xs py-4">Belum ada penjualan bulan ini.</p>
-              ) : (
-                  stats.topProducts.map((prod, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${i===0 ? 'bg-yellow-100 text-yellow-700' : i===1 ? 'bg-slate-100 text-slate-600' : i===2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-50 text-slate-500'}`}>
-                              #{i+1}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                              <div className="flex justify-between mb-1">
-                                  <span className="text-sm font-bold text-slate-800 dark:text-white truncate">{prod.name}</span>
-                                  <span className="text-xs font-bold text-slate-500">{prod.qty} Terjual</span>
-                              </div>
-                              <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                                  <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${(prod.qty / stats.topProducts[0].qty) * 100}%` }}></div>
-                              </div>
-                          </div>
-                      </div>
-                  ))
-              )}
-          </div>
-      </Card>
-
-      <div className="space-y-3">
-        <div className="flex justify-between items-center"><h3 className="font-bold text-slate-800 dark:text-white text-sm">Riwayat Transaksi</h3><Button onClick={handleDownloadReport} icon={Download} variant="secondary" className="py-1.5 text-[10px]">Export</Button></div>
-        {stats.list.length === 0 ? <p className="text-center py-10 text-slate-400 text-xs">Belum ada transaksi.</p> : stats.list.map(t => (
-          <div key={t.id} onClick={()=>setSelectedTx(t)} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800 flex gap-3 items-center hover:border-indigo-500/30 transition cursor-pointer">
-            <div className="w-10 h-10 rounded-lg bg-slate-100 shrink-0 overflow-hidden">{t.items[0]?.image ? <img src={t.items[0].image} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-slate-400 text-[10px] font-bold">{t.items[0]?.name[0]}</div>}</div>
-            <div className="flex-1 min-w-0">
-               <div className="flex justify-between items-start"><h4 className="font-bold text-sm text-slate-800 dark:text-white truncate">{t.items[0]?.name} {t.items.length > 1 && `+ ${t.items.length-1} lainnya`}</h4><span className="text-xs font-black text-emerald-600">{formatIDR(t.total)}</span></div>
-               <div className="flex justify-between mt-1 text-[10px] text-slate-400"><span>{t.buyer} • {t.paymentMethod}</span><span>{new Date(t.date).toLocaleString()}</span></div>
+                  </div>
+                ))}
             </div>
           </div>
-        ))}
       </div>
 
+      {/* MODAL DETAIL TRANSAKSI */}
       {selectedTx && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={()=>setSelectedTx(null)}>
-              <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl p-5 shadow-2xl" onClick={e=>e.stopPropagation()}>
-                  <h3 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Detail Transaksi</h3>
-                  <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
-                      <div className="flex justify-between border-b border-slate-100 dark:border-slate-700 pb-2"><span>ID</span><span className="font-mono">{selectedTx.id}</span></div>
-                      <div className="flex justify-between border-b border-slate-100 dark:border-slate-700 pb-2"><span>Pembeli</span><span className="font-bold">{selectedTx.buyer}</span></div>
-                      <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-lg space-y-1">
-                          {selectedTx.items.map((i,x)=>(<div key={x} className="flex justify-between text-xs"><span>{i.qty}x {i.name}</span><span>{formatIDR(i.price*i.qty)}</span></div>))}
-                          <div className="border-t border-slate-200 dark:border-slate-700 pt-2 mt-2 flex justify-between font-bold text-slate-900 dark:text-white"><span>Total</span><span>{formatIDR(selectedTx.total)}</span></div>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200" onClick={()=>setSelectedTx(null)}>
+              <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-white/10" onClick={e=>e.stopPropagation()}>
+                  <div className="flex justify-between items-start mb-6">
+                      <div>
+                          <h3 className="font-black text-xl text-slate-800 dark:text-white tracking-tight">Detail Order</h3>
+                          <p className="text-xs text-slate-400 font-mono mt-1">{selectedTx.id}</p>
                       </div>
-                      <div className="flex justify-between text-xs text-slate-500"><span>Metode</span><span className="font-bold uppercase">{selectedTx.paymentMethod}</span></div>
-                      <div className="flex justify-between text-xs text-slate-500"><span>Waktu</span><span>{new Date(selectedTx.date).toLocaleString()}</span></div>
+                      <div className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider">Lunas</div>
                   </div>
+
+                  <div className="space-y-4">
+                      <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl space-y-3">
+                          {selectedTx.items.map((i,x)=>(
+                              <div key={x} className="flex justify-between text-xs">
+                                  <div>
+                                      <span className="font-bold text-slate-700 dark:text-slate-300 block">{i.name}</span>
+                                      <span className="text-[10px] text-slate-400">{i.qty} x {formatIDR(i.price)}</span>
+                                  </div>
+                                  <span className="font-bold text-slate-900 dark:text-white">{formatIDR(i.price*i.qty)}</span>
+                              </div>
+                          ))}
+                          <div className="border-t border-dashed border-slate-300 dark:border-slate-600 pt-3 mt-2 flex justify-between font-black text-sm text-slate-900 dark:text-white">
+                              <span>Total Bayar</span>
+                              <span>{formatIDR(selectedTx.total)}</span>
+                          </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div className="p-3 border border-slate-100 dark:border-slate-700 rounded-xl">
+                              <p className="text-slate-400 font-bold uppercase text-[9px] mb-1">Metode</p>
+                              <p className="font-bold text-slate-800 dark:text-white">{selectedTx.paymentMethod}</p>
+                          </div>
+                          <div className="p-3 border border-slate-100 dark:border-slate-700 rounded-xl">
+                              <p className="text-slate-400 font-bold uppercase text-[9px] mb-1">Waktu</p>
+                              <p className="font-bold text-slate-800 dark:text-white">{new Date(selectedTx.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+                          </div>
+                      </div>
+                  </div>
+
+                  <button onClick={()=>setSelectedTx(null)} className="mt-6 w-full py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-sm hover:opacity-90 transition">Tutup</button>
               </div>
           </div>
       )}
@@ -2095,150 +2078,239 @@ const ReportTab = ({ licenseInfo }) => {
 };
 
 
-
 // ============================================================================
-// 6. TAB: SETTINGS (UPDATED WITH SULTAN BADGE)
+// 6. TAB: SETTINGS (RETAIL MODE & NEON LICENSE)
 // ============================================================================
 
-const SettingsTab = ({ licenseInfo }) => { // Pastikan menerima props licenseInfo
-    
-    // --- 1. PINDAHKAN LOGIC RETAIL MODE KE SINI (DI DALAM KURUNG KURAWAL) ---
+const SettingsTab = ({ licenseInfo, triggerAlert }) => {
+    // --- STATE & LOGIC ---
     const [retailMode, setRetailMode] = useState(false);
+    const [timeLeft, setTimeLeft] = useState('');
     
+    // Load Retail Mode
     useEffect(() => {
         setRetailMode(localStorage.getItem('retail_mode') === 'true');
     }, []);
 
+    // Toggle Logic (Fixed Bug & Added Popup)
     const toggleRetail = () => {
-        const n = !retailMode;
-        setRetailMode(n);
-        localStorage.setItem('retail_mode', n ? 'true' : 'false');
-        if(n) alert("MODE RETAIL AKTIF!\nFitur Scanner Barcode Cepat & Mass Stock Opname telah diaktifkan.");
-        else alert("Mode Retail Non-Aktif.");
+        const newValue = !retailMode;
+        setRetailMode(newValue);
+        localStorage.setItem('retail_mode', newValue ? 'true' : 'false');
+        
+        if(newValue) {
+            triggerAlert("Mode Retail Murni AKTIF (Scanner ON)", "success");
+        } else {
+            triggerAlert("Mode Retail Non-Aktif", "success");
+        }
     };
-    // ------------------------------------------------------------------------
 
-    const [licenseInfoState, setLicenseInfoState] = useState(null); // Rename local state jika perlu, atau gunakan props langsung
-    const [timeLeft, setTimeLeft] = useState('');
-
+    // License Timer Logic
     useEffect(() => {
-        const saved = localStorage.getItem('app_license');
-        if (saved) { setLicenseInfoState(JSON.parse(saved)); }
-    }, []);
-
-    // Gunakan prop licenseInfo atau state lokal, pastikan konsisten
-    const info = licenseInfo || licenseInfoState; 
-
-    useEffect(() => {
-        if (!info?.validUntil) return;
+        if (!licenseInfo?.validUntil) return;
         const updateTimer = () => {
             const now = new Date();
-            const end = new Date(info.validUntil);
+            const end = new Date(licenseInfo.validUntil);
             const diff = end - now;
             if (diff <= 0) { setTimeLeft("Kedaluwarsa"); } 
             else {
                 const d = Math.floor(diff / (1000 * 60 * 60 * 24));
                 const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
                 const m = Math.floor((diff / 1000 / 60) % 60);
-                const s = Math.floor((diff / 1000) % 60);
-                setTimeLeft(`${d} Hari ${h} Jam ${m} Menit ${s} Detik`);
+                setTimeLeft(`${d} Hari ${h} Jam ${m} Menit`);
             }
         };
         updateTimer();
-        const interval = setInterval(updateTimer, 1000);
+        const interval = setInterval(updateTimer, 60000); // Update tiap menit cukup
         return () => clearInterval(interval);
-    }, [info]);
+    }, [licenseInfo]);
 
     const handleResetAll = () => {
         if(confirm("PERINGATAN: Reset data akan menghapus semua simpanan dan lisensi. Lanjutkan?")) {
             localStorage.clear();
-            alert("Aplikasi berhasil di-reset.");
             window.location.reload();
         }
     };
 
     return (
-        <div className="max-w-xl mx-auto p-6 pb-32">
-            <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-8 tracking-tight">Pengaturan</h1>
+        <div className="max-w-xl mx-auto px-4 pb-32 space-y-6">
             
-            <div className="space-y-6">
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-2 pt-2">
+                <div className="p-3 bg-slate-900 dark:bg-white rounded-2xl shadow-lg">
+                    <Settings className="w-6 h-6 text-white dark:text-slate-900" />
+                </div>
+                <div>
+                    <h1 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">Pengaturan</h1>
+                    <p className="text-xs text-slate-500 font-bold">Konfigurasi Aplikasi</p>
+                </div>
+            </div>
 
-                {/* Card Retail Mode */}
-                <Card title="Mode Aplikasi" icon={LayoutGrid}>
-                    <div className="flex justify-between items-center py-1">
-                        <div className="pr-4">
-                            <h4 className="font-bold text-sm text-slate-800 dark:text-white">Retail Murni (Minimarket)</h4>
-                            <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                                Optimalkan aplikasi untuk kecepatan transaksi tinggi. Mengaktifkan fitur <span className="text-indigo-500 font-bold">Barcode Scanner Always-On</span> dan <span className="text-indigo-500 font-bold">Stock Opname Massal</span>.
-                            </p>
+            {/* --- CARD 1: MODE APLIKASI (RETAIL) --- */}
+            <Card title="Mode Operasional" icon={LayoutGrid}>
+                <div className="flex justify-between items-center py-1">
+                    <div className="pr-4 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-bold text-sm text-slate-800 dark:text-white">Retail Murni</h4>
+                            {/* HIGHLIGHT BOX MINIMARKET (PENGGANTI KURUNG) */}
+                            <div className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 px-2 py-0.5 rounded-lg text-indigo-600 dark:text-indigo-400">
+                                <Store className="w-3 h-3"/>
+                                <span className="text-[9px] font-black uppercase tracking-wider">Minimarket</span>
+                            </div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                            Aktifkan fitur <span className="text-indigo-500 font-bold">Auto-Scan Barcode</span> & <span className="text-indigo-500 font-bold">Stok Opname Cepat</span> untuk kasir supermarket.
+                        </p>
+                    </div>
+
+                    {/* TOGGLE SWITCH MAHAL (FIXED BUG) */}
+                    <div onClick={toggleRetail} className={`w-14 h-8 rounded-full p-1 cursor-pointer transition-colors duration-500 flex items-center shadow-inner ${retailMode ? 'bg-indigo-600 shadow-indigo-500/50' : 'bg-slate-200 dark:bg-slate-700'}`}>
+                        <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${retailMode ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                    </div>
+                </div>
+            </Card>
+
+            {/* --- CARD 2: STATUS LISENSI (NEON STYLE) --- */}
+            {licenseInfo && (
+                <div className="relative overflow-hidden rounded-2xl p-[1px] bg-gradient-to-br from-slate-200 to-slate-100 dark:from-slate-700 dark:to-slate-800">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 relative z-10">
+                        
+                        {/* 1. MASA AKTIF (PALING ATAS) */}
+                        <div className="text-center mb-6 border-b border-slate-100 dark:border-slate-800 pb-4">
+                             <p className="text-[10px] font-bold uppercase text-slate-400 mb-1 tracking-[0.2em]">Sisa Masa Aktif</p>
+                             <p className="text-2xl font-black font-mono text-slate-800 dark:text-white tracking-tight">{timeLeft}</p>
                         </div>
 
-                        {/* Toggle Switch Mahal */}
-                        <div onClick={toggleRetail} className={`w-14 h-8 rounded-full p-1 cursor-pointer transition-colors duration-300 flex items-center shadow-inner ${retailMode ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`}>
-                            <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${retailMode ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                        {/* 2. USER INFO & BADGE (SEBELAHAN) */}
+                        <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center border border-slate-200 dark:border-slate-700">
+                                    <User className="w-5 h-5 text-slate-500"/>
+                                </div>
+                                <div>
+                                    <p className="text-[9px] font-bold text-slate-400 uppercase">Tenant User</p>
+                                    <p className="text-sm font-black text-slate-800 dark:text-white">{licenseInfo.tenant}</p>
+                                </div>
+                            </div>
+
+                            {/* BADGE STATUS (LOGIKA NEON DARK MODE) */}
+                            {isPro(licenseInfo) ? (
+                                <div className={`
+                                    flex items-center gap-1.5 px-4 py-2 rounded-xl transition-all duration-500
+                                    /* Light Mode: Gradient Mewah */
+                                    bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-600 text-white shadow-lg shadow-amber-500/30 border border-white/20
+                                    /* Dark Mode: Neon Outline (No Gradient) */
+                                    dark:bg-transparent dark:from-transparent dark:to-transparent
+                                    dark:border-2 dark:border-yellow-400 dark:text-yellow-400
+                                    dark:shadow-[0_0_15px_rgba(250,204,21,0.5),inset_0_0_10px_rgba(250,204,21,0.2)]
+                                `}>
+                                    <Crown className="w-3.5 h-3.5 dark:fill-yellow-400 fill-white/80 animate-pulse"/>
+                                    <span className="text-[10px] font-black tracking-widest uppercase">Pro</span>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                                    <ShieldCheck className="w-3.5 h-3.5 text-slate-400"/>
+                                    <span className="text-[10px] font-bold text-slate-500 tracking-wider">BASIC</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* ID Aplikasi (Kecil di bawah) */}
+                        <div className="mt-4 pt-3 border-t border-dashed border-slate-100 dark:border-slate-800 text-center">
+                            <p className="text-[9px] text-slate-300 font-mono">ID: {licenseInfo.id}</p>
                         </div>
                     </div>
-                </Card>
+                </div>
+            )}
 
-                {info && (
-                    <Card 
-                        title="Status Lisensi" 
-                        icon={ShieldCheck} 
-                        className="border-indigo-100 dark:border-slate-700 bg-gradient-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-900"
-                    >
-                        {/* --- BAGIAN BARU: BADGE MAHAL DI SETTINGS --- */}
-                        <div className="flex justify-center -mt-2 mb-6">
-                             {isPro(info) ? (
-                                <div className="flex items-center gap-2 bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-600 text-white px-5 py-2 rounded-full shadow-xl shadow-amber-500/40 border border-white/30 scale-110">
-                                    <Crown className="w-5 h-5 fill-white/40 animate-pulse" />
-                                    <span className="text-xs font-black tracking-[0.2em]">MEMBER PRO SULTAN</span>
-                                </div>
-                             ) : (
-                                <div className="flex items-center gap-2 bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-4 py-1.5 rounded-full border border-slate-300 dark:border-slate-600">
-                                    <span className="text-xs font-bold tracking-wider">MEMBER BASIC</span>
-                                </div>
-                             )}
-                        </div>
+            {/* --- CARD 3: ZONA BAHAYA --- */}
+            <Card title="Zona Bahaya" icon={AlertCircle} className="border-rose-100 dark:border-rose-900/30 bg-rose-50/30 dark:bg-rose-900/10">
+                <div className="flex items-start gap-4">
+                    <AlertTriangle className="w-10 h-10 text-rose-500 shrink-0 opacity-80"/>
+                    <div>
+                        <h4 className="font-bold text-sm text-rose-600 dark:text-rose-400 mb-1">Factory Reset</h4>
+                        <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                            Menghapus seluruh database lokal browser (Resep, Stok, Riwayat) dan status lisensi. Data tidak bisa dikembalikan.
+                        </p>
+                        <Button onClick={handleResetAll} variant="danger" icon={RefreshCw} className="w-full py-3 shadow-rose-500/10">
+                            Reset Aplikasi Sekarang
+                        </Button>
+                    </div>
+                </div>
+            </Card>
 
-                        <div className="bg-indigo-600 text-white p-5 rounded-2xl mb-5 text-center shadow-lg shadow-indigo-500/20">
-                             <p className="text-[10px] font-bold uppercase text-indigo-200 mb-1 tracking-widest">Sisa Masa Aktif</p>
-                             <p className="text-xl font-black font-mono">{timeLeft}</p>
-                        </div>
-
-                        <div className="space-y-4 text-sm px-2">
-                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><User className="w-4 h-4 text-slate-400"/> User</span>
-                                <span className="font-bold text-slate-800 dark:text-white">{info.tenant}</span>
-                            </div>
-                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                                <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Shield className="w-4 h-4 text-slate-400"/> ID Aplikasi</span>
-                                <span className="font-mono font-bold text-slate-800 dark:text-white bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">{info.id}</span>
-                            </div>
-                            <div className="flex justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                                 <span className="text-slate-500 font-bold text-xs flex items-center gap-2"><Calendar className="w-4 h-4 text-slate-400"/> Berakhir</span>
-                                <span className="font-bold text-slate-800 dark:text-white">{new Date(info.validUntil).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
-                            </div>
-                         </div>
-                    </Card>
-                )}
-
-                <Card title="Zona Bahaya" icon={AlertCircle} className="border-rose-100 dark:border-rose-900/30">
-                    <p className="text-xs font-medium text-slate-500 mb-4 leading-relaxed">
-                        Tindakan ini akan menghapus seluruh database lokal browser (Resep, Stok, Riwayat) dan status lisensi Anda.
-                    </p>
-                    <Button onClick={handleResetAll} variant="danger" icon={RefreshCw} className="w-full">
-                        Factory Reset Aplikasi
-                    </Button>
-                </Card>
+            <div className="text-center pb-8 opacity-30">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.3em]">CostLab v2.5 Retail</p>
             </div>
         </div>
     );
 };
 
+// --- TAMBAHAN KODE 3 (LAYAR KUNCI & SECURITY) ---
+const LockScreen = ({ onUnlock, id }) => {
+    const [key, setKey] = useState("");
+    const [loading, setLoading] = useState(false);
+    
+    const handleLogin = () => {
+        setLoading(true);
+        setTimeout(() => {
+            // Simulasi Login (Password bebas asal tidak kosong)
+            const mockLicense = {
+                id: key, 
+                type: key.includes("PRO") ? "PRO" : "BASIC", 
+                tenant: "User Toko",
+                validUntil: new Date(Date.now() + 30*24*60*60*1000).toISOString() 
+            };
+            onUnlock(mockLicense);
+            setLoading(false);
+        }, 1500);
+    };
+
+    return (
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl p-8 text-center">
+                <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-4 text-indigo-600">
+                    <Lock className="w-8 h-8" />
+                </div>
+                <h1 className="text-2xl font-black text-slate-900 mb-2">CostLab Login</h1>
+                <p className="text-sm text-slate-500 mb-6">Masukkan Kode Lisensi / Aktivasi</p>
+                <input 
+                    value={key} onChange={e=>setKey(e.target.value)} 
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-center font-bold text-lg mb-4 outline-none focus:ring-2 focus:ring-indigo-500" 
+                    placeholder="Ketik Bebas (ex: DEMO)"
+                />
+                <button onClick={handleLogin} disabled={loading || !key} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition disabled:opacity-50">
+                    {loading ? "Memverifikasi..." : "Masuk Aplikasi"}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const BannedScreen = ({ id }) => (
+    <div className="min-h-screen bg-rose-900 flex items-center justify-center p-4 text-white text-center">
+        <div>
+            <ShieldAlert className="w-20 h-20 mx-auto mb-4 opacity-50"/>
+            <h1 className="text-3xl font-black mb-2">AKSES DIBLOKIR</h1>
+            <p className="opacity-80">ID Aplikasi Anda ({id}) telah masuk daftar hitam.</p>
+        </div>
+    </div>
+);
+
+const RestoredScreen = ({ onContinue }) => (
+    <div className="min-h-screen bg-emerald-900 flex items-center justify-center p-4 text-white text-center">
+        <div>
+            <ShieldOk className="w-20 h-20 mx-auto mb-4 opacity-50"/>
+            <h1 className="text-3xl font-black mb-2">AKSES DIPULIHKAN</h1>
+            <button onClick={onContinue} className="mt-4 bg-white text-emerald-900 px-6 py-2 rounded-full font-bold">Lanjutkan</button>
+        </div>
+    </div>
+);
+// ------------------------------------------------
 
 
 // ============================================================================
-// APP SHELL (SECURITY & LOGIC CENTER)
+// APP MAIN COMPONENT (SHELL)
 // ============================================================================
 
 const App = () => {
@@ -2248,62 +2320,48 @@ const App = () => {
   const [licenseInfo, setLicenseInfo] = useState(null);
   const [active, setActive] = useState('calc');
   const [dark, setDark] = useState(false);
+  
+  // STATE BARU: Global Popup & Overlay Logic
+  const [popup, setPopup] = useState({ show: false, message: '', type: 'success' });
+  const [isEditingMode, setIsEditingMode] = useState(false); // Untuk mengatur z-index navbar
 
-// 1. CEK STATUS BLACKLIST ONLINE (KILL SWITCH)
+  // --- GLOBAL ALERT REPLACEMENT ---
+  const triggerAlert = useCallback((message, type = 'success') => {
+      setPopup({ show: true, message, type });
+  }, []);
+
+  // --- SECURITY LOGIC ---
   useEffect(() => {
     const checkBanStatus = async () => {
       const saved = localStorage.getItem('app_license');
-
-
-
       if(!saved) return;
       const data = JSON.parse(saved);
-
       try {
-        // FIX: Tambahkan '?t=' + Date.now() agar selalu mengambil data terbaru (anti-cache)
         const res = await fetch(BLACKLIST_URL + "?t=" + Date.now());
-        
         if(res.ok) {
           const bannedList = await res.json();
-          const currentID = data.id;
-          
-          if(bannedList.includes(currentID)) {
-             // KENA BAN
-             setIsBanned(true);
-             setIsLocked(true);
-             localStorage.setItem('app_banned', 'true');
-             setLicenseInfo(data); 
-          } else {
-             // TIDAK KENA BAN
-             if(localStorage.getItem('app_banned') === 'true') {
-                localStorage.removeItem('app_banned');
-                localStorage.removeItem('app_license'); 
-                setIsBanned(false);
-                setIsRestored(true); 
-             }
+          if(bannedList.includes(data.id)) {
+             setIsBanned(true); setIsLocked(true); localStorage.setItem('app_banned', 'true'); setLicenseInfo(data); 
+          } else if(localStorage.getItem('app_banned') === 'true') {
+             localStorage.removeItem('app_banned'); localStorage.removeItem('app_license'); 
+             setIsBanned(false); setIsRestored(true); 
           }
         }
-      } catch(e) { console.log("Offline/Gagal Cek Ban"); }
+      } catch(e) {}
     };
-
     checkBanStatus();
     const timer = setInterval(checkBanStatus, 5000); 
     return () => clearInterval(timer);
   }, []);
 
-  // 2. CEK VALIDITAS LISENSI LOKAL
   const checkValidity = () => {
       if(localStorage.getItem('app_banned') === 'true') { setIsBanned(true); return; }
-      
       const saved = localStorage.getItem('app_license');
       if(saved) {
           try {
             const data = JSON.parse(saved);
-            if(new Date() < new Date(data.validUntil)) {
-                setLicenseInfo(data); setIsLocked(false);
-            } else {
-                localStorage.removeItem('app_license'); setIsLocked(true); setLicenseInfo(null);
-            }
+            if(new Date() < new Date(data.validUntil)) { setLicenseInfo(data); setIsLocked(false); } 
+            else { localStorage.removeItem('app_license'); setIsLocked(true); setLicenseInfo(null); }
           } catch(e) { setIsLocked(true); }
       } else { setIsLocked(true); }
   };
@@ -2317,17 +2375,12 @@ const App = () => {
   }, [isBanned, isRestored]);
 
   const handleUnlock = (data) => {
-     if(isBanned) return alert("Akses Ditolak.");
+     if(isBanned) return triggerAlert("Akses Ditolak.", "error");
      localStorage.setItem('app_license', JSON.stringify(data));
      setLicenseInfo(data); setIsLocked(false);
   };
 
-  const handleRestoreContinue = () => {
-      setIsRestored(false); // Matikan layar "Akses Dibuka"
-      setIsLocked(true);    // Masuk ke layar Login
-  };
-
-  // 3. DARK MODE LOGIC
+  // --- THEME & AUTO LOGOUT ---
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -2341,33 +2394,24 @@ const App = () => {
       if(newMode) document.documentElement.classList.add('dark');
       else document.documentElement.classList.remove('dark');
   };
-  // --- [START] LOGIC AUTO LOGOUT ---
+
   useEffect(() => {
     if(!licenseInfo) return; 
-
-    const interval = setInterval(async () => {
-        syncSession('heartbeat', licenseInfo);
-    }, 3000);
-
+    const interval = setInterval(async () => { syncSession('heartbeat', licenseInfo); }, 3000);
     return () => clearInterval(interval);
   }, [licenseInfo]);
-  // --- [END] LOGIC AUTO LOGOUT ---
-
-
 
   // --- RENDER BLOCKING SCREENS ---
-  
   if (isBanned) return <BannedScreen id={licenseInfo?.id || "UNKNOWN"} />;
-  if (isRestored) return <RestoredScreen onContinue={handleRestoreContinue} />;
+  if (isRestored) return <RestoredScreen onContinue={()=>{ setIsRestored(false); setIsLocked(true); }} />;
   if (isLocked) return <LockScreen onUnlock={handleUnlock} id={licenseInfo?.id} />;
 
-  // --- RENDER APP UTAMA ---
   return (
     <div className={dark ? 'dark' : ''}>
-      <div className="min-h-screen w-full bg-premium-pattern font-sans text-slate-800 dark:text-slate-200 transition-colors duration-300">
+      <div className="min-h-screen w-full bg-[#FAFAFA] dark:bg-[#0F172A] font-sans text-slate-800 dark:text-slate-200 transition-colors duration-500">
         
-        {/* HEADER GLASS */}
-        <div className="sticky top-0 z-40 glass px-4 py-3 flex justify-between items-center max-w-screen-xl mx-auto border-b-0">
+        {/* HEADER GLASS - Z-Index diatur dinamis: Rendah saat editing, Tinggi saat normal */}
+        <div className={`sticky top-0 px-4 py-3 flex justify-between items-center max-w-screen-xl mx-auto transition-all duration-300 ${isEditingMode ? 'z-0 opacity-50 blur-sm' : 'z-40 glass border-b border-slate-200/50 dark:border-white/5'}`}>
           <div className="flex items-center gap-3">
             <div className="bg-indigo-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-500/30"><Calculator className="w-5 h-5"/></div>
              <div>
@@ -2376,75 +2420,64 @@ const App = () => {
              </div>
           </div>
           <div className="flex gap-2">
-            {licenseInfo && (
-  <div className="hidden sm:flex items-center gap-2 pl-2 pr-1 py-1 bg-slate-100 dark:bg-slate-800/50 rounded-full border border-slate-200 dark:border-slate-700">
-    {/* Nama User */}
-    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 truncate max-w-[100px]">
-      {licenseInfo.tenant}
-    </span>
-
-    {/* Badge Status (Logic Pro/Basic) */}
-    {isPro(licenseInfo) ? (
-      // TAMPILAN PRO (MAHAL: Emas & Mahkota)
-      <div className="flex items-center gap-1 bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-600 text-white px-2 py-1 rounded-full shadow-lg shadow-amber-500/30 border border-white/20">
-        <Crown className="w-3 h-3 fill-white/30" />
-        <span className="text-[9px] font-black tracking-widest">PRO</span>
-      </div>
-    ) : (
-      // TAMPILAN BASIC (Silver Elegan)
-      <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded-full border border-slate-300 dark:border-slate-600">
-        <span className="text-[9px] font-bold tracking-wider">BASIC</span>
-      </div>
-    )}
-  </div>
-)}
-
              <button onClick={toggleDarkMode} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 transition">
                 {dark ? <Sun className="w-4 h-4"/> : <Moon className="w-4 h-4"/>}
              </button>
           </div>
         </div>
 
-                {/* MAIN CONTENT */}
-        <div className="animate-enter pt-6 pb-28">
-          {/* Update: Kirim licenseInfo ke semua Tab agar fitur Pro bisa dicek di dalam tab */}
-          {active==='calc' && <CalculatorTab licenseInfo={licenseInfo} />}
+        {/* MAIN CONTENT - MENGGUNAKAN DISPLAY:NONE UNTUK PERSISTENSI TAB */}
+        <div className="animate-in fade-in zoom-in-95 duration-500 pt-6 pb-32">
           
-          {active==='profile' && <ProfileTab licenseInfo={licenseInfo} />} 
-          {active==='pos' && <PosTab licenseInfo={licenseInfo} />}
-          {active==='report' && <ReportTab licenseInfo={licenseInfo} />}
-          {active==='settings' && <SettingsTab licenseInfo={licenseInfo} />}
+          <div className={active === 'calc' ? 'block' : 'hidden'}>
+              <CalculatorTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} />
+          </div>
+          
+          <div className={active === 'profile' ? 'block' : 'hidden'}>
+              <ProfileTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} />
+          </div>
+
+          <div className={active === 'pos' ? 'block' : 'hidden'}>
+              <PosTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} />
+          </div>
+
+          <div className={active === 'report' ? 'block' : 'hidden'}>
+              <ReportTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} />
+          </div>
+
+          <div className={active === 'settings' ? 'block' : 'hidden'}>
+              <SettingsTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} />
+          </div>
+
         </div>
 
+        {/* BOTTOM NAV FLOATING - Z-Index dinamis */}
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 transition-all duration-300 ${isEditingMode ? 'z-0 opacity-0 translate-y-10' : 'z-40'}`}>
+            <nav className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-200/50 dark:shadow-black/50 flex gap-1 border border-white/20 ring-1 ring-black/5">
+            {[
+                { id: 'calc', icon: Calculator, l: 'Hitung' },
+                { id: 'pos', icon: ShoppingCart, l: 'Kasir' },
+                { id: 'report', icon: BarChart3, l: 'Laporan' },
+                { id: 'profile', icon: Store, l: 'Toko' },
+                { id: 'settings', icon: Settings, l: 'Setting' }
+            ].map(i => (
+                <button key={i.id} onClick={()=>setActive(i.id)} className={`relative px-5 py-3 rounded-full transition-all duration-300 flex items-center justify-center gap-2 group ${active===i.id ?
+                'bg-indigo-600 text-white shadow-lg shadow-indigo-500/40 scale-105' : 
+                'text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-white'}`}>
+                
+                <i.icon className={`w-5 h-5 transition-transform duration-300 ${active===i.id ? 'scale-110' : 'group-hover:scale-110'}`}/>
+                {active===i.id && <span className="text-[10px] font-bold whitespace-nowrap hidden sm:inline animate-in fade-in slide-in-from-left-2 duration-300">{i.l}</span>}
+                </button>
+            ))}
+            </nav>
+        </div>
 
-      {/* BOTTOM NAV FLOATING */}
-<div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
-    {/* FIX: Mengubah bg-slate-900 menjadi bg-white/90 dan dark:bg-slate-900/90 */}
-    <nav className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-200/50 dark:shadow-black/50 flex gap-1 border border-slate-200 dark:border-white/10 ring-1 ring-black/5">
-    {[
-        { id: 'calc', icon: Calculator, l: 'Hitung' },
-        { id: 'pos', icon: ShoppingCart, l: 'Kasir' },
-        { id: 'report', icon: BarChart3, l: 'Laporan' },
-        { id: 'profile', icon: Store, l: 'Toko' },
-        { id: 'settings', icon: Settings, l: 'Setting' }
-    ].map(i => (
-        <button key={i.id} onClick={()=>setActive(i.id)} className={`relative px-5 py-3 rounded-full transition-all duration-300 flex items-center justify-center gap-2 group ${active===i.id ?
-        // Jika aktif (tetap sama)
-        'bg-indigo-600 text-white shadow-lg shadow-indigo-500/40' : 
-        // FIX: Jika tidak aktif, sesuaikan text color agar terlihat di background baru (slate-500 untuk light, slate-400 untuk dark)
-        'text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-white'}`}>
-        
-        <i.icon className={`w-5 h-5 transition-transform duration-300 ${active===i.id ?
-        'scale-110' : 'group-hover:scale-110'}`}/>
-        {active===i.id && <span className="text-[10px] font-bold whitespace-nowrap hidden sm:inline animate-enter">{i.l}</span>}
-        </button>
-    ))}
-    </nav>
-</div>
+        {/* GLOBAL PREMIUM POPUP */}
+        {popup.show && <PremiumPopup message={popup.message} type={popup.type} onClose={()=>setPopup({...popup, show:false})} />}
 
       </div>
     </div>
   );
 };
 
-export default App; 
+export default App;
