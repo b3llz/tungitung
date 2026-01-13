@@ -25,12 +25,12 @@ import Cropper from "react-easy-crop";
 
 // --- KONFIGURASI FIREBASE (SESUAIKAN DENGAN MILIKMU) ---
 const firebaseConfig = {
-  apiKey: "ISI_API_KEY_DARI_FIREBASE_CONSOLE",
-  authDomain: "PROJECT_ID.firebaseapp.com",
-  projectId: "PROJECT_ID",
-  storageBucket: "PROJECT_ID.appspot.com",
-  messagingSenderId: "...",
-  appId: "..."
+  apiKey: "AIzaSyDqMpyCBFg1m5pA0Bn8U-VxEN_M2B-4A5Q",
+  authDomain: "costlab-f221c.firebaseapp.com",
+  projectId: "costlab-f221c",
+  storageBucket: "costlab-f221c.firebasestorage.app",
+  messagingSenderId: "64337345213",
+  appId: "1:64337345213:web:389610b43797f0e55a15d4"
 };
 
 // Inisialisasi Database
