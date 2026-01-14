@@ -9,10 +9,7 @@ on:
 
 # Tambahkan bagian ini
 permissions:
-  contents: read
-  pages: write      # Wajib ada
-  id-token: write   # Wajib ada untuk OIDC token
-
+  contents: write
 
 
 jobs:
