@@ -5,9 +5,15 @@ on:
     branches:
       - main
 
-# Tambahkan permissions ini agar Action bisa push ke branch gh-pages
+# ... konfigurasi lainnya ...
+
+# Tambahkan bagian ini
 permissions:
-  contents: write
+  contents: read
+  pages: write      # Wajib ada
+  id-token: write   # Wajib ada untuk OIDC token
+
+
 
 jobs:
   build:
