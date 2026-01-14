@@ -2349,12 +2349,18 @@ const LockScreen = ({ onUnlock }) => {
                 const data = docSnap.data();
                 
                 // Validasi Password & Status
-                if (data.password === inputPass) {
-                    if (!data.active) { triggerAlert("Akun dinonaktifkan Admin."); setLoading(false); return; }
-                    if (new Date() > new Date(data.validUntil)) { triggerAlert("Masa aktif habis."); setLoading(false); return; }
+                
+if (data.password === inputPass) {
+    if (!data.active) { triggerAlert("Akun dinonaktifkan Admin.");
+    setLoading(false); return; }
+    if (new Date() > new Date(data.validUntil)) { triggerAlert("Masa aktif habis.");
+    setLoading(false); return; }
+    syncSession('LOGIN', data); 
+    onUnlock(data);
+    // LOGIN SUKSES
+} else {
 
-                    onUnlock(data); // LOGIN SUKSES
-                } else {
+
                     triggerAlert("Password Salah!");
                 }
             } else {
