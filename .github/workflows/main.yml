@@ -5,12 +5,9 @@ on:
     branches:
       - main
 
-# ... konfigurasi lainnya ...
-
-# Tambahkan bagian ini
+# Izin ini WAJIB ada agar tidak error 403
 permissions:
   contents: write
-
 
 jobs:
   build:
@@ -26,13 +23,16 @@ jobs:
           node-version: 18
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+        # Gunakan 'npm ci' lebih stabil untuk CI/CD daripada 'npm install'
 
       - name: Build project
         run: npm run build
+        # Langkah ini akan membuat folder 'dist'
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
+          # Pastikan folder ini 'dist' (untuk Vite) atau 'build' (untuk CRA)
