@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import {
+import { 
   Calculator, ShoppingCart, BarChart3, Plus, Trash2, 
   Save, FolderOpen, RotateCcw, Info, CheckCircle, 
   TrendingUp, Package, Zap, DollarSign, Menu, X, 
@@ -2337,7 +2337,7 @@ const LockScreen = ({ onUnlock }) => {
     const [loading, setLoading] = useState(false);
     
     const handleLogin = async () => {
-        if(!inputId || !inputPass) return alert("Isi ID dan Password!");
+        if(!inputId || !inputPass) return triggerAlert("Isi ID dan Password!");
         setLoading(true);
         
         try {
@@ -2350,18 +2350,18 @@ const LockScreen = ({ onUnlock }) => {
                 
                 // Validasi Password & Status
                 if (data.password === inputPass) {
-                    if (!data.active) { alert("Akun dinonaktifkan Admin."); setLoading(false); return; }
-                    if (new Date() > new Date(data.validUntil)) { alert("Masa aktif habis."); setLoading(false); return; }
+                    if (!data.active) { triggerAlert("Akun dinonaktifkan Admin."); setLoading(false); return; }
+                    if (new Date() > new Date(data.validUntil)) { triggerAlert("Masa aktif habis."); setLoading(false); return; }
 
                     onUnlock(data); // LOGIN SUKSES
                 } else {
-                    alert("Password Salah!");
+                    triggerAlert("Password Salah!");
                 }
             } else {
-                alert("ID Tenant tidak ditemukan!");
+                triggerAlert("ID Tenant tidak ditemukan!");
             }
         } catch (error) {
-            alert("Error Koneksi: " + error.message);
+            triggerAlert("Error Koneksi: " + error.message);
         }
         setLoading(false);
     };
@@ -2378,7 +2378,7 @@ const LockScreen = ({ onUnlock }) => {
                 <div className="space-y-3 text-left">
                     <div>
                         <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Tenant ID</label>
-                        <input value={inputId} onChange={e=>setInputId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition" placeholder="username_toko" />
+                        <input value={inputId} onChange={e=>setInputId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition" placeholder="username" />
                     </div>
                     <div>
                         <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Password</label>
