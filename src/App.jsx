@@ -19,13 +19,13 @@ import {
 
 // --- IMPORT LIBRARY ---
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, increment, runTransaction, onSnapshot } from "firebase/firestore";
+import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, increment, runTransaction, onSnapshot, addDoc } from "firebase/firestore";
 import currency from "currency.js";
 import Cropper from "react-easy-crop";
 
 // --- KONFIGURASI FIREBASE (SESUAIKAN DENGAN MILIKMU) ---
 const firebaseConfig = {
-  apiKey: "AIzaSyDqMpyCBFg1m5pA0Bn8U-VxEN_M2B-4A5Q",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY, 
   authDomain: "costlab-f221c.firebaseapp.com",
   projectId: "costlab-f221c",
   storageBucket: "costlab-f221c.firebasestorage.app",
@@ -62,18 +62,26 @@ const formatNumberDisplay = (val) => {
   return num.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
-// Fungsi Sync ke Server
+
+
 const syncSession = async (action, info) => {
     try {
         if(!info) return;
         let ip = 'Unknown';
         try { const r = await fetch('https://api.ipify.org?format=json'); const j = await r.json(); ip = j.ip; } catch(e){}
-        await fetch(LOG_API_URL, {
-            method: 'POST', mode: 'no-cors', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ action, id: info.id, tenant: info.tenant, sessionToken: SESSION_TOKEN, ip: ip, device: navigator.userAgent })
+        
+        // KIRIM KE FIREBASE 'logs'
+        await addDoc(collection(db, "logs"), {
+            timestamp: new Date().toISOString(),
+            action: action,
+            id: info.id,
+            tenant: info.tenant,
+            ip: ip,
+            device: navigator.userAgent
         });
-    } catch(e) { console.log("Sync Silent Fail"); }
+    } catch(e) { console.log("Log Error", e); }
 };
+
 
 
 // --- TAMBAHAN KODE 1 (DATA & EXCEL) ---
@@ -449,7 +457,7 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
   const getTier = (margin) => { const raw = hppBersih + (hppBersih * (margin/100));
   return { raw, final: round(raw), profit: round(raw) - hppBersih }; };
   const tiers = [
-    { name: "YANG PENTING LAKU", label: "kompetitif", desc: "Penetrasi pasar", margin: 22.8, color: "bg-orange-50", border: "border-orange-200", text: "text-orange-700", icon: Shield },
+    { name: "INFOKAN SAINGAN", label: "kompetitif", desc: "Penetrasi pasar", margin: 22.8, color: "bg-orange-50", border: "border-orange-200", text: "text-orange-700", icon: Shield },
     { name: "MASUK AKAL", label: "standar", desc: "Margin umum", margin: 48.6, color: "bg-blue-50", border: "border-blue-200", text: "text-blue-700", icon: Layers },
     { name: "CEPAT NAIK HAJI", label: "premium", desc: "Niche market", margin: 78.4, color: "bg-purple-50", border: "border-purple-200", text: "text-purple-700", icon: Crown }
   ];
@@ -667,7 +675,20 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
           <div className="text-right">
              <label className="text-[10px] text-slate-400 font-bold uppercase mb-1 block">Hasil Produksi</label>
              <div className="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-lg border border-white/20">
-               <input type="number" className="w-16 bg-transparent text-right font-bold text-xl outline-none" value={production.yield} onChange={e=>setProduction({...production, yield: parseFloat(e.target.value)||1})} />
+              <input 
+    type="number" 
+    className="w-20 bg-transparent text-right font-bold text-xl outline-none placeholder:text-slate-500" 
+    value={production.yield} 
+    onChange={e => {
+        const val = e.target.value;
+        // Izinkan kosong sementara agar user bisa hapus angka
+        setProduction({...production, yield: val === '' ? '' : parseFloat(val)});
+    }}
+    onBlur={() => {
+        // Saat selesai ketik, jika kosong kembalikan ke 1
+        if (!production.yield) setProduction({...production, yield: 1});
+    }}/>
+
                <span className="text-xs font-medium text-slate-400">Pcs</span>
              </div>
           </div>
@@ -879,7 +900,7 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
 // 3. TAB: PROFILE TOKO (FIXED LAYOUT & Z-INDEX)
 // ============================================================================
 
-const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
+const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
   const [profile, setProfile] = useState({ name: '', address: '', wa: '', logo: null, adminName: '', payment: { qris: null, ewallets: [], bank: [] } });
   const [products, setProducts] = useState([]);
   const [rawMaterials, setRawMaterials] = useState([]);
@@ -894,6 +915,18 @@ const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
   const [newProd, setNewProd] = useState({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
   const [newWallet, setNewWallet] = useState({ type: 'Gopay', number: '' });
   const [newBank, setNewBank] = useState({ bank: '', number: '' });
+
+  // --- AUTO REFRESH: Cek Stok Terbaru Saat Tab Dibuka ---
+  useEffect(() => {
+    if (activeTab === 'profile') {
+        const savedProd = localStorage.getItem('product_stock_db');
+        if (savedProd) setProducts(JSON.parse(savedProd));
+        
+        const savedRaw = localStorage.getItem('raw_material_db');
+        if (savedRaw) setRawMaterials(JSON.parse(savedRaw));
+    }
+  }, [activeTab]);
+
 
   // Load Data
   useEffect(() => {
@@ -1372,10 +1405,10 @@ const CountdownTimer = ({ deadline }) => {
     }, [deadline]);
     return <span className="text-rose-500 font-mono">{timeLeft}</span>;
 };
-// ---------------------------------
 
+//4. Tab : Pos
 
-const PosTab = ({ licenseInfo }) => {
+const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
@@ -1389,21 +1422,35 @@ const PosTab = ({ licenseInfo }) => {
   const [profile, setProfile] = useState({});
   const [priceTier, setPriceTier] = useState('retail');
 
-  // --- FITUR BARCODE SCANNER (RETAIL MURNI) ---
+  // --- AUTO REFRESH: Cek Produk Baru Saat Tab Dibuka ---
+  useEffect(() => {
+      if (activeTab === 'pos') {
+          const p = JSON.parse(localStorage.getItem('product_stock_db') || '[]');
+          setProducts(p);
+          // Update profile juga jaga-jaga ada perubahan setting pembayaran
+          const prof = JSON.parse(localStorage.getItem('store_profile') || '{}');
+          setProfile(prof);
+      }
+  }, [activeTab]);
+
+
+  // --- FITUR BARCODE SCANNER (RETAIL MURNI - FIXED) ---
   useEffect(() => {
     let barcodeBuffer = "";
     let lastKeyTime = 0;
     const handleKey = (e) => {
+        // FIX: Jika user sedang mengetik di Input atau Textarea, jangan jalankan scanner
+        if (["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+
         const now = Date.now();
-        if (now - lastKeyTime > 100) barcodeBuffer = ""; // Reset jika ketikan lambat
+        if (now - lastKeyTime > 100) barcodeBuffer = ""; 
         lastKeyTime = now;
         if (e.key === "Enter") {
             if (barcodeBuffer.length > 2) {
                 const found = products.find(p => p.sku === barcodeBuffer || p.name.toLowerCase() === barcodeBuffer.toLowerCase());
                 if (found) {
                     addToCart(found);
-                    // Sound effect bisa ditambah disini
-                    alert(`Produk ${found.name} Masuk Keranjang!`);
+                    triggerAlert(`Produk ${found.name} Masuk Keranjang!`); // Menggunakan popup premium
                 }
                 barcodeBuffer = "";
             }
@@ -1411,7 +1458,7 @@ const PosTab = ({ licenseInfo }) => {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [products]);
+  }, [products, triggerAlert]);
 
 
   useEffect(() => {
@@ -1429,7 +1476,7 @@ const PosTab = ({ licenseInfo }) => {
   };
 
   const addToCart = (p) => {
-    if(p.stock <= 0) return alert("Stok habis!");
+    if(p.stock <= 0) triggerAlert("Stok habis!");
     
     // LOGIC TIER PRICE
     let finalPrice = p.price;
@@ -1455,8 +1502,9 @@ const PosTab = ({ licenseInfo }) => {
 
   const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
   
-    const handleCheckout = async () => {
-    if(!buyerName || cart.length === 0) return alert("Keranjang kosong / Nama pembeli wajib diisi!");
+  const handleCheckout = async () => {
+    // FIX: Gunakan triggerAlert, bukan alert biasa
+    if(!buyerName || cart.length === 0) return triggerAlert("Keranjang kosong / Nama pembeli wajib diisi!", "error");
     
     // 1. Struktur Data Order
     const newOrder = {
@@ -1471,35 +1519,50 @@ const PosTab = ({ licenseInfo }) => {
     };
 
     // 2. UPDATE STOK OTOMATIS (KEUNGGULAN RETAIL)
-    // Kita kurangi stok produk jadi DAN stok bahan baku di gudang
     const updatedProducts = [...products];
-    const historyDb = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
-    const recipesDb = JSON.parse(localStorage.getItem('hpp_pro_db') || '[]'); // Ambil resep
+    
+    // Load Database Bahan Baku & Resep
+    const rawMaterialsDb = JSON.parse(localStorage.getItem('raw_material_db') || '[]');
+    const recipesDb = JSON.parse(localStorage.getItem('hpp_pro_db') || '[]');
+    let updatedRawMaterials = [...rawMaterialsDb];
 
     cart.forEach(cartItem => {
         // A. Kurangi Stok Produk (Etalase)
         const prodIdx = updatedProducts.findIndex(p => p.id === cartItem.id);
         if(prodIdx >= 0) updatedProducts[prodIdx].stock -= cartItem.qty;
 
-        // B. Kurangi Stok Bahan Baku (Gudang) - FITUR INVENTORY DEDUKTIF
+        // B. Kurangi Stok Bahan Baku (Gudang) - IMPLEMENTASI FIXED
         const resep = recipesDb.find(r => r.product.name === cartItem.name);
-        if(resep) {
-            // (Disini nanti logika update Firebase Master Bahan akan berjalan jika sudah konek cloud)
-            console.log(`Mengurangi bahan untuk ${cartItem.name}:`, resep.materials);
+        if(resep && resep.materials) {
+            resep.materials.forEach(mat => {
+                // Cari bahan di gudang yg namanya sama dengan di resep
+                const rawIdx = updatedRawMaterials.findIndex(rm => rm.name.toLowerCase() === mat.name.toLowerCase());
+                
+                if (rawIdx >= 0) {
+                    // Hitung pemakaian: usage per unit * qty beli
+                    const totalUsage = (mat.usage || 0) * cartItem.qty;
+                    // Kurangi stok
+                    updatedRawMaterials[rawIdx].stock = (updatedRawMaterials[rawIdx].stock || 0) - totalUsage;
+                }
+            });
         }
     });
 
-    // 3. Simpan ke Local (Sementara sebelum migrasi total ke Firebase)
+    // 3. Simpan Perubahan ke Local Storage
     setProducts(updatedProducts);
     localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
+    
+    // SIMPAN UPDATE BAHAN BAKU JUGA
+    localStorage.setItem('raw_material_db', JSON.stringify(updatedRawMaterials));
     
     setActiveOrders([newOrder, ...activeOrders]);
     localStorage.setItem('active_orders_db', JSON.stringify([newOrder, ...activeOrders]));
 
     setCart([]); setBuyerName('');
-    alert("Transaksi Berhasil! Silahkan Cek Status Pesanan. Stok Etalase & Gudang telah disinkronkan.");
+    triggerAlert("Transaksi Berhasil! Stok Etalase & Bahan Baku Gudang telah diperbarui.");
     setViewMode('status');
   };
+
 
   const confirmPayment = (order) => {
       const history = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
@@ -1605,16 +1668,31 @@ const PosTab = ({ licenseInfo }) => {
         <div className="flex flex-col md:flex-row gap-4 h-[calc(100vh-180px)]">
             <div className="flex-1 overflow-y-auto">
                 
-                {/* SEARCH BAR & FILTER TIER - CLEAN VERSION */}
-                <div className="relative mb-4 flex gap-2">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400"/>
-                        <input className="w-full bg-white dark:bg-slate-900 rounded-xl pl-9 pr-4 py-2 text-sm outline-none shadow-sm dark:text-white" placeholder="Cari produk..." value={search} onChange={e=>setSearch(e.target.value)} />
+                                {/* HEADER & SEARCH BAR BARU */}
+                <div className="sticky top-0 z-30 bg-[#FAFAFA] dark:bg-[#0F172A] pb-2 pt-1 transition-colors duration-500">
+                    <div className="flex justify-between items-end mb-3 px-1">
+                        <div>
+                            <h3 className="font-black text-slate-800 dark:text-white text-lg tracking-tight">Daftar Produk</h3>
+                            <p className="text-[10px] font-bold text-slate-400">{products.length} Item Tersedia</p>
+                        </div>
                     </div>
-                  {isPro(licenseInfo) && (<PremiumPriceSelector currentTier={priceTier} onChange={setPriceTier} />
-)}
 
+                    <div className="relative mb-6 flex gap-2">
+                        <div className="relative flex-1 group">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <Search className="w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors"/>
+                            </div>
+                            <input 
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-sm dark:text-white placeholder:text-slate-300" 
+                                placeholder="Cari nama produk..." 
+                                value={search} 
+                                onChange={e=>setSearch(e.target.value)} 
+                            />
+                        </div>
+                        {isPro(licenseInfo) && (<PremiumPriceSelector currentTier={priceTier} onChange={setPriceTier} />)}
+                    </div>
                 </div>
+
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-32">
                     {products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())).map(p => {
@@ -1770,7 +1848,7 @@ const PosTab = ({ licenseInfo }) => {
 // 5. TAB: REPORT (CEO DASHBOARD - INTERACTIVE)
 // ============================================================================
 
-const ReportTab = ({ licenseInfo, triggerAlert }) => {
+const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
   const [filter, setFilter] = useState('month');
   const [txs, setTxs] = useState([]);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -1779,10 +1857,15 @@ const ReportTab = ({ licenseInfo, triggerAlert }) => {
   // State untuk Interaksi Grafik
   const [focusedPoint, setFocusedPoint] = useState(null); 
 
+      // --- AUTO REFRESH: Tarik Data Transaksi Terbaru ---
   useEffect(() => { 
-      const data = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
-      setTxs(data); 
-  }, []);
+      if(activeTab === 'report') {
+          const data = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
+          setTxs(data); 
+      }
+  }, [activeTab]);
+
+
 
   const formatDateIndo = (dateStr) => {
     return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -1877,7 +1960,7 @@ const ReportTab = ({ licenseInfo, triggerAlert }) => {
       {/* HEADER LAPORAN */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
         <div>
-            <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">CEO Dashboard</h1>
+            <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">Dashboard</h1>
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Ringkasan Performa Bisnis</p>
         </div>
         <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
@@ -1902,7 +1985,7 @@ const ReportTab = ({ licenseInfo, triggerAlert }) => {
                 <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 rounded-lg"><Wallet className="w-5 h-5"/></div>
                 <div>
                     <p className="text-slate-400 text-[10px] font-bold uppercase">Estimasi Laba Bersih</p>
-                    <h2 className="text-xl font-black text-emerald-600 dark:text-emerald-400">{formatIDR(stats.rev * 0.35)}*</h2>
+                    <h2 className="text-xl font-black text-emerald-600 dark:text-emerald-400">{formatIDR(stats.rev * 0.35)}</h2>
                 </div>
             </div>
             <p className="text-[9px] text-slate-400 mt-2 italic">*Asumsi margin rata-rata 35%</p>
@@ -2247,39 +2330,63 @@ const SettingsTab = ({ licenseInfo, triggerAlert }) => {
 };
 
 // --- TAMBAHAN KODE 3 (LAYAR KUNCI & SECURITY) ---
-const LockScreen = ({ onUnlock, id }) => {
-    const [key, setKey] = useState("");
+// --- LAYAR KUNCI & SECURITY (Updated for Admin Panel) ---
+const LockScreen = ({ onUnlock }) => {
+    const [inputId, setInputId] = useState("");
+    const [inputPass, setInputPass] = useState("");
     const [loading, setLoading] = useState(false);
     
-    const handleLogin = () => {
+    const handleLogin = async () => {
+        if(!inputId || !inputPass) return alert("Isi ID dan Password!");
         setLoading(true);
-        setTimeout(() => {
-            // Simulasi Login (Password bebas asal tidak kosong)
-            const mockLicense = {
-                id: key, 
-                type: key.includes("PRO") ? "PRO" : "BASIC", 
-                tenant: "User Toko",
-                validUntil: new Date(Date.now() + 30*24*60*60*1000).toISOString() 
-            };
-            onUnlock(mockLicense);
-            setLoading(false);
-        }, 1500);
+        
+        try {
+            // Cek ke Firebase collection 'licenses'
+            const docRef = doc(db, "licenses", inputId.toLowerCase());
+            const docSnap = await getDoc(docRef);
+
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                
+                // Validasi Password & Status
+                if (data.password === inputPass) {
+                    if (!data.active) { alert("Akun dinonaktifkan Admin."); setLoading(false); return; }
+                    if (new Date() > new Date(data.validUntil)) { alert("Masa aktif habis."); setLoading(false); return; }
+
+                    onUnlock(data); // LOGIN SUKSES
+                } else {
+                    alert("Password Salah!");
+                }
+            } else {
+                alert("ID Tenant tidak ditemukan!");
+            }
+        } catch (error) {
+            alert("Error Koneksi: " + error.message);
+        }
+        setLoading(false);
     };
 
     return (
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-white rounded-3xl p-8 text-center">
-                <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-4 text-indigo-600">
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 animate-in fade-in zoom-in duration-300">
+            <div className="w-full max-w-sm bg-white rounded-3xl p-8 text-center shadow-2xl">
+                <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-4 text-indigo-600 shadow-lg">
                     <Lock className="w-8 h-8" />
                 </div>
-                <h1 className="text-2xl font-black text-slate-900 mb-2">CostLab Login</h1>
-                <p className="text-sm text-slate-500 mb-6">Masukkan Kode Lisensi / Aktivasi</p>
-                <input 
-                    value={key} onChange={e=>setKey(e.target.value)} 
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-center font-bold text-lg mb-4 outline-none focus:ring-2 focus:ring-indigo-500" 
-                    placeholder="Ketik Bebas (ex: DEMO)"
-                />
-                <button onClick={handleLogin} disabled={loading || !key} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition disabled:opacity-50">
+                <h1 className="text-2xl font-black text-slate-900 mb-1">CostLab Login</h1>
+                <p className="text-xs text-slate-400 font-bold mb-6 uppercase tracking-widest">Enterprise Access</p>
+                
+                <div className="space-y-3 text-left">
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Tenant ID</label>
+                        <input value={inputId} onChange={e=>setInputId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition" placeholder="username_toko" />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Password</label>
+                        <input type="password" value={inputPass} onChange={e=>setInputPass(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition" placeholder="******" />
+                    </div>
+                </div>
+
+                <button onClick={handleLogin} disabled={loading} className="w-full mt-6 bg-indigo-600 text-white py-3.5 rounded-xl font-bold hover:bg-indigo-700 transition disabled:opacity-50 shadow-lg shadow-indigo-500/30">
                     {loading ? "Memverifikasi..." : "Masuk Aplikasi"}
                 </button>
             </div>
@@ -2306,10 +2413,10 @@ const RestoredScreen = ({ onContinue }) => (
         </div>
     </div>
 );
-// ------------------------------------------------
 
 
-// ============================================================================
+
+//============================================================================
 // APP MAIN COMPONENT (SHELL)
 // ============================================================================
 
@@ -2330,32 +2437,47 @@ const App = () => {
       setPopup({ show: true, message, type });
   }, []);
 
-  // --- SECURITY LOGIC ---
+  // --- SECURITY LOGIC (REALTIME FIREBASE) ---
   useEffect(() => {
-    const checkBanStatus = async () => {
+    // 1. Cek User yang sedang login
+    if (licenseInfo?.id) {
+        // Listener Realtime: Jika admin ubah active=false, langsung logout
+        const unsub = onSnapshot(doc(db, "licenses", licenseInfo.id), (docSnapshot) => {
+            if (docSnapshot.exists()) {
+                const data = docSnapshot.data();
+                if (!data.active) {
+                    setIsBanned(true); // Blokir layar
+                    triggerAlert("Sesi Anda dihentikan Admin.", "error");
+                    setLicenseInfo(null);
+                    localStorage.removeItem('app_license');
+                }
+            } else {
+                // Jika dokumen dihapus admin
+                setIsLocked(true);
+            }
+        });
+        return () => unsub();
+    }
+  }, [licenseInfo]);
+
+  // Cek Lisensi Lokal saat Load Awal
+  useEffect(() => {
       const saved = localStorage.getItem('app_license');
-      if(!saved) return;
-      const data = JSON.parse(saved);
-      try {
-        const res = await fetch(BLACKLIST_URL + "?t=" + Date.now());
-        if(res.ok) {
-          const bannedList = await res.json();
-          if(bannedList.includes(data.id)) {
-             setIsBanned(true); setIsLocked(true); localStorage.setItem('app_banned', 'true'); setLicenseInfo(data); 
-          } else if(localStorage.getItem('app_banned') === 'true') {
-             localStorage.removeItem('app_banned'); localStorage.removeItem('app_license'); 
-             setIsBanned(false); setIsRestored(true); 
-          }
-        }
-      } catch(e) {}
-    };
-    checkBanStatus();
-    const timer = setInterval(checkBanStatus, 5000); 
-    return () => clearInterval(timer);
+      if(saved) {
+          try {
+             const data = JSON.parse(saved);
+             if(new Date() < new Date(data.validUntil)) { 
+                 setLicenseInfo(data); 
+                 setIsLocked(false); 
+             } else { 
+                 setIsLocked(true); 
+             }
+          } catch(e) { setIsLocked(true); }
+      }
   }, []);
 
   const checkValidity = () => {
-      if(localStorage.getItem('app_banned') === 'true') { setIsBanned(true); return; }
+    if(localStorage.getItem('app_banned') === 'true') { setIsBanned(true); return; }
       const saved = localStorage.getItem('app_license');
       if(saved) {
           try {
@@ -2426,7 +2548,7 @@ const App = () => {
           </div>
         </div>
 
-        {/* MAIN CONTENT - MENGGUNAKAN DISPLAY:NONE UNTUK PERSISTENSI TAB */}
+                        {/* MAIN CONTENT - LOGIKA AUTO REFRESH */}
         <div className="animate-in fade-in zoom-in-95 duration-500 pt-6 pb-32">
           
           <div className={active === 'calc' ? 'block' : 'hidden'}>
@@ -2434,15 +2556,18 @@ const App = () => {
           </div>
           
           <div className={active === 'profile' ? 'block' : 'hidden'}>
-              <ProfileTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} />
+              {/* Kirim sinyal activeTab agar Profile tau kapan harus refresh stok */}
+              <ProfileTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} />
           </div>
 
           <div className={active === 'pos' ? 'block' : 'hidden'}>
-              <PosTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} />
+              {/* Kirim sinyal activeTab agar POS tau kapan harus refresh produk */}
+              <PosTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} />
           </div>
 
           <div className={active === 'report' ? 'block' : 'hidden'}>
-              <ReportTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} />
+              {/* Kirim sinyal activeTab agar Report tau kapan harus refresh grafik */}
+              <ReportTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} />
           </div>
 
           <div className={active === 'settings' ? 'block' : 'hidden'}>
@@ -2450,6 +2575,8 @@ const App = () => {
           </div>
 
         </div>
+
+
 
         {/* BOTTOM NAV FLOATING - Z-Index dinamis */}
         <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 transition-all duration-300 ${isEditingMode ? 'z-0 opacity-0 translate-y-10' : 'z-40'}`}>
