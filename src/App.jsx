@@ -1376,9 +1376,26 @@ const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buy
                             <span className="text-slate-500 text-xs font-bold">Total Tagihan</span>
                             <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{formatIDR(cart.reduce((a,b)=>a+(b.price*b.qty),0))}</span>
                         </div>
-                        <button onClick={handleCheckout} disabled={cart.length===0} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 disabled:shadow-none transition-all active:scale-[0.98] flex items-center justify-center gap-2">
-                            <CheckCircle className="w-4 h-4"/> Proses Pesanan
-                        </button>
+                      <button 
+    onClick={handleCheckout} 
+    disabled={cart.length === 0 || isLoading} // Disable tombol saat kosong ATAU loading
+    className={`w-full py-3.5 rounded-xl font-bold shadow-lg shadow-indigo-500/30 transition-all active:scale-[0.98] flex items-center justify-center gap-2 ${
+        isLoading ? 'bg-slate-400 cursor-not-allowed text-slate-100' : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+    }`}
+>
+    {isLoading ? (
+        <>
+            <RefreshCw className="w-4 h-4 animate-spin"/> {/* Ikon muter-muter */}
+            Memproses...
+        </>
+    ) : (
+        <>
+            <CheckCircle className="w-4 h-4"/> 
+            Proses Pesanan
+        </>
+    )}
+</button>
+
                     </div>
                 </div>
             </div>
@@ -1421,6 +1438,8 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
   const [showReceipt, setShowReceipt] = useState(null);
   const [profile, setProfile] = useState({});
   const [priceTier, setPriceTier] = useState('retail');
+const [isLoading, setIsLoading] = useState(false); 
+
 
   // --- AUTO REFRESH: Cek Produk Baru Saat Tab Dibuka ---
   useEffect(() => {
@@ -1502,66 +1521,75 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
 
   const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
   
+  // [UPDATE] Fungsi Checkout dengan Loading & Pengaman
   const handleCheckout = async () => {
-    // FIX: Gunakan triggerAlert, bukan alert biasa
+    // 1. Validasi Awal
     if(!buyerName || cart.length === 0) return triggerAlert("Keranjang kosong / Nama pembeli wajib diisi!", "error");
     
-    // 1. Struktur Data Order
-    const newOrder = {
-        id: `ord_${Date.now()}`,
-        date: new Date().toISOString(),
-        buyer: buyerName,
-        paymentMethod: paymentMethod,
-        items: cart,
-        total: cart.reduce((a,b)=>a+(b.price*b.qty),0),
-        status: 'pending',
-        branchId: BRANCH_ID
-    };
+    // 2. Cek apakah sedang loading (Mencegah Double Click)
+    if (isLoading) return;
+    setIsLoading(true); // Aktifkan mode loading
 
-    // 2. UPDATE STOK OTOMATIS (KEUNGGULAN RETAIL)
-    const updatedProducts = [...products];
-    
-    // Load Database Bahan Baku & Resep
-    const rawMaterialsDb = JSON.parse(localStorage.getItem('raw_material_db') || '[]');
-    const recipesDb = JSON.parse(localStorage.getItem('hpp_pro_db') || '[]');
-    let updatedRawMaterials = [...rawMaterialsDb];
+    try {
+        // Efek loading buatan (0.5 detik) biar user merasa ada proses & tidak klik 2x
+        await new Promise(resolve => setTimeout(resolve, 500));
 
-    cart.forEach(cartItem => {
-        // A. Kurangi Stok Produk (Etalase)
-        const prodIdx = updatedProducts.findIndex(p => p.id === cartItem.id);
-        if(prodIdx >= 0) updatedProducts[prodIdx].stock -= cartItem.qty;
+        // --- MULAI LOGIKA ASLI ---
+        const newOrder = { 
+            id: `ord_${Date.now()}`, 
+            date: new Date().toISOString(), 
+            buyer: buyerName, 
+            paymentMethod: paymentMethod, 
+            items: cart, 
+            total: cart.reduce((a,b)=>a+(b.price*b.qty),0), 
+            status: 'pending', 
+            branchId: BRANCH_ID 
+        };
 
-        // B. Kurangi Stok Bahan Baku (Gudang) - IMPLEMENTASI FIXED
-        const resep = recipesDb.find(r => r.product.name === cartItem.name);
-        if(resep && resep.materials) {
-            resep.materials.forEach(mat => {
-                // Cari bahan di gudang yg namanya sama dengan di resep
-                const rawIdx = updatedRawMaterials.findIndex(rm => rm.name.toLowerCase() === mat.name.toLowerCase());
-                
-                if (rawIdx >= 0) {
-                    // Hitung pemakaian: usage per unit * qty beli
-                    const totalUsage = (mat.usage || 0) * cartItem.qty;
-                    // Kurangi stok
-                    updatedRawMaterials[rawIdx].stock = (updatedRawMaterials[rawIdx].stock || 0) - totalUsage;
-                }
-            });
-        }
-    });
+        const updatedProducts = [...products];
+        const rawMaterialsDb = JSON.parse(localStorage.getItem('raw_material_db') || '[]');
+        const recipesDb = JSON.parse(localStorage.getItem('hpp_pro_db') || '[]');
+        let updatedRawMaterials = [...rawMaterialsDb];
 
-    // 3. Simpan Perubahan ke Local Storage
-    setProducts(updatedProducts);
-    localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
-    
-    // SIMPAN UPDATE BAHAN BAKU JUGA
-    localStorage.setItem('raw_material_db', JSON.stringify(updatedRawMaterials));
-    
-    setActiveOrders([newOrder, ...activeOrders]);
-    localStorage.setItem('active_orders_db', JSON.stringify([newOrder, ...activeOrders]));
+        cart.forEach(cartItem => {
+            // A. Kurangi Stok Produk (Etalase)
+            const prodIdx = updatedProducts.findIndex(p => p.id === cartItem.id);
+            if(prodIdx >= 0) updatedProducts[prodIdx].stock -= cartItem.qty;
 
-    setCart([]); setBuyerName('');
-    triggerAlert("Transaksi Berhasil! Stok Etalase & Bahan Baku Gudang telah diperbarui.");
-    setViewMode('status');
+            // B. Kurangi Stok Bahan Baku (Gudang)
+            const resep = recipesDb.find(r => r.product.name === cartItem.name);
+            if(resep && resep.materials) {
+                resep.materials.forEach(mat => {
+                    const matNameClean = mat.name.trim().toLowerCase();
+                    const rawIdx = updatedRawMaterials.findIndex(rm => rm.name.trim().toLowerCase() === matNameClean);
+                    if (rawIdx >= 0) {
+                        const totalUsage = (mat.usage || 0) * cartItem.qty;
+                        updatedRawMaterials[rawIdx].stock = Math.max(0, (updatedRawMaterials[rawIdx].stock || 0) - totalUsage);
+                    }
+                });
+            }
+        });
+
+        // Simpan Data
+        setProducts(updatedProducts);
+        localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
+        localStorage.setItem('raw_material_db', JSON.stringify(updatedRawMaterials));
+        
+        setActiveOrders([newOrder, ...activeOrders]);
+        localStorage.setItem('active_orders_db', JSON.stringify([newOrder, ...activeOrders]));
+
+        setCart([]); setBuyerName('');
+        triggerAlert("Transaksi Berhasil! Stok Etalase dan Bahan Baku Gudangdiperbarui.");
+        setViewMode('status');
+        // --- SELESAI LOGIKA ASLI ---
+
+    } catch (error) {
+        triggerAlert("Terjadi kesalahan: " + error.message, "error");
+    } finally {
+        setIsLoading(false); // Matikan mode loading (Apapun yang terjadi)
+    }
   };
+
 
 
   const confirmPayment = (order) => {
