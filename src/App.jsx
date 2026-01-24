@@ -23,6 +23,21 @@ import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, increment, ru
 import currency from "currency.js";
 import Cropper from "react-easy-crop";
 
+// --- KODE JEBAKAN ERROR (HAPUS NANTI KALAU SUDAH BENAR) ---
+window.onerror = function(message, source, lineno, colno, error) {
+  document.body.innerHTML = `
+    <div style="background:black; color:red; padding:20px; font-family:monospace; font-size:14px; height:100vh;">
+      <h2 style="color:yellow">⚠️ ERROR TERDETEKSI:</h2>
+      <p style="font-weight:bold">${message}</p>
+      <p>File: ${source}</p>
+      <p>Baris ke: ${lineno}</p>
+      <hr/>
+      <p style="color:white">Screenshot layar ini dan kirim ke saya.</p>
+    </div>
+  `;
+};
+
+
 // --- KONFIGURASI FIREBASE (SESUAIKAN DENGAN MILIKMU) ---
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY, 
