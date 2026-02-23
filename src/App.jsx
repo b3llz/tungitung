@@ -1317,7 +1317,8 @@ const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) =>
 // ============================================================================
 
 // Mengubah konsep Sidebar menjadi Modal Popup agar tidak tertutup Navbar
-const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile }) => {
+const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile, isLoading }) => {
+
     
     // Helper untuk ikon pembayaran
     const getPaymentIcon = (type) => {
@@ -1783,7 +1784,9 @@ const [isLoading, setIsLoading] = useState(false);
             </div>
 
             {/* POPUP CART & FLOATING BUTTON */}
-            <CartPopup showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile}/>
+          {/* POPUP CART & FLOATING BUTTON */}
+<CartPopup showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile} isLoading={isLoading}/>
+
             
             {cart.length > 0 && (
                 <div className="fixed bottom-24 left-0 right-0 px-4 z-30 flex justify-center animate-slide-up">
