@@ -2381,7 +2381,8 @@ const LockScreen = ({ onUnlock }) => {
     const [inputId, setInputId] = useState("");
     const [inputPass, setInputPass] = useState("");
     const [loading, setLoading] = useState(false);
-    
+    const triggerAlert = (msg) => alert(msg);
+
     const handleLogin = async () => {
         if(!inputId || !inputPass) return triggerAlert("Isi ID dan Password!");
         setLoading(true);
