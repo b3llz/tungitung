@@ -143,14 +143,16 @@
 
         // --- KONFIGURASI FIREBASE ---
         // Tempel Config yang SAMA PERSIS dengan App.jsx di sini
+                // --- KONFIGURASI FIREBASE ---
         const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY, 
-  authDomain: "costlab-f221c.firebaseapp.com",
-  projectId: "costlab-f221c",
-  storageBucket: "costlab-f221c.firebasestorage.app",
-  messagingSenderId: "64337345213",
-  appId: "1:64337345213:web:389610b43797f0e55a15d4"
-};
+          apiKey: "AIzaSyDqMpyCBFg1m5pA0Bn8U",
+          authDomain: "costlab-f221c.firebaseapp.com",
+          projectId: "costlab-f221c",
+          storageBucket: "costlab-f221c.firebasestorage.app",
+          messagingSenderId: "64337345213",
+          appId: "1:64337345213:web:389610b43797f0e55a15d4"
+        };
+
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
