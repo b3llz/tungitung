@@ -1,6 +1,16 @@
 <!doctype html>
 <html lang="id">
   <head>
+    <script>
+      window.onerror = function(msg, url, line, col, error) {
+        document.body.innerHTML = "<div style='background:black; color:red; padding:20px; font-family:monospace; height:100vh; font-size:14px; overflow:auto;'><b>🔥 ERROR FATAL (CRASH):</b><br><br>" + msg + "<br><br>File: " + url + "<br>Baris: " + line + "</div>";
+        return false;
+      };
+      window.addEventListener("unhandledrejection", function(event) {
+        var reason = event.reason ? (event.reason.message || event.reason) : "Unknown Error";
+        document.body.innerHTML = "<div style='background:black; color:orange; padding:20px; font-family:monospace; height:100vh; font-size:14px; overflow:auto;'><b>⚠️ ERROR API/FIREBASE:</b><br><br>" + reason + "</div>";
+      });
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>HPP Master Pro</title>
