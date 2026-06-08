@@ -1464,6 +1464,8 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
   const [profile, setProfile] = useState({});
   const [priceTier, setPriceTier] = useState('retail');
 const [isLoading, setIsLoading] = useState(false); 
+const [isCameraActive, setIsCameraActive] = useState(false);
+
 
 
   // --- AUTO REFRESH: Cek Produk Baru Saat Tab Dibuka ---
@@ -1736,20 +1738,29 @@ const [isLoading, setIsLoading] = useState(false);
                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                 <Search className="w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors"/>
                             </div>
-                            <input 
+                                                        <input 
                                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-sm dark:text-white placeholder:text-slate-300" 
-                                placeholder="Cari nama produk..." 
+                                placeholder="Cari nama atau ketik SKU/Barcode..." 
                                 value={search} 
                                 onChange={e=>setSearch(e.target.value)} 
-                            />
+/>
+{/* Tambahkan tombol kamera di samping input search */}
+<button onClick={() => setIsCameraActive(!isCameraActive)} className="absolute right-3 top-2.5">
+    <Smartphone className="w-5 h-5 text-slate-400"/>
+</button>
+
                         </div>
                         {isPro(licenseInfo) && (<PremiumPriceSelector currentTier={priceTier} onChange={setPriceTier} />)}
                     </div>
                 </div>
 
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-32">
+                    {/* Logika filter baru: Mendukung Nama DAN SKU/Barcode */}
+                    {products.filter(p => 
+                        p.name.toLowerCase().includes(search.toLowerCase()) || 
+                        (p.sku && p.sku.toLowerCase().includes(search.toLowerCase()))
+                    ).map(p => {
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-32">
-                    {products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())).map(p => {
                         // --- PERBAIKAN LOGIKA HARGA DINAMIS ---
                         let displayPrice = p.price;
                         let priceLabel = "Retail";
@@ -2285,29 +2296,51 @@ const SettingsTab = ({ licenseInfo, triggerAlert }) => {
                 </div>
             </div>
 
-            {/* --- CARD 1: MODE APLIKASI (RETAIL) --- */}
-            <Card title="Mode Operasional" icon={LayoutGrid}>
-                <div className="flex justify-between items-center py-1">
-                    <div className="pr-4 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-bold text-sm text-slate-800 dark:text-white">Retail Murni</h4>
-                            {/* HIGHLIGHT BOX MINIMARKET (PENGGANTI KURUNG) */}
-                            <div className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 px-2 py-0.5 rounded-lg text-indigo-600 dark:text-indigo-400">
-                                <Store className="w-3 h-3"/>
-                                <span className="text-[9px] font-black uppercase tracking-wider">Minimarket</span>
-                            </div>
-                        </div>
-                        <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                            Aktifkan fitur <span className="text-indigo-500 font-bold">Auto-Scan Barcode</span> & <span className="text-indigo-500 font-bold">Stok Opname Cepat</span> untuk kasir supermarket.
-                        </p>
-                    </div>
+                const [opMode, setOpMode] = useState(localStorage.getItem('op_mode') || 'retail'); // 'retail' atau 'fnb'
 
-                    {/* TOGGLE SWITCH MAHAL (FIXED BUG) */}
-                    <div onClick={toggleRetail} className={`w-14 h-8 rounded-full p-1 cursor-pointer transition-colors duration-500 flex items-center shadow-inner ${retailMode ? 'bg-indigo-600 shadow-indigo-500/50' : 'bg-slate-200 dark:bg-slate-700'}`}>
-                        <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${retailMode ? 'translate-x-6' : 'translate-x-0'}`}></div>
-                    </div>
+    const handleOpMode = (mode) => {
+        setOpMode(mode);
+        localStorage.setItem('op_mode', mode);
+        triggerAlert(`Beralih ke mode ${mode === 'retail' ? 'Retail Murni' : 'Food & Beverage'}`, "success");
+    };
+
+    // (PASTE DI BAGIAN RETURN SETTINGSTAB):
+            {/* --- CARD 1: MODE APLIKASI --- */}
+            <Card title="Pilih Mode Bisnis" icon={LayoutGrid}>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                    <button onClick={() => handleOpMode('retail')} className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center text-center gap-2 ${opMode === 'retail' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 bg-white text-slate-500 hover:border-indigo-200'}`}>
+                        <Store className="w-6 h-6" />
+                        <span className="font-black text-xs uppercase tracking-wider">Retail / UMKM</span>
+                    </button>
+                    <button onClick={() => handleOpMode('fnb')} className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center text-center gap-2 ${opMode === 'fnb' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-slate-100 bg-white text-slate-500 hover:border-orange-200'}`}>
+                        <Store className="w-6 h-6" />
+                        <span className="font-black text-xs uppercase tracking-wider">Food & Bev</span>
+                    </button>
                 </div>
+
+                {/* Kondisi Jika Retail */}
+                {opMode === 'retail' && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-3 animate-in fade-in">
+                        <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0"/>
+                        <p className="text-[10px] font-bold text-emerald-800 leading-relaxed">Fitur <b>Scanner Barcode/SKU</b> & <b>Stok Opname Cepat</b> otomatis diaktifkan untuk mempercepat laju antrian kasir.</p>
+                    </div>
+                )}
+
+                {/* Kondisi Jika F&B */}
+                {opMode === 'fnb' && (
+                    <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl animate-in fade-in">
+                        <div className="flex justify-between items-center mb-1">
+                            <div className="flex items-center gap-2">
+                                <h4 className="font-bold text-sm text-slate-800">Manajemen Meja (Dine-in)</h4>
+                                <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest">Segera Hadir</span>
+                            </div>
+                            <div className="w-10 h-6 bg-slate-200 rounded-full opacity-50 cursor-not-allowed"></div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-medium">Buka bon, pisah tagihan (split bill), dan manajemen antrian meja restoran.</p>
+                    </div>
+                )}
             </Card>
+
 
             {/* --- CARD 2: STATUS LISENSI (NEON STYLE) --- */}
             {licenseInfo && (
@@ -2653,6 +2686,19 @@ const App = () => {
           <div className={active === 'users' ? 'block' : 'hidden'}>
               {/* TAMPILAN SEMENTARA AGAR TIDAK ERROR SAAT DIKLIK */}
               <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in">
+          {/* PLACEHOLDER UNTUK MENU-MENU BARU (Agar tidak nge-blank saat di-klik) */}
+          {['history', 'pettycash', 'stock', 'stockopname', 'stockinout', 'stockhistory', 'profileinfo', 'payment', 'hardware', 'users', 'discount', 'multioutlet', 'backup'].includes(active) && (
+              <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in max-w-sm mx-auto px-4">
+                  <div className="w-24 h-24 bg-indigo-50 dark:bg-indigo-900/20 rounded-3xl flex items-center justify-center mb-6 border-4 border-indigo-100 dark:border-indigo-800 shadow-inner">
+                      <Rocket className="w-10 h-10 text-indigo-500" />
+                  </div>
+                  <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">Menu Segera Hadir</h2>
+                  <p className="text-xs font-medium text-slate-500 leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
+                      Anda berada di tab <span className="font-black text-indigo-600 uppercase">[{active}]</span>. Tampilan khusus untuk fitur ini sedang disiapkan untuk rilis Enterprise berikutnya.
+                  </p>
+              </div>
+          )}
+
                   <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mb-4 border-4 border-indigo-100 dark:border-indigo-800">
                       <Shield className="w-8 h-8 text-indigo-500" />
                   </div>
@@ -2679,54 +2725,44 @@ const App = () => {
                         <button onClick={() => setIsMenuOpen(false)} className="p-2 bg-white dark:bg-slate-800 rounded-full text-slate-400 hover:text-rose-500 shadow-sm border border-slate-200 dark:border-slate-700 transition"><X className="w-5 h-5"/></button>
                     </div>
                     
-                    <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-                        {/* GRUP: OPERASIONAL */}
+                                        <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+                        {/* KATEGORI: UTAMA */}
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Utama</p>
+                            <div className="space-y-1">
+                                <button onClick={() => {setActive('pos'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='pos' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><ShoppingCart className="w-5 h-5"/> Kasir (POS)</button>
+                                <button onClick={() => {setActive('calc'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='calc' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Calculator className="w-5 h-5"/> Kalkulator HPP</button>
+                                <button onClick={() => {setActive('history'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='history' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Clock className="w-5 h-5"/> Riwayat Transaksi</button>
+                                <button onClick={() => {setActive('pettycash'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='pettycash' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Wallet className="w-5 h-5"/> Manajemen Kas Keluar</button>
+                            </div>
+                        </div>
+
+                        {/* KATEGORI: OPERASIONAL */}
                         <div>
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Operasional</p>
                             <div className="space-y-1">
-                                <button onClick={() => {setActive('pos'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='pos' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                                    <ShoppingCart className="w-5 h-5"/> Kasir (POS)
-                                </button>
-                                <button onClick={() => {setActive('calc'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='calc' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                                    <Calculator className="w-5 h-5"/> Kalkulator HPP
-                                </button>
-                                <button onClick={() => {setActive('report'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='report' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                                    <BarChart3 className="w-5 h-5"/> Laporan Bisnis
-                                </button>
+                                <button onClick={() => {setActive('stock'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stock' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Box className="w-5 h-5"/> Stok Barang</button>
+                                <button onClick={() => {setActive('stockopname'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockopname' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><CheckCircle className="w-5 h-5"/> Stok Opname</button>
+                                <button onClick={() => {setActive('stockinout'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockinout' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><TrendingUp className="w-5 h-5"/> Barang Masuk / Keluar</button>
+                                <button onClick={() => {setActive('stockhistory'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockhistory' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Clock className="w-5 h-5"/> Riwayat Stok</button>
                             </div>
                         </div>
 
-                        {/* GRUP: MANAJEMEN TOKO */}
+                        {/* KATEGORI: PENGATURAN */}
                         <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Manajemen Toko</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Pengaturan</p>
                             <div className="space-y-1">
-                                <button onClick={() => {setActive('profile'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='profile' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                                    <div className="flex items-center gap-3"><Store className="w-5 h-5"/> Stok, Toko & Pembayaran</div>
-                                    <ChevronRight className="w-4 h-4 opacity-50"/>
-                                </button>
-                                <button onClick={() => {setActive('users'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='users' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                                    <div className="flex items-center gap-3"><Users className="w-5 h-5"/> Manajemen User (Role)</div>
-                                    <span className="text-[8px] bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full uppercase">Baru</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* GRUP: SISTEM */}
-                        <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Sistem & Perangkat</p>
-                            <div className="space-y-1">
-                                <button onClick={() => {setActive('settings'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='settings' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                                    <div className="flex items-center gap-3"><Settings className="w-5 h-5"/> Pengaturan & Hardware</div>
-                                    <ChevronRight className="w-4 h-4 opacity-50"/>
-                                </button>
+                                <button onClick={() => {setActive('profileinfo'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='profileinfo' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Store className="w-5 h-5"/> Identitas Toko</button>
+                                <button onClick={() => {setActive('payment'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='payment' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><CreditCard className="w-5 h-5"/> Metode Pembayaran</button>
+                                <button onClick={() => {setActive('settings'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='settings' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Settings className="w-5 h-5"/> Pengaturan Utama</button>
+                                <button onClick={() => {setActive('hardware'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='hardware' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Printer className="w-5 h-5"/> Alat Tambahan (Printer)</button>
+                                <button onClick={() => {setActive('users'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='users' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><div className="flex items-center gap-3"><Users className="w-5 h-5"/> Manajemen User</div></button>
+                                <button onClick={() => {setActive('discount'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='discount' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><div className="flex items-center gap-3"><Award className="w-5 h-5"/> Promo & Diskon</div></button>
+                                <button onClick={() => {setActive('multioutlet'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='multioutlet' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><div className="flex items-center gap-3"><Layers className="w-5 h-5"/> Multi Outlet</div><span className="text-[8px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full uppercase">Pro</span></button>
+                                <button onClick={() => {setActive('backup'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='backup' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><FolderOpen className="w-5 h-5"/> Backup & Restore</button>
                             </div>
                         </div>
                     </div>
-                    
-                    <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-center">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">CostLab v2.5 Enterprise</p>
-                    </div>
-                </div>
             </div>
         )}
 
