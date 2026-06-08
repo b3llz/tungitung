@@ -307,7 +307,7 @@ const ImageCropperModal = ({ imageSrc, onCropComplete, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
-      <div className="w-full max-w-md bg-black rounded-3xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[80vh] relative">
+      <div className="w-[95%] md:w-[500px] bg-black rounded-3xl overflow-hidden shadow-2xl border border-white/10 flex flex-col h-[80vh] relative">
           <div className="absolute top-4 right-4 z-20">
               <button onClick={onClose} className="bg-black/50 text-white p-2 rounded-full hover:bg-red-500/80 transition"><X className="w-5 h-5"/></button>
           </div>
@@ -574,7 +574,7 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
   };
 
   return (
-    <div className="space-y-4 pb-32 w-full px-2 sm:px-4 md:max-w-xl mx-auto">
+    <div className="space-y-4 pb-32 w-full max-w-7xl mx-auto px-4 md:px-8">
       <Card className="!p-0 overflow-hidden">
         <div className="p-4 flex gap-4 items-center">
           <div className="w-24 h-24 shrink-0 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex items-center justify-center relative group cursor-pointer hover:border-indigo-400 transition-all">
@@ -1340,7 +1340,7 @@ const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buy
 
     return (
         <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={()=>setShowCart(false)}>
-            <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl relative flex flex-col max-h-[85vh] overflow-hidden border border-white/20 ring-1 ring-black/5" onClick={e=>e.stopPropagation()}>
+            <div className="bg-white dark:bg-slate-900 w-[95%] md:w-[450px] rounded-3xl shadow-2xl relative flex flex-col max-h-[85vh] overflow-hidden border border-white/20 ring-1 ring-black/5" onClick={e=>e.stopPropagation()}>
                 <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900 z-10">
                     <div className="font-black text-lg text-slate-800 dark:text-white flex items-center gap-2">
                         <div className="bg-indigo-100 dark:bg-indigo-900/30 p-2 rounded-xl text-indigo-600"><ShoppingCart className="w-5 h-5"/></div>
@@ -1748,7 +1748,7 @@ const [isLoading, setIsLoading] = useState(false);
                 </div>
 
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-32">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-32">
                     {products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())).map(p => {
                         // --- PERBAIKAN LOGIKA HARGA DINAMIS ---
                         let displayPrice = p.price;
@@ -2651,7 +2651,7 @@ const App = () => {
 
 
         {/* BOTTOM NAV FLOATING - Z-Index dinamis */}
-        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 transition-all duration-300 ${isEditingMode ? 'z-0 opacity-0 translate-y-10' : 'z-40'}`}>
+        <div className={`fixed bottom-6 w-full flex justify-center px-4 transition-all duration-300 ${isEditingMode ? 'z-0 opacity-0 translate-y-10' : 'z-40'}`}>
             <nav className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-200/50 dark:shadow-black/50 flex gap-1 border border-white/20 ring-1 ring-black/5">
             {[
                 { id: 'calc', icon: Calculator, l: 'Hitung' },
