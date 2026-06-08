@@ -315,10 +315,6 @@ const ImageCropperModal = ({ imageSrc, onCropComplete, onClose }) => {
             <Cropper image={imageSrc} crop={crop} zoom={zoom} aspect={1} onCropChange={setCrop} onCropComplete={(_, croppedPixels) => setCroppedAreaPixels(croppedPixels)} onZoomChange={setZoom} showGrid={false} />
           </div>
           <div className="p-6 bg-slate-900 border-t border-white/10 space-y-5">
-            <div>
-                <div className="flex justify-between text-white text-[10px] font-bold uppercase tracking-wider mb-2"><span>Zoom Level</span><span>{zoom.toFixed(1)}x</span></div>
-                <input type="range" value={zoom} min={1} max={3} step={0.1} onChange={(e) => setZoom(e.target.value)} className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400"/>
-            </div>
             <div className="flex gap-3">
                 <button onClick={onClose} className="flex-1 py-3.5 rounded-xl bg-slate-800 text-white font-bold text-xs hover:bg-slate-700 transition">Batal</button>
                 <button onClick={processCrop} className="flex-1 py-3.5 rounded-xl bg-indigo-600 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 transition">Simpan Foto</button>
@@ -371,7 +367,7 @@ const PremiumPriceSelector = ({ currentTier, onChange }) => {
 
 
 // [FITUR PRO] MODAL SMART PLANNER
-const SmartPlannerModal = ({ materials, onClose }) => {
+const SmartPlannerModal = ({ materials, production, onClose }) => {
     const [target, setTarget] = useState(100);
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm animate-fade-in">
@@ -393,8 +389,9 @@ const SmartPlannerModal = ({ materials, onClose }) => {
                 <div className="max-h-[40vh] overflow-y-auto space-y-2 mb-6 pr-1">
                     <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300 mb-2">Estimasi Belanja Bahan:</h4>
                     {materials.map((m, i) => {
-                        const totalNeed = (m.usage * target);
-                        const packsToBuy = Math.ceil(totalNeed / m.content); 
+                        const yieldPcs = production?.yield || 1;
+                        const totalNeed = ((m.usage || 0) / yieldPcs) * target;
+                        const packsToBuy = Math.ceil(totalNeed / (m.content || 1)); 
                         return (
                             <div key={i} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg text-sm border border-slate-100 dark:border-slate-700">
                                 <div><p className="font-bold text-slate-800 dark:text-white">{m.name}</p><p className="text-[10px] text-slate-500">Butuh: {formatNumberDisplay(totalNeed)} {m.unit}</p></div>
@@ -469,16 +466,20 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
   }
 
   const round = (p) => smartRounding ? (p < 1000 ? Math.ceil(p/100)*100 : Math.ceil(p/500)*500) : p;
-  const getTier = (margin) => { const raw = hppBersih + (hppBersih * (margin/100));
-  return { raw, final: round(raw), profit: round(raw) - hppBersih }; };
+  const getTier = (margin) => { 
+    const raw = hppBersih / (1 - (margin/100)); // Rumus Margin Benar
+    return { raw, final: round(raw), profit: round(raw) - hppBersih }; 
+  };
   const tiers = [
     { name: "INFOKAN SAINGAN", label: "kompetitif", desc: "Penetrasi pasar", margin: 22.8, color: "bg-orange-50", border: "border-orange-200", text: "text-orange-700", icon: Shield },
     { name: "MASUK AKAL", label: "standar", desc: "Margin umum", margin: 48.6, color: "bg-blue-50", border: "border-blue-200", text: "text-blue-700", icon: Layers },
     { name: "CEPAT NAIK HAJI", label: "premium", desc: "Niche market", margin: 78.4, color: "bg-purple-50", border: "border-purple-200", text: "text-purple-700", icon: Crown }
   ];
   const finalPrice = getTier(customMargin).final;
+  const contributionMargin = finalPrice - matPerUnit - varPerUnit;
+  const totalFixCostValid = showFixed ? totalFix : 0;
   const profitPerPcs = finalPrice - hppBersih;
-  const targetPcsMonth = profitPerPcs > 0 ? Math.ceil(targetProfit / profitPerPcs) : 0;
+  const targetPcsMonth = contributionMargin > 0 ? Math.ceil((targetProfit + totalFixCostValid) / contributionMargin) : 0;
   const targetPcsDay = Math.ceil(targetPcsMonth / 30);
   const projOmzetMonth = targetPcsMonth * finalPrice;
   const projProdCostMonth = targetPcsMonth * (matPerUnit + varPerUnit);
@@ -525,11 +526,13 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
     materials.forEach(mat => {
         if(!mat.name) return;
         const matIdx = updatedRawMaterials.findIndex(m => m.name.toLowerCase() === mat.name.toLowerCase());
-        if (matIdx >= 0) { updatedRawMaterials[matIdx].lastPrice = mat.price; } 
+        if (matIdx >= 0) { updatedRawMaterials[matIdx].lastPrice = mat.price / (mat.content || 1); } 
         else {
             updatedRawMaterials.push({
                 id: `rm_${Date.now()}_${Math.random().toString(36).substr(2,5)}`,
-                name: mat.name, unit: mat.unit, stock: 0, lastPrice: mat.price, category: 'Bahan Baku'
+                name: mat.name, unit: mat.unit, stock: 0, 
+                lastPrice: mat.price / (mat.content || 1), 
+                category: 'Bahan Baku'
             });
         }
     });
@@ -870,7 +873,7 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
         {isExporting ? 'Mengekspor...' : 'Export Laporan (.xlsx)'}
       </Button>
 
-      {showPlanner && <SmartPlannerModal materials={materials} onClose={()=>setShowPlanner(false)} />}
+      {showPlanner && <SmartPlannerModal materials={materials} production={production} onClose={()=>setShowPlanner(false)} />}
 
       {showLoad && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
@@ -925,6 +928,7 @@ const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) =>
   const [showAdd, setShowAdd] = useState(false);
   const [showRawMat, setShowRawMat] = useState(false); 
   const [cropSrc, setCropSrc] = useState(null); 
+  const [cropTarget, setCropTarget] = useState(''); // Target crop: 'logo', 'qris', atau 'newProd'
   
   // State Form Baru
   const [newProd, setNewProd] = useState({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
@@ -1027,7 +1031,7 @@ const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) =>
                             <input type="file" className="hidden" accept="image/*" onChange={e => {
                                 if(e.target.files[0]) { 
                                     const r = new FileReader(); 
-                                    r.onload=v=>setCropSrc(v.target.result); 
+                                    r.onload=v=>{setCropSrc(v.target.result); setCropTarget('logo');}; 
                                     r.readAsDataURL(e.target.files[0]); 
                                 }
                             }}/>
@@ -1065,7 +1069,7 @@ const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) =>
             <Card title="QRIS Toko">
                 <div className="w-full h-48 bg-slate-50 dark:bg-slate-800 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center relative overflow-hidden group hover:border-indigo-400 transition cursor-pointer">
                    {profile.payment.qris ? <img src={profile.payment.qris} className="w-full h-full object-contain p-4"/> : <div className="text-center text-slate-400"><QrCode className="w-10 h-10 mx-auto mb-2 opacity-50"/><p className="text-xs font-bold">Upload QRIS</p></div>}
-                   <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {if(e.target.files[0]) { const r = new FileReader(); r.onload=v=>saveProfile({...profile, payment: {...profile.payment, qris:v.target.result}}); r.readAsDataURL(e.target.files[0]); }}}/>
+                   <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => {if(e.target.files[0]) { const r = new FileReader(); r.onload=v=>{setCropSrc(v.target.result); setCropTarget('qris');}; r.readAsDataURL(e.target.files[0]); }}}/>
                 </div>
             </Card>
             
@@ -1260,7 +1264,7 @@ const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) =>
               <div className="flex justify-center py-2">
                 <div className="w-24 h-24 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center relative overflow-hidden border-2 border-dashed border-slate-300 dark:border-slate-700 group hover:border-indigo-500 transition cursor-pointer">
                   {newProd.image ? <img src={newProd.image} className="w-full h-full object-cover"/> : <div className="text-center text-slate-300"><ImageIcon className="w-8 h-8 mx-auto"/><span className="text-[9px] font-bold">Upload Foto</span></div>}
-                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e=>{if(e.target.files[0]){const r=new FileReader();r.onload=v=>setNewProd({...newProd,image:v.target.result});r.readAsDataURL(e.target.files[0]);}}}/>
+                  <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e=>{if(e.target.files[0]){const r=new FileReader();r.onload=v=>{setCropSrc(v.target.result); setCropTarget('newProd');};r.readAsDataURL(e.target.files[0]);}}}/>
                 </div>
               </div>
 
@@ -1299,11 +1303,16 @@ const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) =>
         </div>
       )}
 
-      {/* --- CROPPER MODAL (FOR IDENTITAS TOKO) --- */}
+      {/* --- CROPPER MODAL (FOR SEMUA UPLOAD) --- */}
       {cropSrc && (
          <ImageCropperModal 
             imageSrc={cropSrc} 
-            onCropComplete={(img)=>{ saveProfile({...profile, logo: img}); setCropSrc(null); }} 
+            onCropComplete={(img)=>{ 
+                if(cropTarget === 'logo') saveProfile({...profile, logo: img}); 
+                else if(cropTarget === 'qris') saveProfile({...profile, payment: {...profile.payment, qris: img}});
+                else if(cropTarget === 'newProd') setNewProd({...newProd, image: img});
+                setCropSrc(null); 
+            }} 
             onClose={()=>setCropSrc(null)} 
          />
       )}
@@ -1579,7 +1588,8 @@ const [isLoading, setIsLoading] = useState(false);
                     const matNameClean = mat.name.trim().toLowerCase();
                     const rawIdx = updatedRawMaterials.findIndex(rm => rm.name.trim().toLowerCase() === matNameClean);
                     if (rawIdx >= 0) {
-                        const totalUsage = (mat.usage || 0) * cartItem.qty;
+                        const yieldPcs = resep.production?.yield || 1; // [FIX] Ambil hasil produksi
+                        const totalUsage = ((mat.usage || 0) / yieldPcs) * cartItem.qty; // [FIX] Bagi dengan yield
                         updatedRawMaterials[rawIdx].stock = Math.max(0, (updatedRawMaterials[rawIdx].stock || 0) - totalUsage);
                     }
                 });
@@ -2394,20 +2404,16 @@ const LockScreen = ({ onUnlock }) => {
 
             if (docSnap.exists()) {
                 const data = docSnap.data();
+                data.id = docSnap.id; // [FIX] Wajib tambahkan ini agar ID terbaca oleh sistem keamanan
                 
                 // Validasi Password & Status
-                
-if (data.password === inputPass) {
-    if (!data.active) { triggerAlert("Akun dinonaktifkan Admin.");
-    setLoading(false); return; }
-    if (new Date() > new Date(data.validUntil)) { triggerAlert("Masa aktif habis.");
-    setLoading(false); return; }
-    syncSession('LOGIN', data); 
-    onUnlock(data);
-    // LOGIN SUKSES
-} else {
-
-
+                if (data.password === inputPass) {
+                    if (!data.active) { triggerAlert("Akun dinonaktifkan Admin."); setLoading(false); return; }
+                    if (new Date() > new Date(data.validUntil)) { triggerAlert("Masa aktif habis."); setLoading(false); return; }
+                    syncSession('LOGIN', data); 
+                    onUnlock(data);
+                    // LOGIN SUKSES
+                } else {
                     triggerAlert("Password Salah!");
                 }
             } else {
@@ -2431,11 +2437,24 @@ if (data.password === inputPass) {
                 <div className="space-y-3 text-left">
                     <div>
                         <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Tenant ID</label>
-                        <input value={inputId} onChange={e=>setInputId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition" placeholder="username" />
+                        <input 
+                            value={inputId} 
+                            onChange={e=>setInputId(e.target.value)} 
+                            onPaste={e=>setInputId(e.clipboardData.getData('text'))}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition" 
+                            placeholder="username" 
+                        />
                     </div>
                     <div>
                         <label className="text-[10px] font-bold text-slate-400 ml-1 uppercase">Password</label>
-                        <input type="password" value={inputPass} onChange={e=>setInputPass(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition" placeholder="******" />
+                        <input 
+                            type="password" 
+                            value={inputPass} 
+                            onChange={e=>setInputPass(e.target.value)} 
+                            onPaste={e=>setInputPass(e.clipboardData.getData('text'))}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition" 
+                            placeholder="******" 
+                        />
                     </div>
                 </div>
 
