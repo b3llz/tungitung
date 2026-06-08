@@ -2499,10 +2499,10 @@ const App = () => {
   const [licenseInfo, setLicenseInfo] = useState(null);
   const [active, setActive] = useState('calc');
   const [dark, setDark] = useState(false);
-  
-  // STATE BARU: Global Popup & Overlay Logic
   const [popup, setPopup] = useState({ show: false, message: '', type: 'success' });
   const [isEditingMode, setIsEditingMode] = useState(false); // Untuk mengatur z-index navbar
+  const [isMenuOpen, setIsMenuOpen] = useState(false); // State untuk Menu French Fries
+
 
   // --- GLOBAL ALERT REPLACEMENT ---
   const triggerAlert = useCallback((message, type = 'success') => {
@@ -2613,9 +2613,13 @@ const App = () => {
                 <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">By ShanTech </p>
              </div>
           </div>
-          <div className="flex gap-2">
+                   <div className="flex items-center gap-2">
              <button onClick={toggleDarkMode} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 transition">
                 {dark ? <Sun className="w-4 h-4"/> : <Moon className="w-4 h-4"/>}
+             </button>
+             {/* TOMBOL FRENCH FRIES MENU */}
+             <button onClick={() => setIsMenuOpen(true)} className="p-2 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition shadow-sm border border-indigo-100 dark:border-indigo-800">
+                <Menu className="w-5 h-5"/>
              </button>
           </div>
         </div>
@@ -2646,30 +2650,86 @@ const App = () => {
               <SettingsTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} />
           </div>
 
+          <div className={active === 'users' ? 'block' : 'hidden'}>
+              {/* TAMPILAN SEMENTARA AGAR TIDAK ERROR SAAT DIKLIK */}
+              <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in">
+                  <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mb-4 border-4 border-indigo-100 dark:border-indigo-800">
+                      <Shield className="w-8 h-8 text-indigo-500" />
+                  </div>
+                  <h2 className="text-xl font-black text-slate-800 dark:text-white mb-2">Manajemen User (RBAC)</h2>
+                  <p className="text-xs font-medium text-slate-400 max-w-xs leading-relaxed">
+                      Fitur pembatasan hak akses (Kasir, Admin, Owner) sedang dalam tahap pengembangan oleh sistem.
+                  </p>
+              </div>
+          </div>
+
         </div>
 
 
 
-        {/* BOTTOM NAV FLOATING - Z-Index dinamis */}
-        <div className={`fixed bottom-6 w-full flex justify-center px-4 transition-all duration-300 ${isEditingMode ? 'z-0 opacity-0 translate-y-10' : 'z-40'}`}>
-            <nav className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-1.5 rounded-full shadow-2xl shadow-slate-200/50 dark:shadow-black/50 flex gap-1 border border-white/20 ring-1 ring-black/5">
-            {[
-                { id: 'calc', icon: Calculator, l: 'Hitung' },
-                { id: 'pos', icon: ShoppingCart, l: 'Kasir' },
-                { id: 'report', icon: BarChart3, l: 'Laporan' },
-                { id: 'profile', icon: Store, l: 'Toko' },
-                { id: 'settings', icon: Settings, l: 'Setting' }
-            ].map(i => (
-                <button key={i.id} onClick={()=>setActive(i.id)} className={`relative px-5 py-3 rounded-full transition-all duration-300 flex items-center justify-center gap-2 group ${active===i.id ?
-                'bg-indigo-600 text-white shadow-lg shadow-indigo-500/40 scale-105' : 
-                'text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-white'}`}>
-                
-                <i.icon className={`w-5 h-5 transition-transform duration-300 ${active===i.id ? 'scale-110' : 'group-hover:scale-110'}`}/>
-                {active===i.id && <span className="text-[10px] font-bold whitespace-nowrap hidden sm:inline animate-in fade-in slide-in-from-left-2 duration-300">{i.l}</span>}
-                </button>
-            ))}
-            </nav>
-        </div>
+              {/* MENU DRAWER (FRENCH FRIES) */}
+        {isMenuOpen && (
+            <div className="fixed inset-0 z-[200] flex justify-end bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsMenuOpen(false)}>
+                <div className="w-[85%] max-w-sm bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-right-8 duration-300 border-l border-slate-200 dark:border-slate-800" onClick={e => e.stopPropagation()}>
+                    <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950">
+                        <div>
+                            <h2 className="font-black text-xl text-slate-800 dark:text-white tracking-tight">Menu Utama</h2>
+                            <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-1">CostLab Workspace</p>
+                        </div>
+                        <button onClick={() => setIsMenuOpen(false)} className="p-2 bg-white dark:bg-slate-800 rounded-full text-slate-400 hover:text-rose-500 shadow-sm border border-slate-200 dark:border-slate-700 transition"><X className="w-5 h-5"/></button>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+                        {/* GRUP: OPERASIONAL */}
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Operasional</p>
+                            <div className="space-y-1">
+                                <button onClick={() => {setActive('pos'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='pos' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <ShoppingCart className="w-5 h-5"/> Kasir (POS)
+                                </button>
+                                <button onClick={() => {setActive('calc'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='calc' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <Calculator className="w-5 h-5"/> Kalkulator HPP
+                                </button>
+                                <button onClick={() => {setActive('report'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='report' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <BarChart3 className="w-5 h-5"/> Laporan Bisnis
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* GRUP: MANAJEMEN TOKO */}
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Manajemen Toko</p>
+                            <div className="space-y-1">
+                                <button onClick={() => {setActive('profile'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='profile' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <div className="flex items-center gap-3"><Store className="w-5 h-5"/> Stok, Toko & Pembayaran</div>
+                                    <ChevronRight className="w-4 h-4 opacity-50"/>
+                                </button>
+                                <button onClick={() => {setActive('users'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='users' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <div className="flex items-center gap-3"><Users className="w-5 h-5"/> Manajemen User (Role)</div>
+                                    <span className="text-[8px] bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full uppercase">Baru</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* GRUP: SISTEM */}
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Sistem & Perangkat</p>
+                            <div className="space-y-1">
+                                <button onClick={() => {setActive('settings'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='settings' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <div className="flex items-center gap-3"><Settings className="w-5 h-5"/> Pengaturan & Hardware</div>
+                                    <ChevronRight className="w-4 h-4 opacity-50"/>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-center">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">CostLab v2.5 Enterprise</p>
+                    </div>
+                </div>
+            </div>
+        )}
+
 
         {/* GLOBAL PREMIUM POPUP */}
         {popup.show && <PremiumPopup message={popup.message} type={popup.type} onClose={()=>setPopup({...popup, show:false})} />}
