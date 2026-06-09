@@ -1573,11 +1573,12 @@ const [isLoading, setIsLoading] = useState(false);
           </div>
       )}
 
-      {viewMode === 'shop' && (
+            {viewMode === 'shop' && (
+        <div className="flex-1 w-full h-full relative">
+            
+            {/* HEADER & SEARCH BAR BARU */}
+            <div className="sticky top-0 z-30 bg-[#FAFAFA] dark:bg-[#0F172A] pb-2 pt-1 transition-colors duration-500">
 
-                
-                                {/* HEADER & SEARCH BAR BARU */}
-                <div className="sticky top-0 z-30 bg-[#FAFAFA] dark:bg-[#0F172A] pb-2 pt-1 transition-colors duration-500">
                     <div className="flex justify-between items-end mb-3 px-1">
                         <div>
                             <h3 className="font-black text-slate-800 dark:text-white text-lg tracking-tight">Daftar Produk</h3>
