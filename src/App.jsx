@@ -1464,8 +1464,6 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
   const [profile, setProfile] = useState({});
   const [priceTier, setPriceTier] = useState('retail');
 const [isLoading, setIsLoading] = useState(false); 
-const [isCameraActive, setIsCameraActive] = useState(false);
-
 
 
   // --- AUTO REFRESH: Cek Produk Baru Saat Tab Dibuka ---
@@ -1738,23 +1736,22 @@ const [isCameraActive, setIsCameraActive] = useState(false);
                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                 <Search className="w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors"/>
                             </div>
-                                                        <input 
-                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-sm dark:text-white placeholder:text-slate-300" 
-                                placeholder="Cari nama atau ketik SKU/Barcode..." 
+                            <input 
+                                                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-10 pr-12 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-sm dark:text-white placeholder:text-slate-300" 
+                                placeholder="Ketik Nama atau Scan Barcode / SKU..." 
                                 value={search} 
                                 onChange={e=>setSearch(e.target.value)} 
-/>
-{/* Tambahkan tombol kamera di samping input search */}
-<button onClick={() => setIsCameraActive(!isCameraActive)} className="absolute right-3 top-2.5">
-    <Smartphone className="w-5 h-5 text-slate-400"/>
-</button>
-
+                            />
+                            {/* TOMBOL SCANNER KAMERA (Ikon) */}
+                            <button onClick={() => triggerAlert("Kamera Scanner Hadir Segera", "success")} className="absolute right-3 top-2.5 p-1 text-slate-400 hover:text-indigo-600 transition">
+                                <Smartphone className="w-5 h-5"/>
+                            </button>
                         </div>
                         {isPro(licenseInfo) && (<PremiumPriceSelector currentTier={priceTier} onChange={setPriceTier} />)}
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pb-32">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-32">
                     {/* Logika filter baru: Mendukung Nama DAN SKU/Barcode */}
                     {products.filter(p => 
                         p.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -2232,27 +2229,13 @@ const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
 // 6. TAB: SETTINGS (RETAIL MODE & NEON LICENSE)
 // ============================================================================
 
-const SettingsTab = ({ licenseInfo, triggerAlert }) => {
-    // --- STATE & LOGIC ---
-    const [retailMode, setRetailMode] = useState(false);
+const SettingsTab = ({ licenseInfo, triggerAlert, opMode, setOpMode }) => {
     const [timeLeft, setTimeLeft] = useState('');
-    
-    // Load Retail Mode
-    useEffect(() => {
-        setRetailMode(localStorage.getItem('retail_mode') === 'true');
-    }, []);
 
-    // Toggle Logic (Fixed Bug & Added Popup)
-    const toggleRetail = () => {
-        const newValue = !retailMode;
-        setRetailMode(newValue);
-        localStorage.setItem('retail_mode', newValue ? 'true' : 'false');
-        
-        if(newValue) {
-            triggerAlert("Mode Retail Murni AKTIF (Scanner ON)", "success");
-        } else {
-            triggerAlert("Mode Retail Non-Aktif", "success");
-        }
+    const handleOpMode = (mode) => {
+        setOpMode(mode);
+        localStorage.setItem('op_mode', mode);
+        triggerAlert(`Beralih ke mode ${mode === 'retail' ? 'Retail Murni' : 'Food & Beverage'}`, "success");
     };
 
     // License Timer Logic
@@ -2271,7 +2254,7 @@ const SettingsTab = ({ licenseInfo, triggerAlert }) => {
             }
         };
         updateTimer();
-        const interval = setInterval(updateTimer, 60000); // Update tiap menit cukup
+        const interval = setInterval(updateTimer, 60000);
         return () => clearInterval(interval);
     }, [licenseInfo]);
 
@@ -2284,8 +2267,6 @@ const SettingsTab = ({ licenseInfo, triggerAlert }) => {
 
     return (
         <div className="max-w-xl mx-auto px-4 pb-32 space-y-6">
-            
-            {/* Header */}
             <div className="flex items-center gap-3 mb-2 pt-2">
                 <div className="p-3 bg-slate-900 dark:bg-white rounded-2xl shadow-lg">
                     <Settings className="w-6 h-6 text-white dark:text-slate-900" />
@@ -2296,47 +2277,33 @@ const SettingsTab = ({ licenseInfo, triggerAlert }) => {
                 </div>
             </div>
 
-                const [opMode, setOpMode] = useState(localStorage.getItem('op_mode') || 'retail'); // 'retail' atau 'fnb'
-
-    const handleOpMode = (mode) => {
-        setOpMode(mode);
-        localStorage.setItem('op_mode', mode);
-        triggerAlert(`Beralih ke mode ${mode === 'retail' ? 'Retail Murni' : 'Food & Beverage'}`, "success");
-    };
-
-    // (PASTE DI BAGIAN RETURN SETTINGSTAB):
-            {/* --- CARD 1: MODE APLIKASI --- */}
-            <Card title="Pilih Mode Bisnis" icon={LayoutGrid}>
+            {/* --- CARD 1: PENGATURAN MODE UTAMA --- */}
+            <Card title="Mode Operasional" icon={LayoutGrid}>
                 <div className="grid grid-cols-2 gap-3 mb-4">
-                    <button onClick={() => handleOpMode('retail')} className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center text-center gap-2 ${opMode === 'retail' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 bg-white text-slate-500 hover:border-indigo-200'}`}>
+                    <button onClick={() => handleOpMode('retail')} className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center text-center gap-2 ${opMode === 'retail' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 bg-white text-slate-500'}`}>
                         <Store className="w-6 h-6" />
-                        <span className="font-black text-xs uppercase tracking-wider">Retail / UMKM</span>
+                        <span className="font-black text-xs uppercase tracking-wider">Retail Murni</span>
                     </button>
-                    <button onClick={() => handleOpMode('fnb')} className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center text-center gap-2 ${opMode === 'fnb' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-slate-100 bg-white text-slate-500 hover:border-orange-200'}`}>
+                    <button onClick={() => handleOpMode('fnb')} className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center text-center gap-2 ${opMode === 'fnb' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-slate-100 bg-white text-slate-500'}`}>
                         <Store className="w-6 h-6" />
                         <span className="font-black text-xs uppercase tracking-wider">Food & Bev</span>
                     </button>
                 </div>
 
-                {/* Kondisi Jika Retail */}
                 {opMode === 'retail' && (
-                    <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-3 animate-in fade-in">
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded-xl flex items-center gap-3">
                         <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0"/>
-                        <p className="text-[10px] font-bold text-emerald-800 leading-relaxed">Fitur <b>Scanner Barcode/SKU</b> & <b>Stok Opname Cepat</b> otomatis diaktifkan untuk mempercepat laju antrian kasir.</p>
+                        <p className="text-[10px] font-bold text-emerald-800 dark:text-emerald-400">Scanner Barcode & Stok Opname Cepat otomatis <b>AKTIF</b>.</p>
                     </div>
                 )}
 
-                {/* Kondisi Jika F&B */}
                 {opMode === 'fnb' && (
-                    <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl animate-in fade-in">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl">
                         <div className="flex justify-between items-center mb-1">
-                            <div className="flex items-center gap-2">
-                                <h4 className="font-bold text-sm text-slate-800">Manajemen Meja (Dine-in)</h4>
-                                <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest">Segera Hadir</span>
-                            </div>
-                            <div className="w-10 h-6 bg-slate-200 rounded-full opacity-50 cursor-not-allowed"></div>
+                            <h4 className="font-bold text-sm text-slate-800 dark:text-white">Manajemen Meja</h4>
+                            <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[8px] font-black uppercase">Soon</span>
                         </div>
-                        <p className="text-[10px] text-slate-400 font-medium">Buka bon, pisah tagihan (split bill), dan manajemen antrian meja restoran.</p>
+                        <p className="text-[10px] text-slate-400">Fitur order meja, split tagihan, dll bisa diakses dari sini.</p>
                     </div>
                 )}
             </Card>
@@ -2530,11 +2497,13 @@ const App = () => {
   const [isBanned, setIsBanned] = useState(false);
   const [isRestored, setIsRestored] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState(null);
-  const [active, setActive] = useState('calc');
+  const [active, setActive] = useState('pos'); // Default buka langsung Kasir
   const [dark, setDark] = useState(false);
   const [popup, setPopup] = useState({ show: false, message: '', type: 'success' });
-  const [isEditingMode, setIsEditingMode] = useState(false); // Untuk mengatur z-index navbar
-  const [isMenuOpen, setIsMenuOpen] = useState(false); // State untuk Menu French Fries
+  const [isEditingMode, setIsEditingMode] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false); // State untuk Menu Samping
+  const [opMode, setOpMode] = useState(localStorage.getItem('op_mode') || 'retail'); // Mode Bisnis Global
+
 
 
   // --- GLOBAL ALERT REPLACEMENT ---
@@ -2646,18 +2615,75 @@ const App = () => {
                 <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">By ShanTech </p>
              </div>
           </div>
-                   <div className="flex items-center gap-2">
+                           <div className="flex items-center gap-2">
              <button onClick={toggleDarkMode} className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-indigo-600 transition">
                 {dark ? <Sun className="w-4 h-4"/> : <Moon className="w-4 h-4"/>}
              </button>
-             {/* TOMBOL FRENCH FRIES MENU */}
+             {/* TOMBOL MENU SIDEBAR */}
              <button onClick={() => setIsMenuOpen(true)} className="p-2 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition shadow-sm border border-indigo-100 dark:border-indigo-800">
                 <Menu className="w-5 h-5"/>
              </button>
           </div>
         </div>
 
-                        {/* MAIN CONTENT - LOGIKA AUTO REFRESH */}
+        {/* DRAWER MENU BARU (STRUKTUR 3 KATEGORI) */}
+        {isMenuOpen && (
+            <div className="fixed inset-0 z-[200] flex justify-end bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsMenuOpen(false)}>
+                <div className="w-[85%] max-w-sm bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800" onClick={e => e.stopPropagation()}>
+                    <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950">
+                        <div>
+                            <h2 className="font-black text-xl text-slate-800 dark:text-white tracking-tight">Menu Utama</h2>
+                            <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-1">CostLab Workspace</p>
+                        </div>
+                        <button onClick={() => setIsMenuOpen(false)} className="p-2 bg-white dark:bg-slate-800 rounded-full text-slate-400 hover:text-rose-500 shadow-sm border border-slate-200 dark:border-slate-700 transition"><X className="w-5 h-5"/></button>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+                        
+                        {/* KATEGORI: UTAMA */}
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Utama</p>
+                            <div className="space-y-1">
+                                <button onClick={() => {setActive('pos'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='pos' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><ShoppingCart className="w-5 h-5"/> Kasir</button>
+                                <button onClick={() => {setActive('calc'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='calc' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Calculator className="w-5 h-5"/> Kalkulator HPP</button>
+                                <button onClick={() => {setActive('history'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='history' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><FileText className="w-5 h-5"/> Riwayat Transaksi</button>
+                                <button onClick={() => {setActive('pettycash'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='pettycash' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Wallet className="w-5 h-5"/> Manajemen Kas Keluar</button>
+                            </div>
+                        </div>
+
+                        {/* KATEGORI: OPERASIONAL */}
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Operasional</p>
+                            <div className="space-y-1">
+                                <button onClick={() => {setActive('stock'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stock' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Box className="w-5 h-5"/> Stok Barang</button>
+                                <button onClick={() => {setActive('stockopname'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockopname' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><CheckCircle className="w-5 h-5"/> Stok Opname</button>
+                                <button onClick={() => {setActive('stockinout'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockinout' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><TrendingUp className="w-5 h-5"/> Barang Masuk / Keluar</button>
+                                <button onClick={() => {setActive('stockhistory'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockhistory' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Clock className="w-5 h-5"/> Riwayat Stok</button>
+                            </div>
+                        </div>
+
+                        {/* KATEGORI: PENGATURAN */}
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Pengaturan</p>
+                            <div className="space-y-1">
+                                <button onClick={() => {setActive('profile'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='profile' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Store className="w-5 h-5"/> Profil Toko</button>
+                                <button onClick={() => {setActive('discount'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='discount' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Award className="w-5 h-5"/> Promo & Diskon</button>
+                                <button onClick={() => {setActive('payment'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='payment' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><CreditCard className="w-5 h-5"/> Metode Pembayaran</button>
+                                <button onClick={() => {setActive('settings'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='settings' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Settings className="w-5 h-5"/> Pengaturan Utama</button>
+                                <button onClick={() => {setActive('hardware'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='hardware' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Printer className="w-5 h-5"/> Printer & Scanner</button>
+                                <button onClick={() => {setActive('multioutlet'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='multioutlet' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><div className="flex items-center gap-3"><Layers className="w-5 h-5"/> Multi Outlet</div><span className="text-[8px] bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full uppercase">Pro</span></button>
+                                <button onClick={() => {setActive('backup'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='backup' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><FolderOpen className="w-5 h-5"/> Backup Data</button>
+                                <button onClick={() => {setActive('language'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='language' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Info className="w-5 h-5"/> Bahasa (ID/EN)</button>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* MAIN CONTENT - LOGIKA AUTO REFRESH */}
+
         <div className="animate-in fade-in zoom-in-95 duration-500 pt-6 pb-32">
           
           <div className={active === 'calc' ? 'block' : 'hidden'}>
@@ -2679,100 +2705,31 @@ const App = () => {
               <ReportTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} />
           </div>
 
-          <div className={active === 'settings' ? 'block' : 'hidden'}>
-              <SettingsTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} />
+                    <div className={active === 'settings' ? 'block' : 'hidden'}>
+              <SettingsTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} opMode={opMode} setOpMode={setOpMode} />
           </div>
 
-          <div className={active === 'users' ? 'block' : 'hidden'}>
-              {/* TAMPILAN SEMENTARA AGAR TIDAK ERROR SAAT DIKLIK */}
-              <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in">
-          {/* PLACEHOLDER UNTUK MENU-MENU BARU (Agar tidak nge-blank saat di-klik) */}
-          {['history', 'pettycash', 'stock', 'stockopname', 'stockinout', 'stockhistory', 'profileinfo', 'payment', 'hardware', 'users', 'discount', 'multioutlet', 'backup'].includes(active) && (
+          {/* PLACEHOLDER UNTUK MENU BARU YANG BELUM DIBUAT KODENYA */}
+          {['history', 'pettycash', 'stock', 'stockopname', 'stockinout', 'stockhistory', 'payment', 'hardware', 'discount', 'multioutlet', 'backup', 'language'].includes(active) && (
               <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in max-w-sm mx-auto px-4">
                   <div className="w-24 h-24 bg-indigo-50 dark:bg-indigo-900/20 rounded-3xl flex items-center justify-center mb-6 border-4 border-indigo-100 dark:border-indigo-800 shadow-inner">
                       <Rocket className="w-10 h-10 text-indigo-500" />
                   </div>
                   <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2 tracking-tight">Menu Segera Hadir</h2>
                   <p className="text-xs font-medium text-slate-500 leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
-                      Anda berada di tab <span className="font-black text-indigo-600 uppercase">[{active}]</span>. Tampilan khusus untuk fitur ini sedang disiapkan untuk rilis Enterprise berikutnya.
+                      Anda berada di tab <span className="font-black text-indigo-600 uppercase">[{active}]</span>. Fitur ini sedang disiapkan untuk pembaruan sistem berikutnya.
                   </p>
               </div>
           )}
-
-                  <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/20 rounded-full flex items-center justify-center mb-4 border-4 border-indigo-100 dark:border-indigo-800">
-                      <Shield className="w-8 h-8 text-indigo-500" />
-                  </div>
-                  <h2 className="text-xl font-black text-slate-800 dark:text-white mb-2">Manajemen User (RBAC)</h2>
-                  <p className="text-xs font-medium text-slate-400 max-w-xs leading-relaxed">
-                      Fitur pembatasan hak akses (Kasir, Admin, Owner) sedang dalam tahap pengembangan oleh sistem.
-                  </p>
-              </div>
-          </div>
-
-        </div>
-
-
-
-              {/* MENU DRAWER (FRENCH FRIES) */}
-        {isMenuOpen && (
-            <div className="fixed inset-0 z-[200] flex justify-end bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsMenuOpen(false)}>
-                <div className="w-[85%] max-w-sm bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-in slide-in-from-right-8 duration-300 border-l border-slate-200 dark:border-slate-800" onClick={e => e.stopPropagation()}>
-                    <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950">
-                        <div>
-                            <h2 className="font-black text-xl text-slate-800 dark:text-white tracking-tight">Menu Utama</h2>
-                            <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mt-1">CostLab Workspace</p>
-                        </div>
-                        <button onClick={() => setIsMenuOpen(false)} className="p-2 bg-white dark:bg-slate-800 rounded-full text-slate-400 hover:text-rose-500 shadow-sm border border-slate-200 dark:border-slate-700 transition"><X className="w-5 h-5"/></button>
-                    </div>
-                    
-                                        <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-                        {/* KATEGORI: UTAMA */}
-                        <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Utama</p>
-                            <div className="space-y-1">
-                                <button onClick={() => {setActive('pos'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='pos' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><ShoppingCart className="w-5 h-5"/> Kasir (POS)</button>
-                                <button onClick={() => {setActive('calc'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='calc' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Calculator className="w-5 h-5"/> Kalkulator HPP</button>
-                                <button onClick={() => {setActive('history'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='history' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Clock className="w-5 h-5"/> Riwayat Transaksi</button>
-                                <button onClick={() => {setActive('pettycash'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='pettycash' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Wallet className="w-5 h-5"/> Manajemen Kas Keluar</button>
-                            </div>
-                        </div>
-
-                        {/* KATEGORI: OPERASIONAL */}
-                        <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Operasional</p>
-                            <div className="space-y-1">
-                                <button onClick={() => {setActive('stock'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stock' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Box className="w-5 h-5"/> Stok Barang</button>
-                                <button onClick={() => {setActive('stockopname'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockopname' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><CheckCircle className="w-5 h-5"/> Stok Opname</button>
-                                <button onClick={() => {setActive('stockinout'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockinout' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><TrendingUp className="w-5 h-5"/> Barang Masuk / Keluar</button>
-                                <button onClick={() => {setActive('stockhistory'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockhistory' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Clock className="w-5 h-5"/> Riwayat Stok</button>
-                            </div>
-                        </div>
-
-                        {/* KATEGORI: PENGATURAN */}
-                        <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2">Pengaturan</p>
-                            <div className="space-y-1">
-                                <button onClick={() => {setActive('profileinfo'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='profileinfo' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Store className="w-5 h-5"/> Identitas Toko</button>
-                                <button onClick={() => {setActive('payment'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='payment' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><CreditCard className="w-5 h-5"/> Metode Pembayaran</button>
-                                <button onClick={() => {setActive('settings'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='settings' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Settings className="w-5 h-5"/> Pengaturan Utama</button>
-                                <button onClick={() => {setActive('hardware'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='hardware' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><Printer className="w-5 h-5"/> Alat Tambahan (Printer)</button>
-                                <button onClick={() => {setActive('users'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='users' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><div className="flex items-center gap-3"><Users className="w-5 h-5"/> Manajemen User</div></button>
-                                <button onClick={() => {setActive('discount'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='discount' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><div className="flex items-center gap-3"><Award className="w-5 h-5"/> Promo & Diskon</div></button>
-                                <button onClick={() => {setActive('multioutlet'); setIsMenuOpen(false);}} className={`w-full flex items-center justify-between p-3 rounded-xl transition ${active==='multioutlet' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><div className="flex items-center gap-3"><Layers className="w-5 h-5"/> Multi Outlet</div><span className="text-[8px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full uppercase">Pro</span></button>
-                                <button onClick={() => {setActive('backup'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='backup' ? 'bg-indigo-50 text-indigo-600 font-black' : 'text-slate-600 hover:bg-slate-50'}`}><FolderOpen className="w-5 h-5"/> Backup & Restore</button>
-                            </div>
-                        </div>
-                    </div>
-            </div>
-        )}
 
 
         {/* GLOBAL PREMIUM POPUP */}
         {popup.show && <PremiumPopup message={popup.message} type={popup.type} onClose={()=>setPopup({...popup, show:false})} />}
 
       </div>
+      </div> 
     </div>
   );
 };
-
-export default App;
+      
+      export default App;
