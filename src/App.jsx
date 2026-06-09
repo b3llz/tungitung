@@ -28,6 +28,12 @@ import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, increment, ru
 import currency from "currency.js";
 import Cropper from "react-easy-crop";
 
+const safeParse = (key, fallback = []) => {
+    try { 
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : fallback; 
+    } catch(e) { return fallback; }
+};
 
 // --- KODE JEBAKAN ERROR (HAPUS NANTI KALAU SUDAH BENAR) ---
 window.onerror = function(message, source, lineno, colno, error) {
@@ -1619,15 +1625,15 @@ const [isLoading, setIsLoading] = useState(false);
                         .filter(p=>p.name.toLowerCase().includes(search.toLowerCase()))
                         .filter(p=> activeCategory === 'Semua' ? true : p.type === activeCategory)
 .map(p => {
+    // Tentukan label dan harga berdasarkan tier
     let displayPrice = p.price;
     let priceLabel = "Retail";
     
-    // Logika Harga Dinamis
     if (priceTier === 'grosir' && p.priceGrosir > 0) { 
         displayPrice = p.priceGrosir; 
         priceLabel = "Grosir"; 
     } else if (priceTier === 'ojol' && p.priceOjol > 0) { 
-        displayPrice = p.priceOjol; 
+        displayPrice = p.priceOjol;
         priceLabel = "App Online"; 
     }
 
@@ -1635,16 +1641,19 @@ const [isLoading, setIsLoading] = useState(false);
         <div key={p.id} onClick={()=>addToCart(p)} className={`bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 transition-all duration-300 group ${p.stock>0 ? 'cursor-pointer hover:border-indigo-500 hover:shadow-indigo-500/10 hover:-translate-y-1' : 'opacity-60 grayscale cursor-not-allowed'}`}>
             <div className="aspect-square bg-slate-50 dark:bg-slate-800 rounded-xl mb-3 overflow-hidden relative">
                 {p.image ? <img src={p.image} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"/> : <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-slate-300">{p.name[0]}</div>}
+      
                 <div className={`absolute bottom-1 right-1 text-white text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg shadow-sm ${p.stock>0?'bg-slate-900/90 backdrop-blur-md':'bg-red-500'}`}>
                     {p.stock > 0 ? `${p.stock} Ready` : 'Habis'}
                 </div>
             </div>
             <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate mb-1">{p.name}</h4>
+   
             <div className="flex justify-between items-end">
                 <div className="flex flex-col">
                     <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">{priceLabel}</span>
                     <p className="text-indigo-600 font-black text-sm">{formatIDR(displayPrice)}</p>
                 </div>
+     
                 <button className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center text-indigo-600 hover:bg-indigo-600 hover:text-white transition-colors shadow-sm">
                     <Plus className="w-4 h-4"/>
                 </button>
@@ -2504,8 +2513,8 @@ const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
     // FIX AUTO-REFRESH: Data akan ditarik ulang secara otomatis setiap kali menu "Stok Barang" diklik
     useEffect(() => {
         if (activeTab === 'stock') {
-            const savedProd = localStorage.getItem('product_stock_db');
-            if (savedProd) setProducts(JSON.parse(savedProd));
+    setProducts(safeParse('product_stock_db', []));
+setRawMaterials(safeParse('raw_material_db', []));
             const savedRaw = localStorage.getItem('raw_material_db');
             if (savedRaw) setRawMaterials(JSON.parse(savedRaw));
         }
