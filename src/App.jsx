@@ -2721,7 +2721,7 @@ const App = () => {
           <div className={active === 'report' ? 'block' : 'hidden'}><ReportTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} /></div>
           <div className={active === 'payment' ? 'block' : 'hidden'}><PaymentTab triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
           <div className={active === 'settings' ? 'block' : 'hidden'}><SettingsTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
-
+</div>
 
         {/* MENU DRAWER (FRENCH FRIES) - STRUKTUR BARU */}
         {isMenuOpen && (
