@@ -42,6 +42,9 @@ window.onerror = function(message, source, lineno, colno, error) {
 };
 
 
+
+
+
 // --- KONFIGURASI FIREBASE (SESUAIKAN DENGAN MILIKMU) ---
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY, 
@@ -1448,6 +1451,7 @@ const [isLoading, setIsLoading] = useState(false);
                         </div>
                         {isPro(licenseInfo) && (<PremiumPriceSelector currentTier={priceTier} onChange={setPriceTier} />)}
                     </div>
+</div>
 
 
 
