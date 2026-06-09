@@ -21,8 +21,6 @@ import {
 } from 'lucide-react';
 
 import { QRCodeSVG } from 'qrcode.react';
-
-// --- IMPORT LIBRARY ---
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, increment, runTransaction, onSnapshot, addDoc } from "firebase/firestore";
 import currency from "currency.js";
@@ -1663,12 +1661,32 @@ const [isLoading, setIsLoading] = useState(false);
 })
 
                     })}
-                </div>
-            </div>
+                        </div>
 
-            {/* POPUP CART & FLOATING BUTTON */}
-          {/* POPUP CART & FLOATING BUTTON */}
-            <CartPopup showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile} isLoading={isLoading} orderType={orderType} setOrderType={setOrderType} tableNo={tableNo} setTableNo={setTableNo} notes={notes} setNotes={setNotes} cashTendered={cashTendered} setCashTendered={setCashTendered} />
+             {/* Popup cart ditempatkan di sini */}
+             <CartPopup 
+                showCart={showCart} 
+                setShowCart={setShowCart} 
+                cart={cart} 
+                updateQty={updateQty} 
+                removeFromCart={removeFromCart} 
+                buyerName={buyerName} 
+                setBuyerName={setBuyerName} 
+                paymentMethod={paymentMethod} 
+                setPaymentMethod={setPaymentMethod} 
+                handleCheckout={handleCheckout} 
+                profile={profile} 
+                isLoading={isLoading} 
+                orderType={orderType} 
+                setOrderType={setOrderType} 
+                tableNo={tableNo} 
+                setTableNo={setTableNo} 
+                notes={notes} 
+                setNotes={setNotes} 
+                cashTendered={cashTendered} 
+                setCashTendered={setCashTendered} 
+             />
+
 
 
             
@@ -3515,12 +3533,10 @@ const MainAdminApp = () => {
     );
 };
 
-// --- ROOT APP (PEMISAH WEB PELANGGAN & KASIR) ---
 const App = () => {
   const urlParams = new URLSearchParams(window.location.search);
   const customerTable = urlParams.get('meja');
   
-  // Jika ada URL ?meja=xx, buka Web Pelanggan. Jika tidak, buka Kasir
   if (customerTable) {
       const profile = JSON.parse(localStorage.getItem('store_profile') || '{}');
       return <SelfOrderApp tableNo={customerTable} profile={profile} />;
