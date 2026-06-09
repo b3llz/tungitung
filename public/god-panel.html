@@ -13,7 +13,6 @@
         @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
         .animate-fade{animation:fadeIn 0.3s ease-in-out}
         @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-        /* TOAST ANIMATION */
         .toast-enter { animation: toastIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         .toast-exit { animation: toastOut 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 20px) scale(0.9); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
@@ -53,16 +52,24 @@
                         <input id="storeName" type="text" placeholder="Contoh: Kopi Senja" oninput="window.autoGenerate()" class="w-full bg-slate-50 border border-slate-200 p-3.5 rounded-xl font-bold text-sm outline-none focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition mt-1">
                     </div>
 
+                    <div>
+                        <label class="text-[10px] font-bold uppercase text-slate-400 ml-1">ID (Username)</label>
+                        <input id="tenantId" type="text" readonly class="w-full bg-slate-100 border border-slate-200 p-3.5 rounded-xl font-bold text-sm outline-none text-slate-500 mt-1 lowercase">
+                    </div>
+
                     <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="text-[10px] font-bold uppercase text-slate-400 ml-1">ID (Username)</label>
-                            <input id="tenantId" type="text" readonly class="w-full bg-slate-100 border border-slate-200 p-3.5 rounded-xl font-bold text-sm outline-none text-slate-500 mt-1 lowercase">
-                        </div>
                         <div>
                             <label class="text-[10px] font-bold uppercase text-slate-400 ml-1">Password</label>
                             <div class="relative">
                                 <input id="password" type="text" readonly class="w-full bg-slate-100 border border-slate-200 p-3.5 rounded-xl font-black text-sm outline-none text-indigo-600 mt-1 tracking-widest uppercase">
                                 <button onclick="window.regeneratePass()" class="absolute right-2 top-2.5 text-slate-400 hover:text-indigo-600 p-1"><i class="fa-solid fa-rotate"></i></button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold uppercase text-slate-400 ml-1">PIN Owner</label>
+                            <div class="relative">
+                                <input id="ownerPin" type="text" readonly class="w-full bg-slate-100 border border-slate-200 p-3.5 rounded-xl font-black text-sm outline-none text-rose-600 mt-1 tracking-widest uppercase">
+                                <button onclick="window.regeneratePin()" class="absolute right-2 top-2.5 text-slate-400 hover:text-rose-600 p-1"><i class="fa-solid fa-rotate"></i></button>
                             </div>
                         </div>
                     </div>
@@ -141,9 +148,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-        // --- KONFIGURASI FIREBASE ---
-        // Tempel Config yang SAMA PERSIS dengan App.jsx di sini
-                // --- KONFIGURASI FIREBASE ---
         const firebaseConfig = {
           apiKey: "AIzaSyDqMpyCBFg1m5pA0Bn8U",
           authDomain: "costlab-f221c.firebaseapp.com",
@@ -153,26 +157,23 @@
           appId: "1:64337345213:web:389610b43797f0e55a15d4"
         };
 
-
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
         // --- LOGIC UI & GENERATOR ---
-        
         window.autoGenerate = () => {
             const name = document.getElementById('storeName').value;
             if(!name) {
                 document.getElementById('tenantId').value = "";
                 document.getElementById('password').value = "";
+                document.getElementById('ownerPin').value = "";
                 return;
             }
-            // Logic ID: Huruf kecil, spasi jadi underscore, tambah angka acak dikit biar unik
             const cleanName = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
-            const randomSuffix = Math.floor(Math.random() * 100); 
             document.getElementById('tenantId').value = cleanName; 
             
-            // Logic Password: Jika kosong, generate baru
             if(!document.getElementById('password').value) window.regeneratePass();
+            if(!document.getElementById('ownerPin').value) window.regeneratePin();
         };
 
         window.regeneratePass = () => {
@@ -182,6 +183,12 @@
             document.getElementById('password').value = pass.slice(0,3) + "-" + pass.slice(3,6);
         };
 
+        window.regeneratePin = () => {
+            // Generate 6 Digit Angka Acak
+            const pin = Math.floor(100000 + Math.random() * 900000).toString();
+            document.getElementById('ownerPin').value = pin;
+        };
+
         window.switchTab = (tab) => {
             const vLic = document.getElementById('view-license');
             const vMon = document.getElementById('view-monitor');
@@ -189,13 +196,11 @@
             const bMon = document.getElementById('btn-monitor');
 
             if(tab === 'license') {
-                vLic.classList.remove('hidden');
-                vMon.classList.add('hidden');
+                vLic.classList.remove('hidden'); vMon.classList.add('hidden');
                 bLic.className = "px-3 py-1.5 rounded-md text-[10px] font-bold bg-white shadow-sm text-indigo-600 transition";
                 bMon.className = "px-3 py-1.5 rounded-md text-[10px] font-bold text-slate-500 hover:bg-slate-200 transition";
             } else {
-                vLic.classList.add('hidden');
-                vMon.classList.remove('hidden');
+                vLic.classList.add('hidden'); vMon.classList.remove('hidden');
                 bMon.className = "px-3 py-1.5 rounded-md text-[10px] font-bold bg-white shadow-sm text-indigo-600 transition";
                 bLic.className = "px-3 py-1.5 rounded-md text-[10px] font-bold text-slate-500 hover:bg-slate-200 transition";
             }
@@ -223,19 +228,19 @@
             }
         };
 
-        // --- FIREBASE: SIMPAN USER ---
+        // --- FIREBASE: SIMPAN USER & PIN OWNER ---
         document.getElementById('btnSave').addEventListener('click', async () => {
             const btn = document.getElementById('btnSave');
             const id = document.getElementById('tenantId').value.trim();
             const pass = document.getElementById('password').value.trim();
+            const ownerPin = document.getElementById('ownerPin').value.trim();
             const name = document.getElementById('storeName').value.trim();
             const type = document.getElementById('licType').value;
             
-            // LOGIC DURASI DIKEMBALIKAN KE ORIGINAL (SPLIT VALUE & UNIT)
             const val = parseInt(document.getElementById('durationVal').value);
             const unit = document.getElementById('durationUnit').value;
 
-            if(!id || !pass || !name) return alert("Data belum lengkap!");
+            if(!id || !pass || !name || !ownerPin) return alert("Data belum lengkap!");
 
             btn.innerHTML = '<span class="loader border-white/20 border-t-white"></span> Menyimpan...';
             btn.disabled = true;
@@ -249,6 +254,7 @@
                 await setDoc(doc(db, "licenses", id), {
                     id: id,
                     password: pass,
+                    ownerPin: ownerPin, // <--- PIN OWNER DISIMPAN DISINI
                     tenant: name,
                     type: type,
                     active: true,
@@ -259,6 +265,7 @@
                 document.getElementById('storeName').value = '';
                 document.getElementById('tenantId').value = '';
                 document.getElementById('password').value = '';
+                document.getElementById('ownerPin').value = '';
             } catch (e) {
                 alert("Error: " + e.message);
             } finally {
@@ -285,7 +292,7 @@
                     : '<span class="text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-[9px] font-black border border-rose-100 uppercase tracking-wide"><i class="fa-solid fa-ban mr-1"></i>SUSPEND</span>';
 
                 const actionBtn = isActive 
-                    ? `<button onclick="window.toggleStatus('${c.id}', false)" class="flex-1 bg-white border border-rose-200 text-rose-500 hover:bg-rose-50 py-2.5 rounded-lg text-[10px] font-bold transition">MATIKAN AKSES</button>`
+                    ? `<button onclick="window.toggleStatus('${c.id}', false)" class="flex-1 bg-white border border-rose-200 text-rose-500 hover:bg-rose-50 py-2.5 rounded-lg text-[10px] font-bold transition">MATIKAN</button>`
                     : `<button onclick="window.toggleStatus('${c.id}', true)" class="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-2.5 rounded-lg text-[10px] font-bold shadow-md shadow-emerald-500/20 transition">BUKA AKSES</button>`;
 
                 const html = `
@@ -297,11 +304,18 @@
                         </div>
                         ${badge}
                     </div>
-                    <div class="bg-slate-50 p-2 rounded-xl border border-slate-100 mb-4 flex justify-between items-center">
+                    <div class="bg-slate-50 p-2 rounded-xl border border-slate-100 mb-2 flex justify-between items-center">
                         <span class="text-[10px] font-bold text-slate-400">PASSWORD</span>
                         <div class="flex gap-2 items-center">
                             <span class="font-mono font-black text-slate-800 text-sm tracking-widest">${c.password}</span>
                             <button onclick="window.copyText('${c.password}')" class="text-slate-400 hover:text-indigo-600"><i class="fa-regular fa-copy"></i></button>
+                        </div>
+                    </div>
+                    <div class="bg-rose-50 p-2 rounded-xl border border-rose-100 mb-4 flex justify-between items-center">
+                        <span class="text-[10px] font-bold text-rose-400">OWNER PIN</span>
+                        <div class="flex gap-2 items-center">
+                            <span class="font-mono font-black text-rose-600 text-sm tracking-widest">${c.ownerPin || '111111'}</span>
+                            <button onclick="window.copyText('${c.ownerPin || '111111'}')" class="text-rose-400 hover:text-rose-600"><i class="fa-regular fa-copy"></i></button>
                         </div>
                     </div>
                     <div class="flex gap-2">
@@ -313,47 +327,24 @@
             });
         });
 
-        // --- FIREBASE: LOGS MONITORING (PENGGANTI GOOGLE SCRIPT) ---
+        // --- FIREBASE: LOGS MONITORING ---
         onSnapshot(query(collection(db, "logs"), orderBy("timestamp", "desc"), limit(50)), (snapshot) => {
             const tbody = document.getElementById('logTable');
             tbody.innerHTML = '';
-            
             if(snapshot.empty) {
-                tbody.innerHTML = `<tr><td colspan="3" class="p-6 text-center text-slate-400 italic">Belum ada aktivitas login.</td></tr>`;
-                return;
+                tbody.innerHTML = `<tr><td colspan="3" class="p-6 text-center text-slate-400 italic">Belum ada aktivitas login.</td></tr>`; return;
             }
-
             snapshot.forEach(docSnap => {
                 const log = docSnap.data();
                 const time = new Date(log.timestamp).toLocaleTimeString();
-                
-                const row = `
-                <tr class="border-b border-slate-50 hover:bg-slate-50 transition">
-                    <td class="p-3 text-slate-400 font-mono">${time}</td>
-                    <td class="p-3">
-                        <div class="font-bold text-slate-800 text-xs">${log.tenant}</div>
-                        <div class="text-[9px] text-indigo-500 font-bold">${log.id}</div>
-                    </td>
-                    <td class="p-3">
-                        <div class="font-mono text-slate-600 text-[10px]">${log.ip || 'IP Hidden'}</div>
-                        <div class="text-[9px] text-slate-400 truncate max-w-[120px]">${log.device}</div>
-                    </td>
-                </tr>`;
+                const row = `<tr class="border-b border-slate-50 hover:bg-slate-50 transition"><td class="p-3 text-slate-400 font-mono">${time}</td><td class="p-3"><div class="font-bold text-slate-800 text-xs">${log.tenant}</div><div class="text-[9px] text-indigo-500 font-bold">${log.id}</div></td><td class="p-3"><div class="font-mono text-slate-600 text-[10px]">${log.ip || 'IP Hidden'}</div><div class="text-[9px] text-slate-400 truncate max-w-[120px]">${log.device}</div></td></tr>`;
                 tbody.innerHTML += row;
             });
         });
 
-        // --- GLOBAL HELPERS ---
-        window.toggleStatus = async (id, status) => {
-            await updateDoc(doc(db, "licenses", id), { active: status });
-        };
-        window.del = async (id) => {
-            if(confirm("Hapus permanen?")) await deleteDoc(doc(db, "licenses", id));
-        };
-        window.copyText = (text) => {
-            navigator.clipboard.writeText(text);
-            showToast("Password Disalin!");
-        };
+        window.toggleStatus = async (id, status) => { await updateDoc(doc(db, "licenses", id), { active: status }); };
+        window.del = async (id) => { if(confirm("Hapus permanen?")) await deleteDoc(doc(db, "licenses", id)); };
+        window.copyText = (text) => { navigator.clipboard.writeText(text); showToast("Disalin!"); };
         function showToast(msg) {
             const toast = document.createElement('div');
             toast.className = 'fixed bottom-10 left-1/2 z-[100] flex items-center gap-3 bg-slate-900/90 backdrop-blur-md text-white px-6 py-3 rounded-full shadow-2xl toast-enter';
