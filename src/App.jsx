@@ -1660,10 +1660,10 @@ const [isLoading, setIsLoading] = useState(false);
     );
 })
 
-                    })}
+                    })
                         </div>
 
-             {/* Popup cart ditempatkan di sini */}
+          
              <CartPopup 
                 showCart={showCart} 
                 setShowCart={setShowCart} 
