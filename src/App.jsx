@@ -922,16 +922,19 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
 // 3. TAB: PROFILE TOKO (MURNI IDENTITAS BISNIS - PREMIUM LOOK)
 // ============================================================================
 
-const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
+const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
   const [profile, setProfile] = useState({ name: '', address: '', wa: '', logo: null, adminName: '', payment: { qris: null, ewallets: [], bank: [] } });
   const [cropSrc, setCropSrc] = useState(null); 
   const [cropTarget, setCropTarget] = useState('');
-  
-  // Load Data Toko Saat Mount
+
+  // FIX BUG: Auto-Refresh Data Profil saat tab dibuka
   useEffect(() => {
-    const saved = localStorage.getItem('store_profile');
-    if (saved) setProfile(JSON.parse(saved));
-  }, []);
+    if (activeTab === 'profile' || !activeTab) {
+        const saved = localStorage.getItem('store_profile');
+        if (saved) setProfile(JSON.parse(saved));
+    }
+  }, [activeTab]);
+
 
   // LOGIC: Sembunyikan Navbar utama saat mode Crop foto aktif
   useEffect(() => {
@@ -2153,16 +2156,20 @@ const RestoredScreen = ({ onContinue }) => (
 // ============================================================================
 // 8. TAB: METODE PEMBAYARAN (PINDAHAN DARI PROFILE)
 // ============================================================================
-const PaymentTab = ({ triggerAlert, setEditingMode }) => {
+const PaymentTab = ({ triggerAlert, setEditingMode, activeTab }) => {
     const [profile, setProfile] = useState({ payment: { qris: null, ewallets: [], bank: [] } });
     const [newWallet, setNewWallet] = useState({ type: 'Gopay', number: '' });
     const [newBank, setNewBank] = useState({ bank: '', number: '' });
     const [cropSrc, setCropSrc] = useState(null);
 
+    // FIX BUG: Auto-Refresh Data Pembayaran saat tab dibuka
     useEffect(() => {
-        const saved = localStorage.getItem('store_profile');
-        if (saved) setProfile(JSON.parse(saved));
-    }, []);
+        if (activeTab === 'payment' || !activeTab) {
+            const saved = localStorage.getItem('store_profile');
+            if (saved) setProfile(JSON.parse(saved));
+        }
+    }, [activeTab]);
+
 
     useEffect(() => {
         if(cropSrc) setEditingMode(true);
@@ -2464,7 +2471,7 @@ const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
 // A. Tab Riwayat Transaksi (Dipindah dari Laporan)
 const HistoryTab = ({ txs }) => {
     const [searchOrder, setSearchOrder] = useState('');
-    const [selectedTx, setSelectedTx] = useState(null); // FIX BUG: State Modal dipindah ke dalam
+    const [selectedTx, setSelectedTx] = useState(null);
     
     const filteredTxs = txs.filter(t => t.id.toLowerCase().includes(searchOrder.toLowerCase()) || (t.buyer && t.buyer.toLowerCase().includes(searchOrder.toLowerCase())));
 
@@ -2501,7 +2508,6 @@ const HistoryTab = ({ txs }) => {
                 ))}
             </div>
 
-            {/* FIX BUG: MODAL DETAIL TRANSAKSI HADIR KEMBALI */}
             {selectedTx && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200" onClick={()=>setSelectedTx(null)}>
                     <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-white/10" onClick={e=>e.stopPropagation()}>
@@ -2698,7 +2704,7 @@ const App = () => {
           <div className={active === 'cashout' ? 'block' : 'hidden'}><ConstructionTab title="Kas Keluar" desc="Pencatatan pengeluaran operasional harian kasir." icon={ArrowDownCircle} /></div>
           <div className={active === 'discount' ? 'block' : 'hidden'}><ConstructionTab title="Kelola Diskon" desc="Atur potongan harga persen atau nominal statis." icon={Percent} /></div>
 
-          {/* OPERASIONAL - FIX BUG: Syntax Komentar Diperbaiki & Auto-Refresh Stok */}
+          {/* OPERASIONAL */}
           <div className={active === 'stock' ? 'block' : 'hidden'}>
               <StockTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} />
           </div>
@@ -2706,13 +2712,12 @@ const App = () => {
           <div className={active === 'inout' ? 'block' : 'hidden'}><ConstructionTab title="Barang Masuk/Keluar" desc="Tracking alur masuk vendor dan keluar retur." icon={ArrowUpCircle} /></div>
           <div className={active === 'stockhistory' ? 'block' : 'hidden'}><ConstructionTab title="Riwayat Stok" desc="Log lengkap perubahan stok dan expired date." icon={History} /></div>
 
-          {/* PENGATURAN */}
-          <div className={active === 'profile' ? 'block' : 'hidden'}><ProfileTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} /></div>
+                    {/* PENGATURAN */}
+          <div className={active === 'profile' ? 'block' : 'hidden'}><ProfileTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
           <div className={active === 'report' ? 'block' : 'hidden'}><ReportTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} /></div>
-          <div className={active === 'payment' ? 'block' : 'hidden'}><PaymentTab triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} /></div>
+          <div className={active === 'payment' ? 'block' : 'hidden'}><PaymentTab triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
           <div className={active === 'settings' ? 'block' : 'hidden'}><SettingsTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
 
-        </div>
 
         {/* MENU DRAWER (FRENCH FRIES) - STRUKTUR BARU */}
         {isMenuOpen && (
