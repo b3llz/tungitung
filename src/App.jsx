@@ -1661,9 +1661,6 @@ const [isLoading, setIsLoading] = useState(false);
 })
 
           
-                        </div>
-
-          
              <CartPopup 
                 showCart={showCart} 
                 setShowCart={setShowCart} 
