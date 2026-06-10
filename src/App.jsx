@@ -2730,10 +2730,9 @@ const HistoryTab = ({ txs }) => {
     const [searchOrder, setSearchOrder] = useState('');
     const [selectedTx, setSelectedTx] = useState(null);
      
-const totalHariIni = txs
+    const totalHariIni = txs
         .filter(t => new Date(t.date).toDateString() === new Date().toDateString())
         .reduce((sum, t) => sum + t.total, 0);
-
 
     const filteredTxs = txs.filter(t => t.id.toLowerCase().includes(searchOrder.toLowerCase()) || (t.buyer && t.buyer.toLowerCase().includes(searchOrder.toLowerCase())));
 
@@ -2745,17 +2744,18 @@ const totalHariIni = txs
                 <h3 className="text-2xl font-black">{formatIDR(totalHariIni)}</h3>
             </div>
 
-        <div className="max-w-4xl mx-auto px-4 pb-32 space-y-4">
             <div className="flex justify-between items-end mb-2">
                 <div>
                     <h2 className="font-black text-xl text-slate-800 dark:text-white">Riwayat Transaksi</h2>
                     <p className="text-[10px] font-bold text-slate-400 uppercase">Database Penjualan</p>
                 </div>
             </div>
+            
             <div className="relative group mb-4">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="w-4 h-4 text-slate-400"/></div>
                 <input className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:border-indigo-500 shadow-sm dark:text-white" placeholder="Cari Nomor Order / Nama Pembeli..." value={searchOrder} onChange={e=>setSearchOrder(e.target.value)} />
             </div>
+            
             <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
                 {filteredTxs.length === 0 ? <div className="text-center py-10 text-slate-400 text-xs italic bg-slate-50 dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">Transaksi tidak ditemukan.</div> : 
                  filteredTxs.map(t => (
@@ -2824,6 +2824,7 @@ const totalHariIni = txs
         </div>
     );
 };
+
 
 // B. Tab Generic (Placeholder)
 const ConstructionTab = ({ title, desc, icon: Icon }) => (
@@ -3468,30 +3469,28 @@ const MainAdminApp = () => {
                             </div>
                         </div>
 
-                        {/* 2. OPERASIONAL (Admin & Owner Saja) */}
-                      
-<div>
-    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2 flex items-center gap-1.5"><Layers className="w-3 h-3"/> Operasional</p>
-    <div className="space-y-1">
-        <button onClick={() => {setActive('stock'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stock' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-            <Box className="w-5 h-5"/> Stok Barang
-        </button>
-        <button onClick={() => {setActive('opname'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='opname' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-            <ClipboardList className="w-5 h-5"/> Stok Opname
-        </button>
-        <button onClick={() => {setActive('inout'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='inout' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-            <ArrowUpCircle className="w-5 h-5"/> Barang Masuk & Keluar
-        </button>
-        <button onClick={() => {setActive('stockhistory'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockhistory' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-            <History className="w-5 h-5"/> Riwayat Stok & Expired
-        </button>
-        <button onClick={() => {setActive('supplier'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='supplier' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-            <Truck className="w-5 h-5"/> Database Supplier
-        </button>
-    </div>
-</div>
+                                                {/* 2. OPERASIONAL (Terbuka untuk Semua) */}
+                        <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-2 flex items-center gap-1.5"><Layers className="w-3 h-3"/> Operasional</p>
+                            <div className="space-y-1">
+                                <button onClick={() => {setActive('stock'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stock' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <Box className="w-5 h-5"/> Stok Barang
+                                </button>
+                                <button onClick={() => {setActive('opname'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='opname' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <ClipboardList className="w-5 h-5"/> Stok Opname
+                                </button>
+                                <button onClick={() => {setActive('inout'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='inout' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <ArrowUpCircle className="w-5 h-5"/> Barang Masuk & Keluar
+                                </button>
+                                <button onClick={() => {setActive('stockhistory'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='stockhistory' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <History className="w-5 h-5"/> Riwayat Stok & Expired
+                                </button>
+                                <button onClick={() => {setActive('supplier'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${active==='supplier' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black' : 'text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+                                    <Truck className="w-5 h-5"/> Database Supplier
+                                </button>
+                            </div>
+                        </div>
 
-                        )}
 
                         {/* 3. PENGATURAN (Owner Saja - Kecuali Laporan) */}
                         <div>
