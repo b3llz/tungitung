@@ -12,12 +12,11 @@ import {
   AlertCircle, Check, Settings, RefreshCw, User, Award,
   Lock, Unlock, Key, ShieldCheck, Calendar, AlertTriangle, 
   ShieldAlert, ShieldCheck as ShieldOk,
-  QrCode, Banknote, Coins, CreditCard as CardIcon, 
-  UserCircle2, Wallet2, FileText, ChevronDown, ChevronUp,
+  QrCode, Banknote, Coins, CreditCard as CardIcon, UserCircle2, Wallet2, FileText, ChevronDown, ChevronUp,
   Minimize2, Maximize2, History, MinusCircle, Camera, 
   ScanLine, MonitorSmartphone, Globe, Percent, 
   Bluetooth, Wifi, HardDrive, DatabaseBackup, Languages,
-  ArrowDownCircle, ArrowUpCircle, ClipboardList
+  ArrowDownCircle, ArrowUpCircle, ClipboardList, LogOut
 } from 'lucide-react';
 
 import { QRCodeSVG } from 'qrcode.react';
@@ -3336,13 +3335,14 @@ const MainAdminApp = () => {
       } else { setIsLocked(true); }
   };
 
-  useEffect(() => {
-    if(!isBanned && !isRestored) {
-        checkValidity();
+    useEffect(() => {
+    // FIX GLITCH: Jangan jalankan pengecekan background saat masih di halaman Login
+    if(!isBanned && !isRestored && !isLocked) {
         const interval = setInterval(checkValidity, 10000); 
         return () => clearInterval(interval);
     }
-  }, [isBanned, isRestored]);
+  }, [isBanned, isRestored, isLocked]);
+
 
   const handleUnlock = (data) => {
      if(isBanned) return triggerAlert("Akses Ditolak.", "error");
@@ -3357,12 +3357,24 @@ const MainAdminApp = () => {
     }
   }, []);
 
-  const toggleDarkMode = () => {
+    const toggleDarkMode = () => {
       const newMode = !dark; setDark(newMode);
       localStorage.setItem('theme', newMode ? 'dark' : 'light');
       if(newMode) document.documentElement.classList.add('dark');
       else document.documentElement.classList.remove('dark');
   };
+
+  const handleLogout = () => {
+      if(confirm("Yakin ingin keluar dari sesi ini?")) {
+          localStorage.removeItem('app_license');
+          setLicenseInfo(null);
+          setIsLocked(true);
+          setIsMenuOpen(false);
+      }
+  };
+
+
+
 
   useEffect(() => {
     if(!licenseInfo) return; 
@@ -3523,6 +3535,13 @@ const MainAdminApp = () => {
                             </div>
                         </div>
 
+                                       </div>
+                    
+                    {/* TOMBOL LOGOUT (UNTUK SEMUA ROLE) */}
+                    <div className="px-4 pb-4">
+                        <button onClick={handleLogout} className="w-full flex items-center justify-center gap-3 p-3 rounded-xl transition bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 font-bold hover:bg-rose-100 dark:hover:bg-rose-900/40">
+                            <LogOut className="w-5 h-5"/> Keluar (Logout)
+                        </button>
                     </div>
                     
                     <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-center">
@@ -3531,6 +3550,7 @@ const MainAdminApp = () => {
                  </div>
             </div>
         )}
+
 
 
         {/* GLOBAL PREMIUM POPUP */}
