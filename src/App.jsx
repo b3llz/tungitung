@@ -21,8 +21,7 @@ import {
 
 import { QRCodeSVG } from 'qrcode.react';
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, increment, runTransaction, onSnapshot, addDoc } from "firebase/firestore";
-import currency from "currency.js";
+import { getFirestore, collection, doc, getDoc, onSnapshot, addDoc } from "firebase/firestore";
 import Cropper from "react-easy-crop";
 
 const safeParse = (key, fallback = []) => {
@@ -31,22 +30,6 @@ const safeParse = (key, fallback = []) => {
         return data ? JSON.parse(data) : fallback; 
     } catch(e) { return fallback; }
 };
-
-// --- KODE JEBAKAN ERROR (HAPUS NANTI KALAU SUDAH BENAR) ---
-window.onerror = function(message, source, lineno, colno, error) {
-  document.body.innerHTML = `
-    <div style="background:black; color:red; padding:20px; font-family:monospace; font-size:14px; height:100vh;">
-      <h2 style="color:yellow">⚠️ ERROR TERDETEKSI:</h2>
-      <p style="font-weight:bold">${message}</p>
-      <p>File: ${source}</p>
-      <p>Baris ke: ${lineno}</p>
-      <hr/>
-      <p style="color:white">Screenshot layar ini dan kirim ke saya.</p>
-    </div>
-  `;
-};
-
-
 
 
 
@@ -66,12 +49,12 @@ const db = getFirestore(app);
 const BRANCH_ID = "PUSAT";
 
 // Helper & Config
-const money = (val) => currency(val, { symbol: '', decimal: ',', separator: '.', precision: 0 });
-const LOG_API_URL = "https://script.google.com/macros/s/AKfycbx60xl2xjJCJGjo5MMCdE8tAALzVTY0Z0RoLmwFsm2UndwXRwZ_5wq85usR9ANWcq4dZg/exec"; 
-const SESSION_TOKEN = `sess_${Date.now()}_${Math.random().toString(36).substr(2,9)}`;
 const isPro = (info) => info && (info.type === 'PRO' || info.type === 'PREMIUM');
-const BLACKLIST_URL = "https://gist.githubusercontent.com/b3llz/07d95837ff27524b875990b5bd3bbe83/raw/blocklist.json"; 
-const SECRET_KEY = "RAHASIA_DAPUR_123"; 
+// NOTE: LOG_API_URL, BLACKLIST_URL, SECRET_KEY, dan SESSION_TOKEN telah dihapus.
+// Variabel-variabel ini tidak pernah dipakai di mana pun (dead code), namun tetap
+// ikut ter-bundle ke file JS yang dikirim ke browser sehingga isinya bisa dibaca
+// siapa saja lewat DevTools / view-source. Jangan simpan kunci rahasia atau URL
+// internal di kode frontend -- pindahkan ke backend/Cloud Function jika dibutuhkan lagi.
 
 const formatIDR = (number) => {
   return new Intl.NumberFormat('id-ID', {
@@ -460,8 +443,13 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
   const addMat = () => setMaterials([...materials, { id: Date.now(), name: '', price: 0, unit: 'gr', content: 1000, usage: 0, cost: 0 }]);
   const addVar = () => setVariableOps([...variableOps, { id: Date.now(), type: 'Kemasan', name: '', price: 0, unit: 'pcs', content: 1, usage: 0, cost: 0 }]);
   const addFix = () => setFixedOps([...fixedOps, { id: Date.now(), name: '', cost: 0 }]);
-  const removeRow = (setter, list, id) => list.length > 1 && setter(list.filter(i => i.id !== id));
-  
+  const removeRow = (setter, id) => {
+    setter(prev => {
+        if (prev.length <= 1) return prev;
+        return prev.filter(item => item.id !== id);
+    });
+  };
+
   const totalMat = materials.reduce((a,b) => a + b.cost, 0);
   const totalVar = variableOps.reduce((a,b) => a + b.cost, 0);
   const totalFix = fixedOps.reduce((a,b) => a + b.cost, 0);
@@ -498,8 +486,10 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
   const projFixedCostMonth = showFixed ? totalFix : 0;
   const projNetProfitMonth = projOmzetMonth - projProdCostMonth - projFixedCostMonth;
 
-  useEffect(() => { setSavedRecipes(JSON.parse(localStorage.getItem('hpp_pro_db') || '[]')); }, []);
-  
+  useEffect(() => {
+    setSavedRecipes(safeParse("hpp_pro_db"));
+  }, []);
+
   const save = () => {
     if(!product.name) return triggerAlert("Isi nama produk dulu!", "error");
     if (!isPro(licenseInfo) && savedRecipes.length >= 5) {
@@ -511,7 +501,8 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
     setSavedRecipes(prev => { const n = [...prev, data]; localStorage.setItem('hpp_pro_db', JSON.stringify(n)); return n; });
 
     // 2. UPDATE STOK PRODUK & BAHAN
-    const currentProducts = JSON.parse(localStorage.getItem('product_stock_db') || '[]');
+    const currentProducts =
+safeParse("product_stock_db");
     const existingProdIndex = currentProducts.findIndex(p => p.name.toLowerCase() === product.name.toLowerCase());
     
     const prodImage = product.image || null; 
@@ -532,7 +523,8 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
     }
     localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
 
-    const currentRawMaterials = JSON.parse(localStorage.getItem('raw_material_db') || '[]');
+    const currentRawMaterials =
+safeParse("raw_material_db");
     let updatedRawMaterials = [...currentRawMaterials];
 
     materials.forEach(mat => {
@@ -541,7 +533,7 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
         if (matIdx >= 0) { updatedRawMaterials[matIdx].lastPrice = mat.price / (mat.content || 1); } 
         else {
             updatedRawMaterials.push({
-                id: `rm_${Date.now()}_${Math.random().toString(36).substr(2,5)}`,
+                id: `rm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
                 name: mat.name, unit: mat.unit, stock: 0, 
                 lastPrice: mat.price / (mat.content || 1), 
                 category: 'Bahan Baku'
@@ -641,7 +633,7 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
                        <div className="text-right"><p className="text-[10px] text-slate-400 font-medium">Biaya</p><p className="text-base font-black text-slate-700 dark:text-white">{formatIDR(m.cost)}</p></div>
                     </div>
                   </div>
-                  <button onClick={()=>removeRow(setMaterials,materials,m.id)} className="absolute -top-2 -right-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full p-1.5 text-slate-300 hover:text-red-500 shadow-sm"><Trash2 className="w-3 h-3"/></button>
+                  <button onClick={()=>removeRow(setMaterials,m.id)} className="absolute -top-2 -right-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full p-1.5 text-slate-300 hover:text-red-500 shadow-sm"><Trash2 className="w-3 h-3"/></button>
                 </div>
               ))}
               <Button variant="outline" onClick={addMat} icon={Plus} className="w-full py-3">Tambah Bahan</Button>
@@ -677,7 +669,7 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
                            <div className="text-right"><p className="text-[10px] text-slate-400 font-medium">Biaya</p><p className="text-base font-black text-slate-700 dark:text-white">{formatIDR(op.cost)}</p></div>
                         </div>
                     </div>
-                    <button onClick={()=>removeRow(setVariableOps,variableOps,op.id)} className="absolute -top-2 -right-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full p-1.5 text-slate-300 hover:text-red-500 shadow-sm"><Trash2 className="w-3 h-3"/></button>
+                    <button onClick={()=>removeRow(setVariableOps,op.id)} className="absolute -top-2 -right-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full p-1.5 text-slate-300 hover:text-red-500 shadow-sm"><Trash2 className="w-3 h-3"/></button>
                   </div>
                 );
               })}
@@ -744,7 +736,7 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
                 <div key={op.id} className="flex gap-2 items-end">
                   <div className="flex-1"><input className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-xs font-bold outline-none" placeholder="Nama Biaya" value={op.name} onChange={e=>updateFix(op.id,'name',e.target.value)} /></div>
                   <div className="w-28"><NumericInput value={op.cost} onChange={v=>updateFix(op.id, v)} prefix="Rp" className="bg-white dark:bg-slate-900 text-xs py-2" /></div>
-                  <button onClick={()=>removeRow(setFixedOps,fixedOps,op.id)} className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-400 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>
+                  <button onClick={()=>removeRow(setFixedOps,op.id)} className="p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-400 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>
                 </div>
               ))}
               <Button variant="secondary" onClick={addFix} className="w-full text-xs h-8 mt-2">Tambah</Button>
@@ -2388,9 +2380,6 @@ const PaymentTab = ({ triggerAlert, setEditingMode, activeTab }) => {
 // ============================================================================
 // 9. TAB: STOK BARANG (PINDAHAN DARI PROFILE)
 // ============================================================================
-// ============================================================================
-// 9. TAB: STOK BARANG (PINDAHAN DARI PROFILE)
-// ============================================================================
 const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
     const [products, setProducts] = useState([]);
     const [rawMaterials, setRawMaterials] = useState([]);
@@ -2402,10 +2391,8 @@ const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
     // FIX AUTO-REFRESH: Data akan ditarik ulang secara otomatis setiap kali menu "Stok Barang" diklik
     useEffect(() => {
         if (activeTab === 'stock') {
-    setProducts(safeParse('product_stock_db', []));
-setRawMaterials(safeParse('raw_material_db', []));
-            const savedRaw = localStorage.getItem('raw_material_db');
-            if (savedRaw) setRawMaterials(JSON.parse(savedRaw));
+            setProducts(safeParse('product_stock_db', []));
+            setRawMaterials(safeParse('raw_material_db', []));
         }
     }, [activeTab]);
 
@@ -2774,6 +2761,7 @@ const DiscountTab = ({ triggerAlert }) => {
 const EmployeeTab = ({ triggerAlert }) => {
     const [employees, setEmployees] = useState(JSON.parse(localStorage.getItem('employee_db') || '[]'));
     const [form, setForm] = useState({ name: '', role: 'kasir', pin: '' });
+    const [visiblePinId, setVisiblePinId] = useState(null); // Hanya 1 PIN boleh terbuka di satu waktu
 
     const generatePin = () => setForm({...form, pin: Math.floor(100000 + Math.random() * 900000).toString()});
 
@@ -2821,7 +2809,14 @@ const EmployeeTab = ({ triggerAlert }) => {
                             <div><p className="font-bold text-sm dark:text-white">{e.name}</p><p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{e.role}</p></div>
                         </div>
                         <div className="flex items-center gap-3">
-                            <span className="text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">PIN: {e.pin}</span>
+                            <button
+                                onClick={() => setVisiblePinId(visiblePinId === e.id ? null : e.id)}
+                                className="text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded flex items-center gap-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+                                title="Klik untuk tampilkan/sembunyikan PIN"
+                            >
+                                PIN: {visiblePinId === e.id ? e.pin : '••••••'}
+                                {visiblePinId === e.id ? <Unlock className="w-3 h-3 text-amber-500"/> : <Lock className="w-3 h-3 text-slate-400"/>}
+                            </button>
                             <button onClick={()=>deleteEmployee(e.id)} className="text-rose-500 p-1 hover:bg-rose-50 rounded"><Trash2 className="w-4 h-4"/></button>
                         </div>
                     </div>
@@ -2884,7 +2879,6 @@ const OpnameTab = ({ triggerAlert }) => {
     );
 };
 
-// --- FITUR BARU: BARANG MASUK & KELUAR ---
 // --- FITUR BARU: BARANG MASUK & KELUAR ---
 const InOutTab = ({ triggerAlert }) => {
     const [products, setProducts] = useState(JSON.parse(localStorage.getItem('product_stock_db') || '[]'));
@@ -3308,9 +3302,9 @@ const MainAdminApp = () => {
           <div className={active === 'report' ? 'block' : 'hidden'}><ReportTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} /></div>
           <div className={active === 'payment' ? 'block' : 'hidden'}><PaymentTab triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
           <div className={active === 'settings' ? 'block' : 'hidden'}><SettingsTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
-</div>
           <div className={active === 'hardware' ? 'block' : 'hidden'}><HardwareTab triggerAlert={triggerAlert} /></div>
           <div className={active === 'outlet' ? 'block' : 'hidden'}><OutletTab triggerAlert={triggerAlert} /></div>
+        </div>
 
 
                 {/* MENU DRAWER - DENGAN LOGIKA ROLE-BASED ACCESS CONTROL (RBAC) */}
