@@ -5,7 +5,7 @@ service cloud.firestore {
     // === GANTI dengan email akun developer kamu (boleh lebih dari satu) ===
     function isAdmin() {
       return request.auth != null && request.auth.token.email in [
-        'espokemon71@gmail.com'
+        'diazshandikaf@gmail.com'
       ];
     }
 
