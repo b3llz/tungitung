@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // === GANTI dengan email akun developer kamu (boleh lebih dari satu) ===
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email in [
+        'espokemon71@gmail.com'
+      ];
+    }
+
+    // Koleksi LISENSI / TENANT
+    match /licenses/{id} {
+      // Login tenant butuh membaca SATU dokumen berdasarkan ID-nya.
+      allow get: if true;
+      // Hanya developer yang boleh melihat SELURUH daftar tenant (cegah dump massal).
+      allow list: if isAdmin();
+      // Membuat / mengubah / menghapus tenant: HANYA developer.
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Log aktivitas login
+    match /logs/{logId} {
+      allow create: if true;     // app boleh menulis log login
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Tutup semua koleksi lain secara default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
