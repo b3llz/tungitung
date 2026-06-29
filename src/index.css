@@ -1,0 +1,122 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================
+   GLOBAL STYLES (PREMIUM LOOK)
+   ========================================= */
+:root {
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Background Pattern Halus */
+.bg-premium-pattern {
+  background-color: #f8fafc;
+  background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.dark .bg-premium-pattern {
+  background-color: #0f172a;
+  background-image: radial-gradient(#1e293b 1px, transparent 1px);
+}
+
+/* =========================================
+   UTILITIES
+   ========================================= */
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  
+  /* Glass Effect Utility */
+  .glass {
+    @apply bg-white/80 backdrop-blur-md border-b border-white/20 shadow-sm;
+  }
+  .dark .glass {
+    @apply bg-slate-900/80 border-slate-800/50 shadow-none;
+  }
+  
+  /* Premium Card */
+  .card-premium {
+    @apply bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-300;
+  }
+}
+
+/* =========================================
+   ANIMATIONS
+   ========================================= */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-enter {
+  animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.95); }
+}
+.animate-pulse-soft {
+  animation: pulse-soft 3s infinite;
+}
+
+/* =========================================
+   PRINT STYLES
+   ========================================= */
+@media print {
+  @page { margin: 0; size: auto; }
+  body * { visibility: hidden; }
+  .no-print { display: none !important; }
+  .fixed.inset-0.z-\[80\], .fixed.inset-0.z-\[80\] * { visibility: visible; }
+  .fixed.inset-0.z-\[80\] {
+    position: absolute; left: 0; top: 0; width: 100%; height: auto;
+    background: white !important; color: black !important;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 0; margin: 0; z-index: 9999;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .fixed.inset-0.z-\[80\] > div {
+    box-shadow: none !important; border: none !important;
+    max-width: 100% !important; width: 100% !important; padding: 10px !important; margin: 0 !important;
+  }
+}
+
+/* =========================================
+   PREMIUM ANIMATIONS (v2)
+   ========================================= */
+@keyframes float-slow { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-14px) } }
+.animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
+@keyframes float-slower { 0%,100% { transform: translateY(0) } 50% { transform: translateY(18px) } }
+.animate-float-slower { animation: float-slower 9s ease-in-out infinite; }
+@keyframes gradient-pan { 0% { background-position: 0% 50% } 50% { background-position: 100% 50% } 100% { background-position: 0% 50% } }
+.animate-gradient { background-size: 200% 200%; animation: gradient-pan 12s ease infinite; }
+@keyframes shimmer { 100% { transform: translateX(100%) } }
+.skeleton { position: relative; overflow: hidden; background: #e2e8f0; }
+.dark .skeleton { background: #1e293b; }
+.skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent); animation: shimmer 1.5s infinite; }
+.dark .skeleton::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent); }
+@keyframes slide-up { from { opacity:0; transform: translateY(24px) } to { opacity:1; transform: translateY(0) } }
+.animate-slide-up { animation: slide-up 0.4s cubic-bezier(0.16,1,0.3,1) forwards; }
+@keyframes spin-slow { to { transform: rotate(360deg) } }
+.animate-spin-slow { animation: spin-slow 2.5s linear infinite; }
+.spinner-ring { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff; border-radius: 50%; animation: spin-slow 0.8s linear infinite; display:inline-block; }
+@keyframes ping-ring { 0% { transform: scale(0.9); opacity: 0.7 } 70%,100% { transform: scale(1.6); opacity: 0 } }
+.animate-ping-ring { animation: ping-ring 1.8s cubic-bezier(0,0,0.2,1) infinite; }
+/* Tap feedback */
+.press { transition: transform 0.12s ease; }
+.press:active { transform: scale(0.96); }
+
+/* Extend print to z-[80] AND z-[90] (struk + QR) */
+@media print {
+  .fixed.inset-0.z-\[90\], .fixed.inset-0.z-\[90\] * { visibility: visible; }
+  .fixed.inset-0.z-\[90\] { position: absolute; left:0; top:0; width:100%; background:white !important; color:black !important; }
+}
