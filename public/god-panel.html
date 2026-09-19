@@ -37,8 +37,37 @@
         </div>
     </nav>
 
+    <!-- FIX AUDIT (Security): panel ini sebelumnya tidak punya layar login sama
+         sekali -- ia langsung memanggil Firestore (list/create/update/delete
+         tenant, termasuk menampilkan password & PIN owner apa adanya) padahal
+         firestore.rules mensyaratkan isAdmin() (harus login dengan email yang
+         terdaftar). Tanpa gate ini, panel akan gagal total (permission-denied)
+         untuk siapapun, dan kalaupun suatu saat rules dilonggarkan secara
+         tidak sengaja, tidak ada lapisan proteksi kedua di sisi halaman ini.
+         Login sekarang WAJIB lewat Firebase Auth sebelum konten di bawah
+         dimuat/ditampilkan. -->
+    <div id="view-login" class="max-w-sm mx-auto pt-32 px-4">
+        <div class="bg-white p-6 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100">
+            <h2 class="font-bold text-slate-800 mb-1 flex items-center gap-2"><i class="fa-solid fa-lock text-indigo-500"></i> Login Developer</h2>
+            <p class="text-[11px] text-slate-400 mb-5">Panel ini hanya untuk akun developer yang terdaftar di <code>firestore.rules</code> (isAdmin()).</p>
+            <div class="space-y-3">
+                <input id="loginEmail" type="email" placeholder="Email developer" class="w-full bg-slate-50 border border-slate-200 p-3.5 rounded-xl font-bold text-sm outline-none focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition">
+                <input id="loginPassword" type="password" placeholder="Password" class="w-full bg-slate-50 border border-slate-200 p-3.5 rounded-xl font-bold text-sm outline-none focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition">
+                <button id="btnLogin" class="w-full bg-slate-900 hover:bg-slate-800 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-slate-900/20 active:scale-[0.98] transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-right-to-bracket"></i> Masuk
+                </button>
+                <p id="loginError" class="text-[11px] text-rose-500 font-bold text-center hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-content" class="hidden">
     <div class="max-w-md mx-auto pt-24 px-4 space-y-6 animate-fade">
-        
+
+        <div class="flex justify-end -mb-2">
+            <button id="btnLogout" class="text-[10px] font-bold text-slate-400 hover:text-rose-500 flex items-center gap-1"><i class="fa-solid fa-right-from-bracket"></i> Keluar</button>
+        </div>
+
         <div id="view-license">
             <div class="bg-white p-6 rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 relative overflow-hidden group mb-6">
                 <div class="absolute top-0 right-0 w-24 h-24 bg-indigo-50 rounded-full blur-2xl -mr-8 -mt-8 transition group-hover:bg-indigo-100"></div>
@@ -143,13 +172,25 @@
             </div>
         </div>
     </div>
+    </div><!-- /#app-content -->
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
+        // FIX AUDIT: apiKey di bawah ini berbeda (lebih pendek/tidak valid,
+        // 25 karakter) dibanding VITE_FIREBASE_API_KEY asli di file .env
+        // aplikasi utama (39 karakter, format Firebase Web API key yang
+        // benar). Ini membuat initializeApp/getAuth di panel ini akan gagal
+        // ("auth/invalid-api-key") sampai diganti dengan key ASLI project
+        // "costlab-f221c" yang sama dipakai di src/App.jsx (jangan commit
+        // key ini ke repo publik -- perlakukan file HTML statis di folder
+        // public/ ini sebagai halaman yang bisa diakses siapa saja lewat
+        // URL-nya, jadi login di bawah adalah lapisan proteksi WAJIB, bukan
+        // opsional).
         const firebaseConfig = {
-          apiKey: "AIzaSyDqMpyCBFg1m5pA0Bn8U",
+          apiKey: "GANTI_DENGAN_API_KEY_ASLI_COSTLAB_F221C",
           authDomain: "costlab-f221c.firebaseapp.com",
           projectId: "costlab-f221c",
           storageBucket: "costlab-f221c.firebasestorage.app",
@@ -159,6 +200,7 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const auth = getAuth(app);
 
         // --- LOGIC UI & GENERATOR ---
         window.autoGenerate = () => {
@@ -274,6 +316,15 @@
             }
         });
 
+        // FIX AUDIT: kedua onSnapshot di bawah ini dulu berjalan langsung saat
+        // halaman dibuka (tanpa syarat login sama sekali). Sekarang dibungkus
+        // dalam startListeners() dan baru dipanggil setelah onAuthStateChanged
+        // memastikan ada user yang berhasil login (lihat bagian AUTH GATE).
+        let listenersStarted = false;
+        function startListeners() {
+            if (listenersStarted) return; // cegah pasang listener dobel kalau auth state berubah lagi
+            listenersStarted = true;
+
         // --- FIREBASE: LIST USER REALTIME ---
         onSnapshot(query(collection(db, "licenses"), orderBy("createdAt", "desc")), (snapshot) => {
             const container = document.getElementById('clientList');
@@ -341,6 +392,51 @@
                 tbody.innerHTML += row;
             });
         });
+
+        } // end startListeners()
+
+        // --- AUTH GATE (FIX AUDIT) ---
+        // Panel tidak lagi memanggil Firestore sebelum ada sesi login yang
+        // valid. onAuthStateChanged adalah satu-satunya pemicu yang
+        // menampilkan konten & menyalakan listener di atas.
+        const viewLogin = document.getElementById('view-login');
+        const appContent = document.getElementById('app-content');
+        const loginError = document.getElementById('loginError');
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                viewLogin.classList.add('hidden');
+                appContent.classList.remove('hidden');
+                startListeners();
+            } else {
+                appContent.classList.add('hidden');
+                viewLogin.classList.remove('hidden');
+            }
+        });
+
+        document.getElementById('btnLogin').addEventListener('click', async () => {
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            loginError.classList.add('hidden');
+            if (!email || !password) {
+                loginError.textContent = 'Isi email dan password.';
+                loginError.classList.remove('hidden');
+                return;
+            }
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                // Jika email tidak ada di daftar isAdmin() pada firestore.rules,
+                // login Firebase Auth di atas tetap bisa sukses (itu urusan
+                // Firebase Auth, bukan Firestore), tapi setiap panggilan
+                // Firestore setelah ini akan ditolak dengan permission-denied
+                // oleh security rules -- ini sudah benar dan diharapkan.
+            } catch (e) {
+                loginError.textContent = 'Login gagal: ' + e.message;
+                loginError.classList.remove('hidden');
+            }
+        });
+
+        document.getElementById('btnLogout').addEventListener('click', () => signOut(auth));
 
         window.toggleStatus = async (id, status) => { await updateDoc(doc(db, "licenses", id), { active: status }); };
         window.del = async (id) => { if(confirm("Hapus permanen?")) await deleteDoc(doc(db, "licenses", id)); };

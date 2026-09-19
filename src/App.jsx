@@ -44,10 +44,23 @@ const firebaseConfig = {
   appId: "1:64337345213:web:389610b43797f0e55a15d4"
 };
 
-// Inisialisasi Database
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
+// FIX AUDIT (ROBUSTNESS): initializeApp/getAuth dilempar di level MODULE --
+// kalau VITE_FIREBASE_API_KEY tidak ada (env belum diset saat build),
+// getAuth() melempar auth/invalid-api-key secara SINKRON dan SELURUH
+// aplikasi jadi layar putih total (ErrorBoundary pun tidak sempat bekerja
+// karena crash-nya sebelum React render). Dengan try/catch ini, aplikasi
+// tetap bisa dibuka dalam mode terbatas (UI jalan, fitur Firebase/login
+// yang gagal menampilkan pesan koneksi yang jelas).
+let app = null, db = null, auth = null;
+let firebaseInitError = null;
+try {
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+  auth = getAuth(app);
+} catch (e) {
+  firebaseInitError = e;
+  console.error("Firebase init gagal (fitur lisensi/login tidak tersedia):", e);
+}
 const BRANCH_ID = "PUSAT";
 
 // Helper & Config
@@ -128,7 +141,7 @@ const t = (key) => (TRANSLATIONS[getLang()] && TRANSLATIONS[getLang()][key]) || 
 
 const syncSession = async (action, info) => {
     try {
-        if(!info) return;
+        if(!info || !db) return;
         let ip = 'Unknown';
         try { const r = await fetch('https://api.ipify.org?format=json'); const j = await r.json(); ip = j.ip; } catch(e){}
         
@@ -570,22 +583,27 @@ const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => {
         return triggerAlert("Upgrade ke PRO untuk simpan > 5 resep!", "error");
     }
     
-    // 1. SIMPAN RESEP
-    const data = { id: Date.now(), product, materials, variableOps, fixedOps, production, hppBersih, finalPrice };
-    setSavedRecipes(prev => { const n = [...prev, data]; localStorage.setItem('hpp_pro_db', JSON.stringify(n)); return n; });
-
     // 2. UPDATE STOK PRODUK & BAHAN
     const currentProducts =
 safeParse("product_stock_db");
     const existingProdIndex = currentProducts.findIndex(p => p.name.toLowerCase() === product.name.toLowerCase());
     
     const prodImage = product.image || null; 
+    const existingProd = existingProdIndex >= 0 ? currentProducts[existingProdIndex] : null;
     const newProductItem = {
-        id: existingProdIndex >= 0 ? currentProducts[existingProdIndex].id : `p_${Date.now()}`,
+        id: existingProd ? existingProd.id : `p_${Date.now()}`,
         name: product.name,
         price: finalPrice, hpp: hppBersih,
-        stock: existingProdIndex >= 0 ? currentProducts[existingProdIndex].stock : 0, 
-        type: product.type, image: prodImage, priceGrosir: 0, priceOjol: 0 
+        stock: existingProd ? existingProd.stock : 0, 
+        type: product.type, image: prodImage,
+        // FIX AUDIT: sebelumnya `priceGrosir: 0, priceOjol: 0` selalu ditulis
+        // ulang, sehingga menyimpan ulang resep produk yang SUDAH punya harga
+        // grosir/ojol (diisi lewat Stok Barang / Pro Pricing) akan MERESET
+        // kedua harga itu menjadi 0 secara diam-diam. Sekarang nilai lama
+        // dipertahankan bila produknya sudah ada.
+        priceGrosir: existingProd?.priceGrosir ?? 0, 
+        priceOjol: existingProd?.priceOjol ?? 0,
+        ...(existingProd?.sku ? { sku: existingProd.sku } : {})
     };
 
     let updatedProducts;
@@ -596,6 +614,14 @@ safeParse("product_stock_db");
         updatedProducts = [...currentProducts, newProductItem];
     }
     localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
+
+    // 1. SIMPAN RESEP
+    // FIX AUDIT: resep disimpan dengan `productId` yang stabil (bukan hanya nama)
+    // supaya proses checkout di Kasir (lihat handleCheckout) bisa mencocokkan
+    // resep <-> produk dengan aman meskipun nama produk kemudian diubah,
+    // ada produk dengan nama sama/mirip, atau ada perbedaan huruf besar/kecil & spasi.
+    const data = { id: Date.now(), productId: newProductItem.id, product, materials, variableOps, fixedOps, production, hppBersih, finalPrice };
+    setSavedRecipes(prev => { const n = [...prev, data]; localStorage.setItem('hpp_pro_db', JSON.stringify(n)); return n; });
 
     const currentRawMaterials =
 safeParse("raw_material_db");
@@ -704,7 +730,12 @@ safeParse("raw_material_db");
                           <label className="text-[10px] uppercase font-bold text-emerald-600 mb-1 block">Dipakai ({m.unit})</label>
                           <input type="number" className="w-full bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg py-1.5 px-2 text-sm font-bold text-emerald-800 dark:text-emerald-400 outline-none" placeholder="0" value={m.usage} onChange={e=>updateMat(m.id,'usage',parseFloat(e.target.value))} />
                        </div>
-                       <div className="text-right"><p className="text-[10px] text-slate-400 font-medium">Biaya</p><p className="text-base font-black text-slate-700 dark:text-white">{formatIDR(m.cost)}</p></div>
+                       <div className="text-right"><p className="text-[10px] text-slate-400 font-medium">Biaya</p><p className="text-base font-black text-slate-700 dark:text-white">{formatIDR(m.cost)}</p>
+                           {/* HINT SATUAN: harga per satuan kemasan ditampilkan agar
+                               salah konversi (mis. isi 1 kg, dipakai "250" yang
+                               sebenarnya gr) langsung terlihat dari angkanya. */}
+                           <p className="text-[9px] text-slate-400 font-medium">≈ {formatIDR((m.price || 0) / (m.content || 1))} / {m.unit}</p>
+                       </div>
                     </div>
                   </div>
                   <button onClick={()=>removeRow(setMaterials,m.id)} className="absolute -top-2 -right-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full p-1.5 text-slate-300 hover:text-red-500 shadow-sm"><Trash2 className="w-3 h-3"/></button>
@@ -1004,8 +1035,7 @@ const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) =>
   // FIX BUG: Auto-Refresh Data Profil saat tab dibuka
   useEffect(() => {
     if (activeTab === 'profile' || !activeTab) {
-        const saved = localStorage.getItem('store_profile');
-        if (saved) setProfile(JSON.parse(saved));
+        setProfile(safeParse('store_profile', {}));
     }
   }, [activeTab]);
 
@@ -1267,7 +1297,10 @@ const ReceiptModal = ({ order, profile, onClose }) => {
                         {profile?.logo && <img src={profile.logo} className="w-12 h-12 object-contain mx-auto mb-2" />}
                         <h2 className="font-black text-base uppercase tracking-wide">{profile?.name || 'TOKO ANDA'}</h2>
                         {profile?.address && <p className="text-[10px]">{profile.address}</p>}
-                        {profile?.phone && <p className="text-[10px]">{profile.phone}</p>}
+                        {/* FIX BUG: sebelumnya hanya membaca `profile.phone` yang TIDAK
+                            PERNAH ada (Profil Toko menyimpan nomor di field `wa`),
+                            jadi nomor kontak toko tidak pernah tercetak di struk. */}
+                        {(profile?.wa || profile?.phone) && <p className="text-[10px]">{profile.wa || profile.phone}</p>}
                     </div>
                     <div className="border-t border-b border-dashed border-slate-400 py-1 text-[10px] flex justify-between">
                         <span>{new Date(order.date).toLocaleString('id-ID')}</span>
@@ -1333,50 +1366,82 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
 
   useEffect(() => {
       if (activeTab === 'pos') {
-          setProducts(JSON.parse(localStorage.getItem('product_stock_db') || '[]'));
-          setProfile(JSON.parse(localStorage.getItem('store_profile') || '{}'));
+          setProducts(safeParse('product_stock_db', []));
+          setProfile(safeParse('store_profile', {}));
       }
   }, [activeTab]);
 
   useEffect(() => {
-    const p = JSON.parse(localStorage.getItem('product_stock_db') || '[]');
+    const p = safeParse('product_stock_db', []);
     setProducts(p);
-    setActiveOrders(JSON.parse(localStorage.getItem('active_orders_db') || '[]'));
-    setProfile(JSON.parse(localStorage.getItem('store_profile') || '{}'));
+    setActiveOrders(safeParse('active_orders_db', []));
+    setProfile(safeParse('store_profile', {}));
   }, []);
 
   // LOGIKA LIVE CAMERA SCANNER
+  // FIX AUDIT: skanner kamera sebelumnya HANYA SIMULASI -- 2,5 detik setelah
+  // kamera dibuka, aplikasi membunyikan "tit", menampilkan "Scan Berhasil
+  // Terdeteksi!", lalu menambahkan produk PERTAMA ke keranjang TANPA
+  // memindai apa pun (angka/hasil palsu). Sekarang memakai BarcodeDetector
+  // (API browser, sama seperti tab Hardware) sehingga hasil scan nyata;
+  // bila browser tidak mendukung, muncul pesan jujur -- bukan sukses palsu.
   useEffect(() => {
-      let stream;
-      if(liveScanner.show) {
-          navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-          .then(s => {
-              stream = s;
-              if(videoRef.current) videoRef.current.srcObject = s;
-              
-              // SIMULASI AUTOSCAN MURNI (Karena API Barcode HP variatif, kita pakai timer deteksi otomatis)
-              setTimeout(() => {
-                  // Bunyi Tit Scanner
-                  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                  const osc = ctx.createOscillator(); osc.connect(ctx.destination); osc.frequency.value = 800; osc.start(); setTimeout(()=>osc.stop(), 150);
-                  
-                  setLiveScanner({ show: false, mode: '' });
-                  triggerAlert("Scan Berhasil Terdeteksi!", "success");
+      let stream, rafId, stopped = false;
+      const cleanup = () => {
+          stopped = true;
+          if (rafId) cancelAnimationFrame(rafId);
+          if (stream) stream.getTracks().forEach(t => t.stop());
+      };
+      if (!liveScanner.show) return cleanup;
 
-                  if(liveScanner.mode === 'validation') {
-                      // Ambil pesanan yang statusnya pending untuk divalidasi
-                      const ords = JSON.parse(localStorage.getItem('active_orders_db') || '[]');
-                      const found = ords.find(o => o.status === 'pending');
-                      if(found) setSelectedOrder(found);
-                      else triggerAlert("Tidak ada pesanan pending ditemukan.", "error");
-                  } else {
-                      // Simulasi nambah produk pertama
-                      if(products.length > 0) addToCart(products[0]);
-                  }
-              }, 2500);
-          }).catch(e => { triggerAlert("Akses Kamera Ditolak/Tidak Tersedia!", "error"); setLiveScanner({show:false, mode:''}); });
+      if (!('BarcodeDetector' in window)) {
+          triggerAlert("Browser ini belum mendukung deteksi barcode. Gunakan scanner fisik (mode keyboard) atau tab Hardware.", "error");
+          setLiveScanner({ show: false, mode: '' });
+          return cleanup;
       }
-      return () => { if(stream) stream.getTracks().forEach(t => t.stop()); }
+
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+          .then(s => {
+              if (stopped) { s.getTracks().forEach(t => t.stop()); return; }
+              stream = s;
+              if (videoRef.current) { videoRef.current.srcObject = s; if (videoRef.current.play) videoRef.current.play(); }
+              const detector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'ean_8', 'code_39', 'upc_a', 'itf'] });
+              const beep = () => { try { const ctx = new (window.AudioContext || window.webkitAudioContext)(); const osc = ctx.createOscillator(); osc.connect(ctx.destination); osc.frequency.value = 800; osc.start(); setTimeout(() => { osc.stop(); if (ctx.close) ctx.close(); }, 150); } catch (e) {} };
+              const onDetected = (val) => {
+                  beep();
+                  setLiveScanner({ show: false, mode: '' });
+                  if (liveScanner.mode === 'validation') {
+                      // QR pelanggan self-order berformat "CL-ORDER:{json}" -> cocokkan ke meja
+                      let table = null;
+                      if (typeof val === 'string' && val.startsWith('CL-ORDER:')) {
+                          try { table = JSON.parse(val.slice(9)).t; } catch (e) {}
+                      }
+                      const ords = safeParse('active_orders_db', []);
+                      const found = (table !== null && table !== undefined && ords.find(o => o.status === 'pending' && String(o.tableNo) === String(table))) ||
+                                    ords.find(o => o.status === 'pending');
+                      if (found) setSelectedOrder(found);
+                      else triggerAlert("Tidak ada pesanan pending yang cocok untuk QR ini.", "error");
+                  } else {
+                      // Mode produk: cocokkan hasil scan dengan SKU/barcode atau nama produk
+                      const q = String(val || '').trim().toLowerCase();
+                      const hit = products.find(p => (p.sku && String(p.sku).toLowerCase() === q) || String(p.name).toLowerCase() === q);
+                      if (hit) { addToCart(hit); triggerAlert("Produk ditambahkan: " + hit.name, "success"); }
+                      else triggerAlert("Kode \"" + val + "\" tidak cocok dengan SKU/nama produk mana pun.", "error");
+                  }
+              };
+              const loop = async () => {
+                  if (stopped || !videoRef.current) return;
+                  try {
+                      const codes = await detector.detect(videoRef.current);
+                      if (codes && codes.length) { onDetected(codes[0].rawValue); return; }
+                  } catch (e) { /* frame drop: lanjutkan */ }
+                  rafId = requestAnimationFrame(loop);
+              };
+              rafId = requestAnimationFrame(loop);
+          })
+          .catch(e => { triggerAlert("Akses Kamera Ditolak/Tidak Tersedia!", "error"); setLiveScanner({ show: false, mode: '' }); });
+
+      return cleanup;
   }, [liveScanner.show]);
 
   const saveActiveOrders = (ords) => {
@@ -1417,9 +1482,19 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
     try {
         await new Promise(resolve => setTimeout(resolve, 500));
         const bill = computeOrderTotals(cart);
+        // FIX AUDIT (historical cost snapshot): setiap item order kini menyimpan
+        // `hppAtSale` = HPP produk SAAT transaksi terjadi. Ini fondasi wajib
+        // untuk laporan laba historis yang benar: kalau harga bahan berubah
+        // nanti, laba transaksi lama tetap dihitung dari HPP saat itu.
+        // Fallback `i.hpp` tetap dibawa karena item keranjang adalah salinan
+        // produk (berisi hpp terakhir yang terlihat kasir).
+        const orderItems = cart.map(i => ({ 
+            ...i, 
+            hppAtSale: (typeof i.hppAtSale === 'number' ? i.hppAtSale : (typeof i.hpp === 'number' ? i.hpp : null))
+        }));
         const newOrder = { 
             id: `ord_${Date.now()}`, date: new Date().toISOString(), buyer: buyerName || 'Tanpa Nama', 
-            paymentMethod: paymentMethod, items: cart,
+            paymentMethod: paymentMethod, items: orderItems,
             subtotal: bill.subtotal, discountAmt: bill.discountAmt, taxAmt: bill.taxAmt, serviceAmt: bill.serviceAmt,
             taxPercent: bill.taxPercent, servicePercent: bill.servicePercent, discPercent: bill.discPercent,
             total: bill.total, cashTendered: paymentMethod === 'Cash' ? cashTendered : 0,
@@ -1429,15 +1504,31 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
         };
 
         const updatedProducts = [...products];
-        const rawMaterialsDb = JSON.parse(localStorage.getItem('raw_material_db') || '[]');
-        const recipesDb = JSON.parse(localStorage.getItem('hpp_pro_db') || '[]');
+        const rawMaterialsDb = safeParse('raw_material_db', []);
+        const recipesDb = safeParse('hpp_pro_db', []);
         let updatedRawMaterials = [...rawMaterialsDb];
+        // FIX AUDIT: catat pemakaian bahan baku per item pesanan supaya bisa
+        // dikembalikan secara akurat kalau pesanan dibatalkan/diedit (lihat
+        // cancelOrder & editOrder). Sebelumnya stok bahan baku yang sudah
+        // dipotong TIDAK PERNAH dikembalikan saat pesanan dibatalkan.
+        const materialUsageByItem = {};
 
         cart.forEach(cartItem => {
             const prodIdx = updatedProducts.findIndex(p => p.id === cartItem.id);
-            if(prodIdx >= 0) updatedProducts[prodIdx].stock -= cartItem.qty;
-            const resep = recipesDb.find(r => r.product.name === cartItem.name);
+            if(prodIdx >= 0) updatedProducts[prodIdx].stock = Math.max(0, updatedProducts[prodIdx].stock - cartItem.qty);
+            // FIX AUDIT: cocokkan resep <-> produk lewat productId (stabil) dulu;
+            // fallback ke pencocokan nama hanya untuk resep lama yang dibuat
+            // sebelum fix ini (belum punya productId).
+            // FIX TAMBAHAN: resep disimpan berurutan waktu (save lama menambah
+            // di belakang), jadi kalau satu produk punya BANYAK resep tersimpan,
+            // harus dipakai yang TERAKHIR disimpan -- bukan yang paling lama.
+            // Sebelumnya `.find()` selalu mengambil resep paling tua sehingga
+            // pemotongan stok bahan memakai komposisi yang sudah tidak berlaku.
+            let resep = null;
+            recipesDb.forEach(r => { if (r.productId === cartItem.id) resep = r; });
+            if (!resep) recipesDb.forEach(r => { if (r.product?.name === cartItem.name) resep = r; });
             if(resep && resep.materials) {
+                const usageList = [];
                 resep.materials.forEach(mat => {
                     const matNameClean = mat.name.trim().toLowerCase();
                     const rawIdx = updatedRawMaterials.findIndex(rm => rm.name.trim().toLowerCase() === matNameClean);
@@ -1445,10 +1536,14 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
                         const yieldPcs = resep.production?.yield || 1;
                         const totalUsage = ((mat.usage || 0) / yieldPcs) * cartItem.qty;
                         updatedRawMaterials[rawIdx].stock = Math.max(0, (updatedRawMaterials[rawIdx].stock || 0) - totalUsage);
+                        usageList.push({ rawMaterialId: updatedRawMaterials[rawIdx].id, qty: totalUsage });
                     }
                 });
+                if (usageList.length) materialUsageByItem[cartItem.id] = usageList;
             }
         });
+
+        newOrder.materialUsage = materialUsageByItem;
 
         setProducts(updatedProducts);
         localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
@@ -1464,11 +1559,28 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
   };
 
   const confirmPayment = (order) => {
-      const history = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
+      const history = safeParse('pos_history_db', []);
       const completedOrder = { ...order, status: 'paid', paidAt: new Date().toISOString() };
       localStorage.setItem('pos_history_db', JSON.stringify([...history, completedOrder]));
       saveActiveOrders(activeOrders.map(o => o.id === order.id ? completedOrder : o));
       setSelectedOrder(completedOrder);
+  };
+
+  // FIX AUDIT: sebelumnya hanya stok produk jadi yang dikembalikan saat
+  // pesanan dibatalkan/diedit -- stok bahan baku (raw_material_db) yang
+  // sudah dipotong di handleCheckout tidak pernah dikembalikan, sehingga
+  // stok gudang lama-lama menyusut lebih cepat dari kondisi sebenarnya
+  // setiap kali ada pembatalan/edit pesanan. Fungsi ini mengembalikan
+  // keduanya berdasarkan `order.materialUsage` yang dicatat saat checkout.
+  const restoreMaterialUsage = (order) => {
+      if (!order.materialUsage) return; // pesanan lama sebelum fix ini: tidak ada data untuk direstore
+      const rawMaterialsDb = safeParse('raw_material_db', []);
+      const updated = [...rawMaterialsDb];
+      Object.values(order.materialUsage).flat().forEach(({ rawMaterialId, qty }) => {
+          const idx = updated.findIndex(rm => rm.id === rawMaterialId);
+          if (idx >= 0) updated[idx].stock = (updated[idx].stock || 0) + qty;
+      });
+      localStorage.setItem('raw_material_db', JSON.stringify(updated));
   };
 
   const cancelOrder = (order) => {
@@ -1479,6 +1591,7 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
           });
           setProducts(newStock);
           localStorage.setItem('product_stock_db', JSON.stringify(newStock));
+          restoreMaterialUsage(order);
           saveActiveOrders(activeOrders.filter(o => o.id !== order.id));
           setSelectedOrder(null);
       }
@@ -1492,6 +1605,7 @@ const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
       });
       setProducts(newStock);
       localStorage.setItem('product_stock_db', JSON.stringify(newStock));
+      restoreMaterialUsage(order);
       setCart(order.items.map(i => ({ ...i })));
       setBuyerName(order.buyer === 'Tanpa Nama' ? '' : (order.buyer || ''));
       setPaymentMethod(order.paymentMethod || '');
@@ -1738,7 +1852,7 @@ const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
       // --- AUTO REFRESH: Tarik Data Transaksi Terbaru ---
   useEffect(() => { 
       if(activeTab === 'report') {
-          const data = JSON.parse(localStorage.getItem('pos_history_db') || '[]');
+          const data = safeParse('pos_history_db', []);
           setTxs(data); 
       }
   }, [activeTab]);
@@ -1833,12 +1947,64 @@ const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
 
   const fmtK = (v) => v >= 1000000 ? (v/1000000).toFixed(1) + 'jt' : v >= 1000 ? Math.round(v/1000) + 'rb' : Math.round(v).toString();
 
+  // =============================================================
+  // FIX AUDIT (LAPORAN LABA NYATA): sebelumnya kartu "Estimasi Laba
+  // Bersih" hanya menampilkan omzet * 0.35 (asumsi kosong yang tidak
+  // berhubungan dengan data). Sekarang laba KOTOR dihitung dari data
+  // transaksi sesungguhnya: (subtotal - diskon) - HPP per item.
+  // HPP per item diambil dari `hppAtSale` (snapshot saat checkout)
+  // dengan fallback ke `hpp` yang terbawa di item keranjang.
+  // =============================================================
+  const profitStats = useMemo(() => {
+    let cogs = 0, netSales = 0, knownQty = 0, totalQty = 0;
+    stats.list.forEach(tx => {
+        const items = tx.items || [];
+        items.forEach(it => {
+            const hpp = (typeof it.hppAtSale === 'number') ? it.hppAtSale : (typeof it.hpp === 'number' ? it.hpp : null);
+            totalQty += it.qty;
+            if (hpp != null) { cogs += hpp * it.qty; knownQty += it.qty; }
+        });
+        netSales += (tx.subtotal != null ? tx.subtotal : items.reduce((a,b) => a + b.price * b.qty, 0)) - (tx.discountAmt || 0);
+    });
+    const grossProfit = netSales - cogs;
+    const coverage = totalQty ? Math.round((knownQty / totalQty) * 100) : 100;
+    const marginPct = netSales > 0 ? (grossProfit / netSales) * 100 : 0;
+    return { grossProfit, coverage, marginPct };
+  }, [stats]);
+
+  // =============================================================
+  // FIX AUDIT (STOCK VELOCITY NYATA): kartu sebelumnya berjudul
+  // "AI Inventory Forecast" tapi isinya `Math.random()` murni --
+  // angka palsu yang ditampilkan seolah-olah prediksi ML. Sekarang
+  // dihitung deterministik dari data penjualan 30 hari terakhir:
+  // kecepatan jual (unit/hari) vs stok saat ini = estimasi hari
+  // tersisa. Tidak ada ML, tidak ada angka acak.
+  // =============================================================
+  const velocity = useMemo(() => {
+    const prods = safeParse('product_stock_db', []);
+    const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const sold = {};
+    txs.forEach(tx => {
+        if (new Date(tx.date).getTime() >= since) {
+            (tx.items || []).forEach(it => { sold[it.name] = (sold[it.name] || 0) + it.qty; });
+        }
+    });
+    return prods.map(p => {
+        const perDay = (sold[p.name] || 0) / 30;
+        const stock = p.stock || 0;
+        return { name: p.name, stock, perDay, daysLeft: perDay > 0 ? Math.floor(stock / perDay) : null };
+    })
+    .filter(v => v.perDay > 0 && v.daysLeft !== null)
+    .sort((a, b) => a.daysLeft - b.daysLeft)
+    .slice(0, 2);
+  }, [txs]);
+
   const handleDownloadReport = async () => {
     if(stats.list.length === 0) return triggerAlert("Belum ada data untuk diexport.", "error");
     setIsDownloading(true);
     try {
       const ExcelJS = await loadExcelJS();
-      const prof = JSON.parse(localStorage.getItem('store_profile') || '{}');
+      const prof = safeParse('store_profile', {});
       const wb = new ExcelJS.Workbook();
       wb.creator = 'CostLab POS';
       wb.created = new Date();
@@ -1942,11 +2108,11 @@ const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
             <div className="flex items-center gap-3">
                 <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 rounded-lg"><Wallet className="w-5 h-5"/></div>
                 <div>
-                    <p className="text-slate-400 text-[10px] font-bold uppercase">Estimasi Laba Bersih</p>
-                    <h2 className="text-xl font-black text-emerald-600 dark:text-emerald-400">{formatIDR(stats.rev * 0.35)}</h2>
+                    <p className="text-slate-400 text-[10px] font-bold uppercase">Laba Kotor (Omzet − HPP)</p>
+                    <h2 className={`text-xl font-black ${profitStats.grossProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{formatIDR(profitStats.grossProfit)}</h2>
                 </div>
             </div>
-            <p className="text-[9px] text-slate-400 mt-2 italic">*Asumsi margin rata-rata 35%</p>
+            <p className="text-[9px] text-slate-400 mt-2 italic">Margin {profitStats.marginPct.toFixed(1)}% · dihitung dari HPP nyata per item (cakupan data {profitStats.coverage}%). Pajak, service & biaya tetap belum dikurangi.</p>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-center">
@@ -2053,20 +2219,23 @@ const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
               </div>
           </Card>
 
-          {/* FITUR 1: AI INVENTORY FORECASTING */}
-          <Card title="AI Inventory Forecast" icon={Rocket} className="border-indigo-200 dark:border-indigo-900 bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-900/20 dark:to-slate-900 shadow-md shadow-indigo-500/10 mt-6">
-              <p className="text-[10px] text-slate-500 mb-3">Prediksi Machine Learning berdasarkan kecepatan penjualan harian (Velocity Rate).</p>
+          {/* STOCK VELOCITY (DATA NYATA, BUKAN ANGKA ACAK) */}
+          <Card title="Perkiraan Stok Habis" icon={Rocket} className="border-indigo-200 dark:border-indigo-900 bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-900/20 dark:to-slate-900 shadow-md shadow-indigo-500/10 mt-6">
+              <p className="text-[10px] text-slate-500 mb-3">Dihitung dari kecepatan penjualan nyata 30 hari terakhir (unit/hari) vs stok saat ini.</p>
               <div className="space-y-2">
-                 {stats.topProducts.slice(0,2).map((p,i) => (
+                 {velocity.map((v,i) => (
                      <div key={i} className="flex justify-between items-center bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-rose-100 dark:border-rose-900">
                          <div className="flex items-center gap-2">
-                             <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
-                             <span className="text-xs font-bold dark:text-white">{p.name}</span>
+                             <div className={`w-2 h-2 rounded-full ${v.daysLeft <= 7 ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'}`}></div>
+                             <div>
+                                <span className="text-xs font-bold dark:text-white">{v.name}</span>
+                                <p className="text-[9px] text-slate-400 font-bold">Stok {v.stock} · terjual {v.perDay.toFixed(1)}/hari</p>
+                             </div>
                          </div>
-                         <span className="text-[10px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/30 px-2 py-1 rounded">Est. Habis: {Math.ceil(Math.random()*3)+1} Hari lagi</span>
+                         <span className={`text-[10px] font-bold px-2 py-1 rounded ${v.daysLeft <= 7 ? 'text-rose-500 bg-rose-50 dark:bg-rose-900/30' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30'}`}>{v.stock <= 0 ? 'Habis' : `± ${v.daysLeft} hari lagi`}</span>
                      </div>
                  ))}
-                 {stats.topProducts.length === 0 && <p className="text-xs text-slate-400 italic">Belum ada data cukup untuk diolah AI.</p>}
+                 {velocity.length === 0 && <p className="text-xs text-slate-400 italic">Belum ada cukup data penjualan 30 hari terakhir.</p>}
               </div>
           </Card>
 
@@ -2152,7 +2321,7 @@ const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
 
 // --- FITUR BARU: MULTI OUTLET ---
 const OutletTab = ({ triggerAlert }) => {
-    const [outlets, setOutlets] = useState(JSON.parse(localStorage.getItem('outlets_db') || '[]'));
+    const [outlets, setOutlets] = useState(safeParse('outlets_db', []));
     const [selected, setSelected] = useState(null);
 
     const addOutlet = () => {
@@ -2298,7 +2467,7 @@ const HardwareTab = ({ triggerAlert }) => {
     };
 
     const testPrint = async () => {
-        const profile = JSON.parse(localStorage.getItem('store_profile') || '{}');
+        const profile = safeParse('store_profile', {});
         const bytes = escposReceipt({ title: profile.name || 'CostLab', lines: ['TEST PRINT BERHASIL', 'Tanggal: ' + new Date().toLocaleString('id-ID'), 'Kertas: ' + paperSize, 'Printer siap dipakai.'], paper: paperSize });
         if (printerStatus === 'connected') {
             try { await writeToPrinter(bytes); triggerAlert('Struk test terkirim ke printer.', 'success'); }
@@ -2350,9 +2519,9 @@ const HardwareTab = ({ triggerAlert }) => {
         if (!scannedOrder) return;
         const items = (scannedOrder.it || []).map(i => ({ name: i.n, qty: i.q, price: i.h, id: 'scan_' + Math.random().toString(36).slice(2) }));
         const newOrder = { id: 'ord_' + Date.now(), date: new Date().toISOString(), buyer: scannedOrder.b || ('Meja ' + scannedOrder.t), paymentMethod: scannedOrder.p || 'Tunai', items, subtotal: scannedOrder.tot, total: scannedOrder.tot, tableNo: scannedOrder.t, orderType: 'Dine-in', status: 'pending', notes: 'Validasi dari Self-Order (QR)' };
-        const active = JSON.parse(localStorage.getItem('active_orders_db') || '[]');
+        const active = safeParse('active_orders_db', []);
         localStorage.setItem('active_orders_db', JSON.stringify([newOrder, ...active]));
-        const rest = JSON.parse(localStorage.getItem('self_orders_db') || '[]').filter(o => o.tableNo !== scannedOrder.t);
+        const rest = safeParse('self_orders_db', []).filter(o => o.tableNo !== scannedOrder.t);
         localStorage.setItem('self_orders_db', JSON.stringify(rest));
         triggerAlert('Pesanan Meja ' + scannedOrder.t + ' divalidasi & masuk ke Kasir (Pesanan).', 'success');
         setScannedOrder(null);
@@ -2479,7 +2648,7 @@ const SettingsTab = ({ licenseInfo, triggerAlert }) => {
     const [bizMode, setBizMode] = useState(localStorage.getItem('biz_mode') || 'retail');
     const [tableMode, setTableMode] = useState(localStorage.getItem('table_mode') === 'true');
     const [tableCount, setTableCount] = useState(parseInt(localStorage.getItem('table_count')) || 10);
-    const [lang, setLang] = useState('id');
+    const [lang, setLang] = useState(getLang());
     const [timeLeft, setTimeLeft] = useState('');
     const [showTableQR, setShowTableQR] = useState(false);
 
@@ -2535,6 +2704,17 @@ const SettingsTab = ({ licenseInfo, triggerAlert }) => {
         reader.onload = (ev) => {
             try {
                 const data = JSON.parse(ev.target.result);
+                // FIX AUDIT: sebelumnya file apa pun yang valid JSON langsung
+                // menimpa SELURUH localStorage. Sekarang struktur divalidasi
+                // dulu: harus object (bukan array/string) dan berisi minimal
+                // satu kunci data CostLab yang dikenali.
+                const isObject = data && typeof data === 'object' && !Array.isArray(data);
+                const knownKeys = ['product_stock_db','hpp_pro_db','pos_history_db','store_profile','raw_material_db','discount_tax_db','employee_db','expense_db','active_orders_db','settings_version','app_license'];
+                const hasKnownKey = isObject && Object.keys(data).some(k => knownKeys.includes(k));
+                if(!isObject || !hasKnownKey) {
+                    triggerAlert("File bukan backup CostLab yang valid!", "error");
+                    return;
+                }
                 Object.keys(data).forEach(k => localStorage.setItem(k, data[k]));
                 triggerAlert("Restore data berhasil! Memuat ulang sistem...", "success");
                 setTimeout(() => window.location.reload(), 1500);
@@ -2614,7 +2794,10 @@ const SettingsTab = ({ licenseInfo, triggerAlert }) => {
             <Card title="Sistem">
                 <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800">
                     <div className="flex items-center gap-2"><Languages className="w-4 h-4 text-slate-400"/><span className="font-bold text-sm dark:text-white">Bahasa Aplikasi</span></div>
-                    <PremiumSelect value={lang==='id'?'Indonesia':'English'} options={['Indonesia','English']} onChange={v=>setLang(v==='Indonesia'?'id':'en')} className="w-32" />
+                    {/* FIX BUG: pilihan bahasa sebelumnya hanya mengubah state lokal
+                        dan TIDAK PERNAH disimpan ke localStorage('app_lang') yang
+                        dibaca fungsi t() -- jadi setelan bahasa tidak pernah berlaku. */}
+                    <PremiumSelect value={lang==='id'?'Indonesia':'English'} options={['Indonesia','English']} onChange={v=>{ const code = v==='Indonesia'?'id':'en'; setLang(code); localStorage.setItem('app_lang', code); triggerAlert(code==='id'?'Bahasa: Indonesia':'Language: English', 'success'); }} className="w-32" />
                 </div>
                 <div className="flex justify-between items-center py-4 border-b border-slate-100 dark:border-slate-800">
                     <div>
@@ -2671,7 +2854,7 @@ const LockScreen = ({ onUnlock }) => {
     };
 
     const handlePinLogin = () => {
-        const employeeDb = JSON.parse(localStorage.getItem('employee_db') || '[]');
+        const employeeDb = safeParse('employee_db', []);
         let role = null;
 
         // 1. Cek apakah PIN cocok dengan Owner PIN dari Firebase (lisensi)
@@ -2777,8 +2960,7 @@ const PaymentTab = ({ triggerAlert, setEditingMode, activeTab }) => {
     // FIX BUG: Auto-Refresh Data Pembayaran saat tab dibuka
     useEffect(() => {
         if (activeTab === 'payment' || !activeTab) {
-            const saved = localStorage.getItem('store_profile');
-            if (saved) setProfile(JSON.parse(saved));
+            setProfile(safeParse('store_profile', {}));
         }
     }, [activeTab]);
 
@@ -2888,6 +3070,9 @@ const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
     const [showAdd, setShowAdd] = useState(false);
     const [cropSrc, setCropSrc] = useState(null); 
     const [newProd, setNewProd] = useState({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
+    // SCANNER SKU NYATA (BarcodeDetector) untuk form tambah produk
+    const [skuScanner, setSkuScanner] = useState(false);
+    const skuVideoRef = useRef(null);
 
     // FIX AUTO-REFRESH: Data akan ditarik ulang secara otomatis setiap kali menu "Stok Barang" diklik
     useEffect(() => {
@@ -2904,6 +3089,46 @@ const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
         if(cropSrc || showAdd) setEditingMode(true);
         else setEditingMode(false);
     }, [cropSrc, showAdd, setEditingMode]);
+
+    // SCANNER SKU NYATA: sebelumnya tombol kamera di kolom SKU hanya
+    // menampilkan alert palsu "Akses Kamera Terbuka" tanpa membuka kamera
+    // apa pun. Sekarang benar-benar memakai kamera + BarcodeDetector dan
+    // mengisi kolom SKU dengan hasil scan (atau pesan jujur bila tidak
+    // didukung browser -- scanner fisik tetap bekerja via mode keyboard).
+    useEffect(() => {
+        let stream, rafId, stopped = false;
+        const cleanup = () => { stopped = true; if (rafId) cancelAnimationFrame(rafId); if (stream) stream.getTracks().forEach(t => t.stop()); };
+        if (!skuScanner) return cleanup;
+        if (!('BarcodeDetector' in window)) {
+            triggerAlert("Browser belum mendukung deteksi barcode. Gunakan scanner fisik: klik kolom SKU lalu tembak barcode-nya.", "error");
+            setSkuScanner(false);
+            return cleanup;
+        }
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+            .then(s => {
+                if (stopped) { s.getTracks().forEach(t => t.stop()); return; }
+                stream = s;
+                if (skuVideoRef.current) { skuVideoRef.current.srcObject = s; if (skuVideoRef.current.play) skuVideoRef.current.play(); }
+                const detector = new window.BarcodeDetector({ formats: ['code_128', 'ean_13', 'ean_8', 'code_39', 'upc_a', 'itf', 'qr_code'] });
+                const loop = async () => {
+                    if (stopped || !skuVideoRef.current) return;
+                    try {
+                        const codes = await detector.detect(skuVideoRef.current);
+                        if (codes && codes.length) {
+                            const val = codes[0].rawValue;
+                            setNewProd(prev => ({ ...prev, sku: val }));
+                            triggerAlert("SKU terbaca: " + val, "success");
+                            setSkuScanner(false);
+                            return;
+                        }
+                    } catch (e) { /* lanjutkan */ }
+                    rafId = requestAnimationFrame(loop);
+                };
+                rafId = requestAnimationFrame(loop);
+            })
+            .catch(() => { triggerAlert("Akses kamera ditolak/tidak tersedia.", "error"); setSkuScanner(false); });
+        return cleanup;
+    }, [skuScanner]);
 
     const saveProducts = (newP) => { setProducts(newP); localStorage.setItem('product_stock_db', JSON.stringify(newP)); };
     const saveRaw = (newR) => { setRawMaterials(newR); localStorage.setItem('raw_material_db', JSON.stringify(newR)); };
@@ -3042,7 +3267,7 @@ const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
                         <label className="text-[10px] font-bold text-slate-400 uppercase mb-1.5 block ml-1">Kode Barcode / SKU</label>
                         <div className="relative flex group">
                             <input className="w-full pl-4 pr-12 py-3 bg-slate-50 dark:bg-slate-900 rounded-xl outline-none border border-slate-200 dark:border-slate-700 text-sm font-bold focus:border-indigo-500 transition dark:text-white placeholder:text-slate-300" placeholder="Scan Barcode / Ketik SKU..." value={newProd.sku || ''} onChange={e=>setNewProd({...newProd, sku:e.target.value})} />
-                            <button onClick={() => triggerAlert("Akses Kamera Terbuka. Silahkan scan barcode produk.", "success")} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-lg hover:bg-indigo-100 transition shadow-sm border border-indigo-100 dark:border-indigo-800">
+                            <button onClick={() => setSkuScanner(true)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-lg hover:bg-indigo-100 transition shadow-sm border border-indigo-100 dark:border-indigo-800">
                                 <Camera className="w-4 h-4"/>
                             </button>
                         </div>
@@ -3078,6 +3303,19 @@ const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
             {cropSrc && (
                 <ImageCropperModal imageSrc={cropSrc} onCropComplete={(img)=>{ setNewProd({...newProd, image: img}); setCropSrc(null); }} onClose={()=>setCropSrc(null)} />
             )}
+
+            {/* OVERLAY SCANNER SKU NYATA */}
+            {skuScanner && (
+                <div className="fixed inset-0 z-[150] bg-black/95 flex flex-col items-center justify-center p-4">
+                    <h2 className="text-white font-black text-lg mb-6 flex items-center gap-2"><ScanLine className="w-5 h-5 text-indigo-400"/> Scan SKU / Barcode</h2>
+                    <div className="relative w-64 h-64 border-4 border-indigo-500 rounded-3xl overflow-hidden shadow-[0_0_30px_rgba(99,102,241,0.5)]">
+                        <video ref={skuVideoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
+                        <div className="absolute inset-0 border-[30px] border-black/40 pointer-events-none rounded-3xl"></div>
+                    </div>
+                    <p className="mt-6 text-white/70 text-xs font-bold animate-pulse">Arahkan barcode produk ke dalam kotak…</p>
+                    <button onClick={()=>setSkuScanner(false)} className="mt-8 bg-white/20 hover:bg-white/30 text-white px-8 py-3 rounded-full font-bold transition">Tutup</button>
+                </div>
+            )}
         </div>
     );
 };
@@ -3088,9 +3326,18 @@ const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
 // ============================================================================
 
 // A. Tab Riwayat Transaksi (Dipindah dari Laporan)
-const HistoryTab = ({ txs }) => {
+// FIX AUDIT: sebelumnya data diambil via prop dari localStorage pada setiap
+// render induk -- transaksi baru yang dibuat di Kasir tidak muncul di sini
+// sampai aplikasi kebetulan render ulang. Sekarang data ditarik ulang setiap
+// kali tab ini dibuka.
+const HistoryTab = ({ activeTab }) => {
     const [searchOrder, setSearchOrder] = useState('');
     const [selectedTx, setSelectedTx] = useState(null);
+    const [txs, setTxs] = useState([]);
+
+    useEffect(() => {
+        if (activeTab === 'history') setTxs(safeParse('pos_history_db', []));
+    }, [activeTab]);
      
     const totalHariIni = txs
         .filter(t => new Date(t.date).toDateString() === new Date().toDateString())
@@ -3195,7 +3442,7 @@ const ConstructionTab = ({ title, desc, icon: Icon }) => (
 
 // --- FITUR BARU: MANAJEMEN KAS KELUAR ---
 const CashOutTab = ({ triggerAlert }) => {
-    const [expenses, setExpenses] = useState(JSON.parse(localStorage.getItem('expense_db') || '[]'));
+    const [expenses, setExpenses] = useState(safeParse('expense_db', []));
     const [form, setForm] = useState({ note: '', amount: 0, category: 'Operasional' });
 
     const saveExpense = () => {
@@ -3234,7 +3481,9 @@ const CashOutTab = ({ triggerAlert }) => {
 
 // --- FITUR BARU: KELOLA DISKON & PAJAK ---
 const DiscountTab = ({ triggerAlert }) => {
-    const [config, setConfig] = useState(JSON.parse(localStorage.getItem('discount_tax_db') || '{"tax":0, "service":0, "globalDiscount":0}'));
+        // HARDENING: pakai safeParse supaya data korup di localStorage tidak
+    // membuat seluruh aplikasi crash (layar putih).
+    const [config, setConfig] = useState(safeParse('discount_tax_db', { tax: 0, service: 0, globalDiscount: 0 }));
     
     const saveConfig = (key, val) => {
         const newConf = {...config, [key]: val};
@@ -3254,13 +3503,21 @@ const DiscountTab = ({ triggerAlert }) => {
                 <p className="text-xs text-slate-500 mb-4">Tambahkan biaya layanan tambahan (Maksimal 100%).</p>
                 <NumericInput suffix="%" value={config.service} onChange={v=>saveConfig('service', v)} placeholder="Contoh: 5" className="bg-slate-50 dark:bg-slate-900" />
             </Card>
+            {/* FIX AUDIT: menu bernama "Diskon, Pajak & Biaya" dan mesin hitung
+                tagihan (computeOrderTotals) sudah mendukung diskon global %,
+                tapi TIDAK ADA satu pun UI untuk mengisinya -- jadi fitur diskon
+                ini tidak pernah bisa dipakai. Kartu ini melengkapinya. */}
+            <Card title="Diskon Global (Promo)" icon={Percent}>
+                <p className="text-xs text-slate-500 mb-4">Potongan persen yang otomatis dipotong dari subtotal SETIAP transaksi kasir. Isi 0 bila tidak ada promo berjalan.</p>
+                <NumericInput suffix="%" value={config.globalDiscount || 0} onChange={v=>saveConfig('globalDiscount', v)} placeholder="Contoh: 5" className="bg-slate-50 dark:bg-slate-900" />
+            </Card>
         </div>
     );
 };
 
 // --- FITUR BARU: GOD PANEL (DATABASE KARYAWAN) ---
 const EmployeeTab = ({ triggerAlert }) => {
-    const [employees, setEmployees] = useState(JSON.parse(localStorage.getItem('employee_db') || '[]'));
+    const [employees, setEmployees] = useState(safeParse('employee_db', []));
     const [form, setForm] = useState({ name: '', role: 'kasir', pin: '' });
     const [visiblePinId, setVisiblePinId] = useState(null); // Hanya 1 PIN boleh terbuka di satu waktu
 
@@ -3330,12 +3587,12 @@ const EmployeeTab = ({ triggerAlert }) => {
 
 // --- FITUR BARU: STOK OPNAME ---
 const OpnameTab = ({ triggerAlert }) => {
-    const [products, setProducts] = useState(JSON.parse(localStorage.getItem('product_stock_db') || '[]'));
+    const [products, setProducts] = useState(safeParse('product_stock_db', []));
     const [adjustments, setAdjustments] = useState({});
 
     const saveOpname = () => {
         let updatedProducts = [...products];
-        let logs = JSON.parse(localStorage.getItem('stock_history_db') || '[]');
+        let logs = safeParse('stock_history_db', []);
         
         let changed = false;
         updatedProducts = updatedProducts.map(p => {
@@ -3382,7 +3639,7 @@ const OpnameTab = ({ triggerAlert }) => {
 
 // --- FITUR BARU: BARANG MASUK & KELUAR ---
 const InOutTab = ({ triggerAlert }) => {
-    const [products, setProducts] = useState(JSON.parse(localStorage.getItem('product_stock_db') || '[]'));
+    const [products, setProducts] = useState(safeParse('product_stock_db', []));
     const [form, setForm] = useState({ type: 'Masuk', qty: '', note: '' });
     const [selectedProd, setSelectedProd] = useState('Pilih Produk...');
 
@@ -3393,7 +3650,7 @@ const InOutTab = ({ triggerAlert }) => {
         if(selectedProd === 'Pilih Produk...' || form.qty <= 0) return triggerAlert("Pilih produk dan masukkan jumlah!", "error");
         
         let updatedProducts = [...products];
-        let logs = JSON.parse(localStorage.getItem('stock_history_db') || '[]');
+        let logs = safeParse('stock_history_db', []);
         const prodIdx = updatedProducts.findIndex(p => p.id === actualId);
         
         if(prodIdx === -1) return;
@@ -3435,8 +3692,13 @@ const InOutTab = ({ triggerAlert }) => {
 
 
 // --- FITUR BARU: RIWAYAT STOK ---
-const StockHistoryTab = () => {
-    const logs = JSON.parse(localStorage.getItem('stock_history_db') || '[]').reverse();
+// FIX AUDIT: sama seperti HistoryTab -- data sebelumnya hanya dibaca sekali
+// saat render; sekarang ditarik ulang setiap kali tab dibuka.
+const StockHistoryTab = ({ activeTab }) => {
+    const [logs, setLogs] = useState([]);
+    useEffect(() => {
+        if (activeTab === 'stockhistory') setLogs(safeParse('stock_history_db', []).slice().reverse());
+    }, [activeTab]);
     return (
         <div className="max-w-xl mx-auto px-4 pb-32 space-y-5 animate-in fade-in duration-300">
             <div className="mb-2"><h2 className="font-black text-xl text-slate-800 dark:text-white">Riwayat Stok</h2><p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Log Pergerakan Barang</p></div>
@@ -3463,7 +3725,7 @@ const StockHistoryTab = () => {
 
 // --- FITUR BARU: DATA SUPPLIER ---
 const SupplierTab = ({ triggerAlert }) => {
-    const [suppliers, setSuppliers] = useState(JSON.parse(localStorage.getItem('supplier_db') || '[]'));
+    const [suppliers, setSuppliers] = useState(safeParse('supplier_db', []));
     const [form, setForm] = useState({ name: '', contact: '', address: '' });
 
     const saveSupplier = () => {
@@ -3515,7 +3777,7 @@ const SupplierTab = ({ triggerAlert }) => {
 // --- FITUR 5: WEB SELF-ORDER PELANGGAN ---
 const SelfOrderApp = ({ tableNo, profile }) => {
     const [activeTab, setActiveTab] = useState('menu');
-    const [products] = useState(JSON.parse(localStorage.getItem('product_stock_db') || '[]'));
+    const [products] = useState(safeParse('product_stock_db', []));
     const [cart, setCart] = useState([]);
     const [myOrder, setMyOrder] = useState(null);
     const [showCartPopup, setShowCartPopup] = useState(false);
@@ -3528,7 +3790,7 @@ const SelfOrderApp = ({ tableNo, profile }) => {
 
     // PENTING: pesanan SELF-ORDER (?meja=) disimpan di key TERPISAH dari pesanan Kasir/POS
     useEffect(() => {
-        const orders = JSON.parse(localStorage.getItem('self_orders_db') || '[]');
+        const orders = safeParse('self_orders_db', []);
         const existingOrder = orders.find(o => o.tableNo === tableNo);
         if(existingOrder) { setMyOrder(existingOrder); setActiveTab('status'); }
     }, [tableNo]);
@@ -3550,7 +3812,7 @@ const SelfOrderApp = ({ tableNo, profile }) => {
             total: bill.total, tableNo: tableNo, orderType: 'Dine-in', notes: notes, status: 'awaiting_validation'
         };
         // Simpan ke self_orders_db (TIDAK menyentuh active_orders_db milik Kasir/POS)
-        const selfOrders = JSON.parse(localStorage.getItem('self_orders_db') || '[]').filter(o => o.tableNo !== tableNo);
+        const selfOrders = safeParse('self_orders_db', []).filter(o => o.tableNo !== tableNo);
         localStorage.setItem('self_orders_db', JSON.stringify([newOrder, ...selfOrders]));
         setMyOrder(newOrder); setCart([]); setShowCartPopup(false); setActiveTab('status');
         setIsLoading(false);
@@ -3644,7 +3906,7 @@ const SelfOrderApp = ({ tableNo, profile }) => {
                             </div>
 
                             <button onClick={()=>setShowValidationQR(true)} className="w-full py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 active:scale-95 transition"><QrCode className="w-5 h-5"/> Validasi ke Kasir</button>
-                            <button onClick={()=>{ const rest = JSON.parse(localStorage.getItem('self_orders_db')||'[]').filter(o=>o.tableNo!==tableNo); localStorage.setItem('self_orders_db', JSON.stringify(rest)); setMyOrder(null); setActiveTab('menu'); }} className="w-full py-3 rounded-2xl bg-white border border-slate-200 text-slate-500 font-bold text-sm flex items-center justify-center gap-2"><Edit3 className="w-4 h-4"/> Ubah / Buat Ulang Pesanan</button>
+                            <button onClick={()=>{ const rest = safeParse('self_orders_db', []).filter(o=>o.tableNo!==tableNo); localStorage.setItem('self_orders_db', JSON.stringify(rest)); setMyOrder(null); setActiveTab('menu'); }} className="w-full py-3 rounded-2xl bg-white border border-slate-200 text-slate-500 font-bold text-sm flex items-center justify-center gap-2"><Edit3 className="w-4 h-4"/> Ubah / Buat Ulang Pesanan</button>
                         </>
                     )}
                 </div>
@@ -3701,7 +3963,7 @@ const MainAdminApp = () => {
   }, []);
 
   useEffect(() => {
-    if (licenseInfo?.id) {
+    if (licenseInfo?.id && db) {
         const unsub = onSnapshot(doc(db, "licenses", licenseInfo.id), (docSnapshot) => {
             if (docSnapshot.exists()) {
                 const data = docSnapshot.data();
@@ -3757,14 +4019,24 @@ const MainAdminApp = () => {
 
   const handleUnlock = (data) => {
      if(isBanned) return triggerAlert("Akses Ditolak.", "error");
-     localStorage.setItem('app_license', JSON.stringify(data));
-     setLicenseInfo(data); setIsLocked(false);
+     // FIX SECURITY: jangan simpan password & ownerPin plaintext di
+     // localStorage. Setelah PIN diverifikasi, sesi hanya butuh identitas &
+     // masa aktif -- bukan kredensialnya. Password owner sebelumnya bisa
+     // dibaca siapa pun yang buka DevTools di device kasir.
+     const { password, ownerPin, ...safeSession } = data || {};
+     localStorage.setItem('app_license', JSON.stringify(safeSession));
+     setLicenseInfo(safeSession); setIsLocked(false);
   };
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
       setDark(true);
+      // FIX BUG: sebelumnya state `dark` diset tapi class `dark` TIDAK
+      // diterapkan ke <html> saat pertama load. LockScreen & Developer Panel
+      // dirender DI LUAR wrapper <div className={dark?'dark':''}>, jadi mode
+      // gelap tidak pernah aktif di layar login setelah refresh.
+      document.documentElement.classList.add('dark');
     }
   }, []);
 
@@ -3789,7 +4061,11 @@ const MainAdminApp = () => {
 
   useEffect(() => {
     if(!licenseInfo) return; 
-    const interval = setInterval(async () => { syncSession('heartbeat', licenseInfo); }, 3000);
+    // FIX AUDIT: heartbeat sebelumnya tiap 3 DETIK -> satu device menulis
+    // ~28.800 dokumen log Firestore per hari (membakar kuota & memenuhi
+    // koleksi logs). Log "presence" ini cukup tiap 60 detik; makna log
+    // tidak berubah, frekuensinya saja yang diperbaiki.
+    const interval = setInterval(async () => { syncSession('heartbeat', licenseInfo); }, 60000);
     return () => clearInterval(interval);
   }, [licenseInfo]);
 
@@ -3806,8 +4082,12 @@ const MainAdminApp = () => {
           <div className="flex items-center gap-3">
             <div className="bg-indigo-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-500/30"><Calculator className="w-5 h-5"/></div>
              <div>
-                <h1 className="font-black text-sm tracking-tight text-slate-900 dark:text-white leading-none">CostLab</h1>
-                <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">By ShanTech </p>
+                <h1 className="font-black text-sm tracking-tight text-slate-900 dark:text-white leading-none flex items-center gap-1.5">CostLab
+                    {/* SEJALAN DENGAN DESAIN REFERENSI: badge tipe lisensi (BASIC/PRO)
+                        di sebelah nama brand + nama toko & role di baris bawah. */}
+                    {licenseInfo?.type && <span className="text-[8px] font-black px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 uppercase tracking-wider">{String(licenseInfo.type)}</span>}
+                </h1>
+                <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">{licenseInfo?.tenant ? `${licenseInfo.tenant} · ${licenseInfo.currentUserRole || 'owner'}` : 'By ShanTech'}</p>
              </div>
           </div>
           <div className="flex items-center gap-2">
@@ -3826,7 +4106,7 @@ const MainAdminApp = () => {
                     {/* KATEGORI UTAMA */}
           <div className={active === 'pos' ? 'block' : 'hidden'}><PosTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
           <div className={active === 'calc' ? 'block' : 'hidden'}><CalculatorTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} /></div>
-          <div className={active === 'history' ? 'block' : 'hidden'}><HistoryTab txs={JSON.parse(localStorage.getItem('pos_history_db') || '[]')} /></div>
+          <div className={active === 'history' ? 'block' : 'hidden'}><HistoryTab activeTab={active} /></div>
           <div className={active === 'cashout' ? 'block' : 'hidden'}><CashOutTab triggerAlert={triggerAlert} /></div>
           <div className={active === 'discount' ? 'block' : 'hidden'}><DiscountTab triggerAlert={triggerAlert} /></div>
           <div className={active === 'employee' ? 'block' : 'hidden'}><EmployeeTab triggerAlert={triggerAlert} /></div>
@@ -3837,7 +4117,7 @@ const MainAdminApp = () => {
           </div>
           <div className={active === 'opname' ? 'block' : 'hidden'}><OpnameTab triggerAlert={triggerAlert} /></div>
           <div className={active === 'inout' ? 'block' : 'hidden'}><InOutTab triggerAlert={triggerAlert} /></div>
-          <div className={active === 'stockhistory' ? 'block' : 'hidden'}><StockHistoryTab /></div>
+          <div className={active === 'stockhistory' ? 'block' : 'hidden'}><StockHistoryTab activeTab={active} /></div>
           <div className={active === 'supplier' ? 'block' : 'hidden'}><SupplierTab triggerAlert={triggerAlert} /></div>
 
 
@@ -4006,6 +4286,9 @@ const DeveloperPanel = () => {
     const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 2600); };
 
     useEffect(() => {
+        // FIX ROBUSTNESS: bila Firebase gagal init (auth == null), jangan panggil
+        // onAuthStateChanged(null) yang melempar error -- tandai authReady saja.
+        if (!auth) { setAuthReady(true); return; }
         const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setAuthReady(true); });
         return () => unsub();
     }, []);
@@ -4180,7 +4463,7 @@ const App = () => {
   if (urlParams.get('dev') === 'panel') return <DeveloperPanel />;
 
   if (customerTable) {
-      const profile = JSON.parse(localStorage.getItem('store_profile') || '{}');
+      const profile = safeParse('store_profile', {});
       return <SelfOrderApp tableNo={customerTable} profile={profile} />;
   }
   return <MainAdminApp />;
