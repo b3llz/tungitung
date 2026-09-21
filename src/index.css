@@ -1,77 +1,118 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;500;600;700;800;900&family=Gochi+Hand&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* =========================================
-   GLOBAL STYLES (PREMIUM LOOK)
-   ========================================= */
-:root {
-  --font-sans: 'Plus Jakarta Sans', sans-serif;
-}
+/* ============================================================
+   WELP — DESIGN SYSTEM v6 "FRESH INK"
+   Neutral dulu: kanvas putih/abu bersih di light mode, charcoal
+   netral di dark mode. Orange hanya aksen. Sudut membulat yang
+   matang, ikon bertabur karakter, tipografi rounded-friendly.
+   ============================================================ */
 
+:root { --font-sans: 'Nunito', ui-sans-serif, system-ui, sans-serif; }
+
+html { -webkit-tap-highlight-color: transparent; }
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-/* Background Pattern Halus */
-.bg-premium-pattern {
-  background-color: #f8fafc;
-  background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
-  background-size: 24px 24px;
-}
+/* Heading memakai Baloo 2: bulat, ramah, sedikit tebal */
+h1, h2, h3 { font-family: 'Baloo 2', 'Nunito', sans-serif; letter-spacing: -0.01em; }
 
-.dark .bg-premium-pattern {
-  background-color: #0f172a;
-  background-image: radial-gradient(#1e293b 1px, transparent 1px);
-}
-
-/* =========================================
-   UTILITIES
-   ========================================= */
+/* ---- UTILITIES ------------------------------------------------ */
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-  
-  /* Glass Effect Utility */
-  .glass {
-    @apply bg-white/80 backdrop-blur-md border-b border-white/20 shadow-sm;
+
+  .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: #D3D7DE; border-radius: 999px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #B9BFC9; }
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #323945; }
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #414956; }
+
+  /* Angka uang: lebar digit konsisten (Plus Jakarta Sans tnum) */
+  .money {
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, sans-serif;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
   }
-  .dark .glass {
-    @apply bg-slate-900/80 border-slate-800/50 shadow-none;
+
+  /* Safe-area iPhone */
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .h-safe-nav { height: calc(64px + env(safe-area-inset-bottom, 0px)); }
+
+  .press { transition: transform .12s ease; }
+  .press:active { transform: scale(.97); }
+
+
+}
+
+/* ---- KOMPONEN DASAR ------------------------------------------- */
+@layer components {
+  /* Kartu: putih bersih / charcoal, sudut lembut, bayangan netral */
+  .card {
+    @apply bg-surface dark:bg-surface-dark rounded-3xl border shadow-card
+           border-line dark:border-line-dark;
   }
-  
-  /* Premium Card */
-  .card-premium {
-    @apply bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-300;
+  /* Input standar sistem */
+  .field {
+    @apply w-full bg-surface dark:bg-night/60 border-2 border-line dark:border-line-dark
+           rounded-2xl px-3.5 py-2.5 text-[13px] font-bold text-ink dark:text-ink-inv
+           placeholder:text-ink-faint/80 placeholder:font-semibold placeholder:normal-case
+           outline-none transition
+           focus:border-flame-400 focus:ring-4 focus:ring-flame-500/15;
+  }
+  .field-lg { @apply field py-3.5 text-sm; }
+  /* Label kecil hangat */
+  .kicker {
+    @apply text-[10px] font-extrabold uppercase tracking-[0.14em] text-ink-faint;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 text-[9px] font-extrabold uppercase tracking-wider
+           px-2 py-0.5 rounded-full;
+  }
+  /* Strip header kartu/hero gelap (dipakai modul) */
+  .strip {
+    @apply bg-chrome-deep px-5 py-5 relative overflow-hidden;
   }
 }
 
-/* =========================================
-   ANIMATIONS
-   ========================================= */
-@keyframes fade-in-up {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.animate-enter {
-  animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
+/* ---- ANIMASI --------------------------------------------------- */
+@keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes slide-up { from { opacity:0; transform: translateY(18px) } to { opacity:1; transform: translateY(0) } }
+@keyframes pop-in { from { opacity:0; transform: scale(.96) } to { opacity:1; transform: scale(1) } }
+@keyframes rise { from { opacity:0; transform: translateY(10px) } to { opacity:1; transform: translateY(0) } }
+@keyframes spin { to { transform: rotate(360deg) } }
+@keyframes ping-ring { 0% { transform: scale(.9); opacity:.6 } 70%,100% { transform: scale(1.7); opacity:0 } }
+@keyframes scanline { 0% { top: 4% } 50% { top: 92% } 100% { top: 4% } }
+@keyframes pulse-dot { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+@keyframes wobble { 0%,100% { transform: rotate(-2.5deg) } 50% { transform: rotate(2.5deg) } }
+@keyframes floaty { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-5px) } }
 
-@keyframes pulse-soft {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.95); }
-}
-.animate-pulse-soft {
-  animation: pulse-soft 3s infinite;
-}
+.animate-fade-in { animation: fade-in .25s ease both; }
+.animate-slide-up { animation: slide-up .35s cubic-bezier(.16,1,.3,1) both; }
+.animate-pop { animation: pop-in .22s cubic-bezier(.16,1,.3,1) both; }
+.animate-rise { animation: rise .4s cubic-bezier(.16,1,.3,1) both; }
+.animate-ping-ring { animation: ping-ring 1.8s cubic-bezier(0,0,.2,1) infinite; }
+.animate-scanline { animation: scanline 2s linear infinite; }
+.animate-pulse-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
+.animate-wobble { animation: wobble 2.4s ease-in-out infinite; }
+.animate-floaty { animation: floaty 3.2s ease-in-out infinite; }
 
-/* =========================================
-   PRINT STYLES
-   ========================================= */
+.spinner-ring {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.3); border-top-color: #fff;
+  animation: spin .8s linear infinite; display: inline-block;
+}
+.spinner-dark { border-color: rgba(27,31,36,.15); border-top-color: #B23508; }
+
+/* ---- PRINT (struk kasir) --------------------------------------- */
 @media print {
   @page { margin: 0; size: auto; }
   body * { visibility: hidden; }
@@ -90,33 +131,12 @@ body {
   }
 }
 
-/* =========================================
-   PREMIUM ANIMATIONS (v2)
-   ========================================= */
-@keyframes float-slow { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-14px) } }
-.animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
-@keyframes float-slower { 0%,100% { transform: translateY(0) } 50% { transform: translateY(18px) } }
-.animate-float-slower { animation: float-slower 9s ease-in-out infinite; }
-@keyframes gradient-pan { 0% { background-position: 0% 50% } 50% { background-position: 100% 50% } 100% { background-position: 0% 50% } }
-.animate-gradient { background-size: 200% 200%; animation: gradient-pan 12s ease infinite; }
-@keyframes shimmer { 100% { transform: translateX(100%) } }
-.skeleton { position: relative; overflow: hidden; background: #e2e8f0; }
-.dark .skeleton { background: #1e293b; }
-.skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent); animation: shimmer 1.5s infinite; }
-.dark .skeleton::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent); }
-@keyframes slide-up { from { opacity:0; transform: translateY(24px) } to { opacity:1; transform: translateY(0) } }
-.animate-slide-up { animation: slide-up 0.4s cubic-bezier(0.16,1,0.3,1) forwards; }
-@keyframes spin-slow { to { transform: rotate(360deg) } }
-.animate-spin-slow { animation: spin-slow 2.5s linear infinite; }
-.spinner-ring { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.35); border-top-color: #fff; border-radius: 50%; animation: spin-slow 0.8s linear infinite; display:inline-block; }
-@keyframes ping-ring { 0% { transform: scale(0.9); opacity: 0.7 } 70%,100% { transform: scale(1.6); opacity: 0 } }
-.animate-ping-ring { animation: ping-ring 1.8s cubic-bezier(0,0,0.2,1) infinite; }
-/* Tap feedback */
-.press { transition: transform 0.12s ease; }
-.press:active { transform: scale(0.96); }
-
-/* Extend print to z-[80] AND z-[90] (struk + QR) */
-@media print {
-  .fixed.inset-0.z-\[90\], .fixed.inset-0.z-\[90\] * { visibility: visible; }
-  .fixed.inset-0.z-\[90\] { position: absolute; left:0; top:0; width:100%; background:white !important; color:black !important; }
+/* ---- A11Y: hormati preferensi gerak ---------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in, .animate-slide-up, .animate-pop, .animate-rise,
+  .animate-ping-ring, .animate-scanline, .animate-pulse-dot,
+  .animate-wobble, .animate-floaty {
+    animation: none !important;
+    transition: none !important;
+  }
 }
