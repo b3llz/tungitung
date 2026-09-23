@@ -15,7 +15,10 @@ import { formatNumberDisplay } from './core.jsx';
    mengimpor dari './ui' tetap satu sumber (brand.jsx). */
 export { BrandLogo, BrandLockup, Mascot, AppSymbol };
 
-/* ---------- TOAST ---------- */
+/* ---------- TOAST ----------
+   Posisi responsif agar tidak menutupi navigasi & aksi utama:
+   • Mobile   : tengah-bawah, DI ATAS bottom nav & bar keranjang.
+   • Tablet/PC: kanan-atas, di luar jalur kerja utama. */
 export const Toast = ({ message, type, onClose }) => {
   useEffect(() => {
     const timer = setTimeout(onClose, 3000);
@@ -23,7 +26,7 @@ export const Toast = ({ message, type, onClose }) => {
   }, [onClose]);
 
   return createPortal(
-    <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] animate-slide-up">
+    <div className="fixed z-[9999] left-1/2 -translate-x-1/2 bottom-[6.2rem] sm:left-auto sm:right-5 sm:top-5 sm:bottom-auto sm:translate-x-0 max-w-[calc(100vw-2rem)] sm:max-w-sm animate-slide-up">
       <div className={`flex items-center gap-3 pl-3 pr-5 py-3 rounded-2xl shadow-pop border ${
         type === 'error'
           ? 'bg-brick-deep border-brick/40 text-white'
@@ -34,9 +37,9 @@ export const Toast = ({ message, type, onClose }) => {
         }`}>
           {type === 'error' ? <AlertCircle className="w-4 h-4" /> : <Check className="w-4 h-4" />}
         </div>
-        <div className="max-w-[70vw]">
+        <div className="min-w-0">
           <p className="text-[10px] font-extrabold uppercase tracking-widest opacity-60">{type === 'error' ? 'Ups, tunggu' : 'Siap!'}</p>
-          <p className="text-xs font-bold leading-snug">{message}</p>
+          <p className="text-xs font-bold leading-snug break-words">{message}</p>
         </div>
       </div>
     </div>,

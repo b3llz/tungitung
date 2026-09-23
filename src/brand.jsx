@@ -16,8 +16,30 @@
 //  • AppSymbol    : ikon aplikasi (kepala maskot: topi W) untuk
 //    loading screen, splash, dan tempat butuh simbol 16-32px.
 // ============================================================
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { WelpWordmark, JustruMark } from './brand-marks.jsx';
+import { readBrandMirror } from './core.jsx';
+
+/* ---------- CUSTOM BRANDING (fitur Custom Aplikasi) ----------
+   Bila developer menyalakan custom utk tenant ini, logo WELP
+   diganti logo perusahaan dan endorsement jadi "by WELP".
+   Sumber: mirror localStorage 'welp_branding' + event realtime. */
+let _brandListeners = [];
+const subscribeBrand = (fn) => {
+  _brandListeners.push(fn);
+  const h = () => fn(readBrandMirror());
+  window.addEventListener('welp_branding', h);
+  return () => {
+    _brandListeners = _brandListeners.filter(x => x !== fn);
+    window.removeEventListener('welp_branding', h);
+  };
+};
+export const useBrandState = () => {
+  const [brand, setBrand] = useState(readBrandMirror);
+  useEffect(() => subscribeBrand(setBrand), []);
+  return brand;
+};
+const isCustom = (b) => !!(b && b.aktif);
 
 import poseMenyapa from './assets/mascot/menyapa.png';
 
@@ -55,16 +77,22 @@ const TAGLINE = { lg: 'text-[11px] tracking-[0.3em]', md: 'text-[8px] tracking-[
 const JUSTRU_H = { lg: 'h-5', md: 'h-4', sm: 'h-3.5', xs: '' };
 const JUSTRU_BY = { lg: 'text-[11px]', md: 'text-[9px]', sm: 'text-[8px]', xs: '' };
 
-/* ---------- BRAND LOGO (wordmark saja) ---------- */
+/* ---------- BRAND LOGO (wordmark saja) ----------
+   v14: custom aktif → logo perusahaan menggantikan WELP. */
 export const BrandLogo = ({ theme = 'auto', size = 'md', withTagline = false, className = '' }) => {
   const h = WELP_H[size] || WELP_H.md;
   const tag = TAGLINE[size];
+  const brand = useBrandState();
+  const custom = isCustom(brand);
   const color = theme === 'auto' ? 'text-ink dark:text-ink-inv [&_svg]:fill-current'
     : theme === 'dark' ? 'text-ink-inv [&_svg]:fill-current' : 'text-ink [&_svg]:fill-current';
   return (
     <span className={`inline-flex flex-col items-center gap-1.5 leading-none select-none ${color} ${className}`}>
-      <WelpWordmark className={`${h} w-auto block`} />
-      {withTagline && tag && (
+      {custom && brand.logo
+        ? <img src={brand.logo} alt={brand.namaPerusahaan || 'Logo perusahaan'} draggable="false"
+            className={`${h} w-auto max-w-[220px] object-contain object-left block`} />
+        : <WelpWordmark className={`${h} w-auto block`} />}
+      {withTagline && tag && !custom && (
         <span className={`font-display font-extrabold uppercase whitespace-nowrap ${tag} ${theme === 'auto'
           ? 'text-ink-faint dark:text-ink-inv/70'
           : theme === 'dark' ? 'text-ink-inv/70' : 'text-ink-faint'}`}>
@@ -79,6 +107,8 @@ export const BrandLogo = ({ theme = 'auto', size = 'md', withTagline = false, cl
 /* WELP selalu primer; JUSTru GROUP endorsement yang jelas terbaca.
    align="center" dipakai login mobile; default start (sidebar).    */
 export const BrandLockup = ({ theme = 'auto', size = 'md', withTagline = true, endorsement = true, align = 'start', className = '' }) => {
+  const brand = useBrandState();
+  const custom = isCustom(brand);
   const showEndorsement = endorsement && !!JUSTRU_H[size];
   const color = theme === 'auto' ? 'text-ink dark:text-ink-inv [&_svg]:fill-current'
     : theme === 'dark' ? 'text-ink-inv [&_svg]:fill-current' : 'text-ink [&_svg]:fill-current';
@@ -87,13 +117,17 @@ export const BrandLockup = ({ theme = 'auto', size = 'md', withTagline = true, e
       <BrandLogo theme={theme} size={size} withTagline={withTagline} />
       {showEndorsement && (
         <span className={`inline-flex items-center gap-1.5 ${align === 'center' ? 'justify-center' : ''}`}
-          role="img" aria-label="by JUSTru GROUP">
+          role="img" aria-label={custom ? 'by WELP' : 'by JUSTru GROUP'}>
           <span className={`font-bold italic lowercase ${JUSTRU_BY[size]} ${theme === 'auto'
             ? 'text-ink-faint dark:text-ink-inv/85'
             : theme === 'dark' ? 'text-ink-inv/85' : 'text-ink-faint'}`}>by</span>
-          <JustruMark className={`${JUSTRU_H[size]} w-auto block ${theme === 'auto'
+        {custom
+          ? <WelpWordmark className={`${JUSTRU_H[size]} w-auto block ${theme === 'auto'
             ? 'text-ink-soft dark:text-ink-inv'
             : theme === 'dark' ? 'text-ink-inv' : 'text-ink-soft'}`} />
+          : <JustruMark className={`${JUSTRU_H[size]} w-auto block ${theme === 'auto'
+            ? 'text-ink-soft dark:text-ink-inv'
+            : theme === 'dark' ? 'text-ink-inv' : 'text-ink-soft'}`} />}
         </span>
       )}
     </span>

@@ -7,17 +7,17 @@
 // gradasi flame, ikon Buddy, stat ringkas, badge status.
 // ============================================================
 import React, { useState, useEffect } from 'react';
-import { db, auth } from './core.jsx';
+import { db, auth, fileToDataUrl, hexToTriplet, writeBrandMirror } from './core.jsx';
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
 } from 'firebase/auth';
 import {
-  collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy
+  collection, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy
 } from 'firebase/firestore';
 import { AppSymbol, Mascot } from './brand.jsx';
 import {
   PerisaiBuddy, GembokBuddy, Lisensi, Trash2, Copy, Check,
-  MonitorPusat, Kredensial, WaktuReal, BahayaBuddy, KoinBuddy
+  MonitorPusat, Kredensial, WaktuReal, BahayaBuddy, KoinBuddy, Terang, Gelap, Toko
 } from './welp-icons.jsx';
 
 export const DeveloperPanel = () => {
@@ -39,6 +39,75 @@ export const DeveloperPanel = () => {
   const [toast, setToast] = useState('');
   const [accessErr, setAccessErr] = useState('');
   const [copiedId, setCopiedId] = useState(null);
+
+  // ===== FITUR CUSTOM APLIKASI (white-label) =====
+  // Perusahaan yang mau custom bisa request ke developer. Developer
+  // memilih tenant di sini, menyalakan custom, menaruh logo perusahaan,
+  // lalu memilih warna UI (merah/biru/hijau/kustom sesuai identitas).
+  // Logo WELP otomatis diganti logo perusahaan + endorsement jadi "by WELP".
+  const [cbTenant, setCbTenant] = useState('');
+  const [cbForm, setCbForm] = useState({ aktif: false, namaPerusahaan: '', logo: null, warna: 'oren', warnaHex: '#E2483D' });
+  const [cbBusy, setCbBusy] = useState(false);
+  const [cbLogoBusy, setCbLogoBusy] = useState(false);
+
+  useEffect(() => {
+    if (!cbTenant) return;
+    setCbBusy(true);
+    getDoc(doc(db, 'tenants', cbTenant, 'pengaturan', 'branding'))
+      .then(snap => {
+        const d = snap.data();
+        setCbForm(d ? {
+          aktif: !!d.aktif, namaPerusahaan: d.namaPerusahaan || '', logo: d.logo || null,
+          warna: d.warna || 'oren', warnaHex: d.warnaHex || '#E2483D'
+        } : { aktif: false, namaPerusahaan: '', logo: null, warna: 'oren', warnaHex: '#E2483D' });
+      })
+      .catch(() => showToast('Gagal memuat konfigurasi custom tenant ini.'))
+      .finally(() => setCbBusy(false));
+  }, [cbTenant]);
+
+  const pickCbLogo = async (file) => {
+    if (!file) return;
+    setCbLogoBusy(true);
+    try {
+      const logoUrl = await fileToDataUrl(file, 480, 0.8);
+      setCbForm(f => ({ ...f, logo: logoUrl }));
+    }
+    catch (e) { showToast('Gagal memuat logo: ' + (e.message || 'coba lagi')); }
+    setCbLogoBusy(false);
+  };
+
+  const previewBrand = () => {
+    // Pratinjau langsung terasa di console: logo & warna berubah sebelum disimpan.
+    // Kustom mati → kembali ke tampilan WELP biasa.
+    writeBrandMirror(cbForm.aktif ? { key: 'branding', ...cbForm } : null);
+  };
+
+  const saveCustom = async () => {
+    if (!cbTenant) return showToast('Pilih tenant dulu.');
+    if (cbForm.aktif && cbForm.warna === 'kustom' && !hexToTriplet(cbForm.warnaHex)) return showToast('Warna kustom tidak valid (format #RRGGBB).');
+    setCbBusy(true);
+    try {
+      await setDoc(doc(db, 'tenants', cbTenant, 'pengaturan', 'branding'), {
+        key: 'branding', ...cbForm,
+        updatedAt: Date.now(), updatedBy: auth.currentUser ? auth.currentUser.email : 'developer'
+      });
+      showToast('Custom aplikasi tersimpan! Tenant langsung memakai identitas barunya.');
+    } catch (e) { showToast('Gagal simpan: ' + (e.message || e.code)); }
+    setCbBusy(false);
+  };
+
+  // Kontrol tema dev: uji Light & Dark mode langsung dari panel.
+  // Preferensi tersimpan di localStorage 'theme' (satu sumber dgn app).
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  useEffect(() => { document.documentElement.classList.toggle('dark', dark); }, [dark]);
+  const toggleDark = () => {
+    const nd = !dark; setDark(nd);
+    localStorage.setItem('theme', nd ? 'dark' : 'light');
+    document.documentElement.classList.toggle('dark', nd);
+  };
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(''), 2600); };
 
@@ -112,6 +181,10 @@ export const DeveloperPanel = () => {
       <div className="min-h-screen bg-paper dark:bg-chrome-deep flex items-center justify-center p-4 relative overflow-hidden">
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-flame-200/50 dark:bg-flame-500/15 rounded-full blur-3xl"></div>
         <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-[#E9ECF1]/90 dark:bg-apricot/10 rounded-full blur-3xl"></div>
+        {/* kontrol tema: dev bisa uji light/dark sebelum login */}
+        <button onClick={toggleDark} aria-label="Ganti tema" className="absolute top-4 right-4 w-10 h-10 rounded-full bg-surface dark:bg-white/5 border border-line dark:border-chrome-edge text-ink-faint dark:text-ink-inv/60 flex items-center justify-center transition">
+          {dark ? <Terang className="w-4.5 h-4.5" /> : <Gelap className="w-4.5 h-4.5" />}
+        </button>
         <div className="relative w-full max-w-sm bg-surface dark:bg-chrome-panel/90 backdrop-blur-xl border border-line dark:border-chrome-edge rounded-3xl p-7 shadow-pop animate-rise">
           <div className="flex flex-col items-center mb-6">
             <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-flame-400 to-flame-600 flex items-center justify-center shadow-card mb-3">
@@ -156,7 +229,12 @@ export const DeveloperPanel = () => {
               <p className="text-[10px] text-white/70 font-bold mt-1">{user.email}</p>
             </div>
           </div>
-          <button onClick={doLogout} className="text-[11px] font-extrabold text-white/90 bg-white/15 hover:bg-white/25 px-4 py-2 rounded-2xl transition press">Keluar</button>
+          <div className="flex items-center gap-2">
+            <button onClick={toggleDark} aria-label="Ganti tema" className="w-9 h-9 rounded-2xl bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition press">
+              {dark ? <Terang className="w-4.5 h-4.5" /> : <Gelap className="w-4.5 h-4.5" />}
+            </button>
+            <button onClick={doLogout} className="text-[11px] font-extrabold text-white/90 bg-white/15 hover:bg-white/25 px-4 py-2.5 rounded-2xl transition press">Keluar</button>
+          </div>
         </div>
       </nav>
 
@@ -220,6 +298,88 @@ export const DeveloperPanel = () => {
               </div>
             </div>
             <button onClick={saveTenant} disabled={saving} className="w-full py-3.5 rounded-2xl bg-flame-600 hover:bg-flame-500 text-white font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-60 mt-1 press shadow-card">{saving ? <span className="spinner-ring !border-white/30 !border-t-white"></span> : <><Check className="w-4 h-4" /> Simpan ke Firebase</>}</button>
+          </div>
+        </div>
+
+        {/* FITUR CUSTOM APLIKASI (white-label) */}
+        <div className="bg-surface dark:bg-chrome-panel/70 border border-line dark:border-chrome-edge rounded-[1.6rem] p-5 shadow-card">
+          <h2 className="font-extrabold text-base mb-1 flex items-center gap-2"><Toko className="w-5.5 h-5.5 text-flame-600 dark:text-apricot" /> Custom Aplikasi</h2>
+          <p className="text-[11px] text-ink-faint dark:text-ink-inv/50 font-semibold leading-relaxed mb-4">
+            Perusahaan yang mau tampilan sendiri cukup request ke developer. Nyalakan custom di tenantnya, taruh logo perusahaan, dan pilih warna UI sesuai identitasnya. Logo WELP berganti jadi logo perusahaan, dan tulisan pengembangnya jadi "by WELP".
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="kicker block mb-1 ml-0.5">Pilih Tenant</label>
+              <select value={cbTenant} onChange={(e) => setCbTenant(e.target.value)} className="field bg-surface dark:bg-surface-dark">
+                <option value="">— pilih tenant —</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.tenant} ({c.id})</option>)}
+              </select>
+            </div>
+            {cbTenant && !cbBusy && (
+              <>
+                <button onClick={() => setCbForm(f => ({ ...f, aktif: !f.aktif }))}
+                  className={`w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border transition press ${cbForm.aktif ? 'bg-flame-50 dark:bg-flame-900/25 border-flame-200 dark:border-flame-500/40' : 'bg-paper dark:bg-white/5 border-line dark:border-chrome-edge'}`}>
+                  <span className="text-left">
+                    <span className="block text-[12.5px] font-extrabold text-ink dark:text-ink-inv">Custom aktif</span>
+                    <span className="block text-[10px] font-semibold text-ink-faint">Tampilan tenant ini memakai identitas perusahaannya</span>
+                  </span>
+                  <span className={`w-11 h-6 rounded-full p-0.5 transition-all shrink-0 ${cbForm.aktif ? 'bg-flame-600' : 'bg-line dark:bg-white/15'}`}>
+                    <span className={`block w-5 h-5 rounded-full bg-white shadow transition-transform ${cbForm.aktif ? 'translate-x-5' : ''}`} />
+                  </span>
+                </button>
+                <div>
+                  <label className="kicker block mb-1 ml-0.5">Logo Perusahaan</label>
+                  {cbForm.logo ? (
+                    <div className="flex items-center gap-3 p-3 rounded-2xl bg-paper dark:bg-white/5 border border-line dark:border-chrome-edge">
+                      <img src={cbForm.logo} alt="Logo perusahaan" className="h-12 w-auto max-w-[160px] object-contain" />
+                      <div className="flex gap-2 ml-auto">
+                        <label className="px-3 py-2 rounded-xl bg-surface dark:bg-white/5 border border-line dark:border-chrome-edge text-[10.5px] font-extrabold text-ink-soft dark:text-ink-inv/70 cursor-pointer press">Ganti
+                          <input type="file" accept="image/*" className="hidden" onChange={e => pickCbLogo(e.target.files[0])} />
+                        </label>
+                        <button onClick={() => setCbForm(f => ({ ...f, logo: null }))} className="px-3 py-2 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick text-[10.5px] font-extrabold press">Hapus</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center py-6 border-2 border-dashed border-line dark:border-chrome-edge rounded-2xl cursor-pointer hover:border-flame-400 transition">
+                      {cbLogoBusy ? <><span className="spinner-ring"></span><p className="text-[10px] font-bold text-ink-faint mt-1.5">Memproses logo...</p></> : <>
+                        <Toko className="w-7 h-7 text-ink-faint/50 mb-1.5" />
+                        <p className="text-[11px] font-extrabold text-ink-soft dark:text-ink-inv/70">Upload logo perusahaan</p>
+                        <p className="text-[9px] text-ink-faint font-semibold mt-0.5">PNG/JPG, dikompres otomatis, transparan paling bagus</p>
+                      </>}
+                      <input type="file" accept="image/*" className="hidden" onChange={e => pickCbLogo(e.target.files[0])} />
+                    </label>
+                  )}
+                </div>
+                <div>
+                  <label className="kicker block mb-1 ml-0.5">Nama Perusahaan (opsional)</label>
+                  <input value={cbForm.namaPerusahaan} onChange={e => setCbForm(f => ({ ...f, namaPerusahaan: e.target.value }))} placeholder="Contoh: Kopi Senja" className="field" />
+                </div>
+                <div>
+                  <label className="kicker block mb-1 ml-0.5">Warna UI / UX</label>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {['oren', 'merah', 'biru', 'hijau', 'kustom'].map(w => (
+                      <button key={w} onClick={() => setCbForm(f => ({ ...f, warna: w }))}
+                        className={`py-2 rounded-xl text-[10px] font-extrabold capitalize border-2 transition press ${cbForm.warna === w ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25 text-flame-700 dark:text-apricot' : 'border-line dark:border-chrome-edge text-ink-faint'}`}>
+                        {w}
+                      </button>
+                    ))}
+                  </div>
+                  {cbForm.warna === 'kustom' && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <input type="color" value={cbForm.warnaHex} onChange={e => setCbForm(f => ({ ...f, warnaHex: e.target.value }))} className="w-11 h-11 rounded-xl border border-line dark:border-chrome-edge bg-transparent cursor-pointer" />
+                      <input value={cbForm.warnaHex} onChange={e => setCbForm(f => ({ ...f, warnaHex: e.target.value }))} className="field flex-1 min-w-0 font-mono" placeholder="#RRGGBB" />
+                      <span className="w-11 h-11 rounded-xl border border-line dark:border-chrome-edge shrink-0" style={{ backgroundColor: cbForm.warnaHex }} />
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={saveCustom} className="flex-1 py-3.5 rounded-2xl bg-flame-600 hover:bg-flame-500 text-white font-extrabold text-sm flex items-center justify-center gap-2 press shadow-card"><Check className="w-4 h-4" /> Simpan Custom</button>
+                  <button onClick={previewBrand} className="px-4 py-3.5 rounded-2xl bg-paper dark:bg-white/5 border border-line dark:border-chrome-edge text-ink-soft dark:text-ink-inv/70 font-extrabold text-sm press">Pratinjau</button>
+                </div>
+                <p className="text-[9.5px] text-ink-faint dark:text-ink-inv/40 font-semibold text-center">Pratinjau berlaku di console ini saja. Tekan Simpan supaya tenant ikut berubah. Matikan custom untuk kembali ke tampilan WELP biasa.</p>
+              </>
+            )}
+            {cbTenant && cbBusy && <p className="text-[11px] font-bold text-ink-faint text-center py-3">Memuat konfigurasi...</p>}
           </div>
         </div>
 

@@ -48,14 +48,25 @@ export default {
           panel: '#1F242C',
           edge: '#2C323B'
         },
-        // ---- Signature accent: burnt orange (satu-satunya warna brand) ----
+        // ---- Signature accent (v14): palet brand via CSS variables.
+        // Nilai default tetap burnt orange WELP (didefinisikan di :root
+        // index.css). Fitur Custom Aplikasi cukup menimpa variabel
+        // --fl-* / --ap-* di runtime → SEMUA kelas flame/apricot ikut
+        // berubah (termasuk versi /alpha & gradient) tanpa rebuild.
         flame: {
-          50:'#FFF4EB',100:'#FFE5D1',200:'#FEC9A4',300:'#FDA671',
-          400:'#FB8142',500:'#F4622E',600:'#D84312',700:'#B23508',
-          800:'#8F2C0C',900:'#74270E',950:'#41150A'
+          50:'rgb(var(--fl-50) / <alpha-value>)',100:'rgb(var(--fl-100) / <alpha-value>)',
+          200:'rgb(var(--fl-200) / <alpha-value>)',300:'rgb(var(--fl-300) / <alpha-value>)',
+          400:'rgb(var(--fl-400) / <alpha-value>)',500:'rgb(var(--fl-500) / <alpha-value>)',
+          600:'rgb(var(--fl-600) / <alpha-value>)',700:'rgb(var(--fl-700) / <alpha-value>)',
+          800:'rgb(var(--fl-800) / <alpha-value>)',900:'rgb(var(--fl-900) / <alpha-value>)',
+          950:'rgb(var(--fl-950) / <alpha-value>)'
         },
         // Aksen di atas permukaan gelap (lebih terang agar kontras)
-        apricot: { DEFAULT:'#FFA36B', deep:'#F98F4F', dim:'#C0662F' },
+        apricot: {
+          DEFAULT:'rgb(var(--ap-base) / <alpha-value>)',
+          deep:'rgb(var(--ap-deep) / <alpha-value>)',
+          dim:'rgb(var(--ap-dim) / <alpha-value>)'
+        },
         // Madu: PRO & peringatan halus (semantic-ish, tetap sekunder)
         gold: { DEFAULT:'#E8A13D', soft:'#FDF3E0', deep:'#96660F' },
         // Semantic status (bukan brand)

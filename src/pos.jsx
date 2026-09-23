@@ -12,11 +12,12 @@ import {
   Toko, WaktuReal, LayarBuddy, Search, Pindai, Plus, Trash2,
   Keranjang, RefreshCw, Selesai, Check, X, Edit3, StrukCetak,
   Uang, Qris, Dompet, PaketBuddy, OrangBuddy, RoketBuddy, QrDinamis,
-  MinusCircle, ChevronDown, CategoryIcon
+  MinusCircle, ChevronDown, CategoryIcon, HapusBuddy, Tim, PerisaiBuddy
 } from './welp-icons.jsx';
 import {
   safeParse, formatIDR, isPro, computeOrderTotals, getBizConfig,
-  getPaymentIcon, qrUrl, buildDynamicQris, t, BRANCH_ID, db
+  getPaymentIcon, qrUrl, buildDynamicQris, t, BRANCH_ID, db,
+  auditLog, todayKey, normShifts, shiftsForBranch, shiftById, shiftOfMs
 } from './core.jsx';
 import { Button, Card, Badge, EmptyState } from './ui';
 
@@ -120,10 +121,10 @@ export const ReceiptModal = ({ order, profile, onClose }) => {
             <div className="flex justify-between"><span>Bayar ({order.paymentMethod || '-'})</span><span>{formatIDR(order.cashTendered || order.total)}</span></div>
             {order.change > 0 && <div className="flex justify-between"><span>Kembali</span><span>{formatIDR(order.change)}</span></div>}
           </div>
-          <p className="text-center mt-3 text-[10px]">Terima kasih atas kunjungan Anda</p>
+          <p className="text-center mt-3 text-[10px]">Terima kasih sudah belanja!</p>
         </div>
-        <div className="no-print p-3 bg-paper border-t border-slate-200 flex gap-2">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-slate-200 text-slate-700 font-bold text-xs">Tutup</button>
+        <div className="no-print p-3 bg-surface dark:bg-surface-dark border-t border-line dark:border-line-dark flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-paper dark:bg-white/10 border border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/80 font-bold text-xs">Tutup</button>
           <button onClick={() => window.print()} className="flex-1 py-2.5 rounded-xl bg-flame-600 text-white font-bold text-xs flex items-center justify-center gap-2"><StrukCetak className="w-4 h-4" /> Cetak / Simpan PDF</button>
         </div>
       </div>
@@ -136,15 +137,71 @@ export const ReceiptModal = ({ order, profile, onClose }) => {
    CHECKOUT SHEET (mobile bottom sheet / desktop modal)
    Kontrak prop IDENTIK dengan CartPopup lama (dipakai SelfOrder).
    ============================================================ */
+/* ============================================================
+   QUICK CASHIER MODE — keypad tunai yang menyatu dgn pembayaran.
+   hierarchy: angka netral, koreksi amber, hapus merah lembut,
+   BAYAR oranye solid WELP. Nominal terhubung langsung ke state
+   transaksi (cashTendered) — bukan kalkulator berdiri sendiri.
+   ============================================================ */
+const QUICK_ADDS = [
+  { label: '+5rb', val: 5000 }, { label: '+10rb', val: 10000 },
+  { label: '+20rb', val: 20000 }, { label: '+50rb', val: 50000 },
+  { label: '+100rb', val: 100000 },
+];
+
 export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile, isLoading, orderType, setOrderType, tableNo, setTableNo, notes, setNotes, cashTendered, setCashTendered, isSelfOrder = false }) => {
-  const [showNumpad, setShowNumpad] = useState(false);
   const [splitCash, setSplitCash] = useState(0);
   const bill = computeOrderTotals(cart);
   const grandTotal = bill.total;
   const bizMode = localStorage.getItem('biz_mode') || 'retail';
 
+  // sumber tunggal nominal tunai: string digit → number di state induk.
+  const [cashStr, setCashStr] = useState('');
+  useEffect(() => { setCashTendered(Number(cashStr || 0)); }, [cashStr]);
+  // ganti metode dari Cash → bersihkan nominal tunai sementara (no stale state)
+  useEffect(() => { if (paymentMethod && paymentMethod !== 'Cash') setCashStr(''); }, [paymentMethod]);
+  // transaksi baru selalu mulai dari nol
+  useEffect(() => { if (showCart && !cashTendered) setCashStr(''); }, [showCart]);
+
+  const pressDigit = (d) => setCashStr(prev => {
+    const next = (prev === '0' ? '' : prev) + d;
+    return next.length > 9 ? prev : next;            // batas aman 999.999.999
+  });
+  const press00 = () => setCashStr(prev => {
+    if (!prev || prev === '0') return prev;
+    return prev.length + 2 > 9 ? prev : prev + '00';
+  });
+  const pressBack = () => setCashStr(prev => prev.slice(0, -1));
+  const pressClear = () => setCashStr('');
+  const setExact = () => setCashStr(String(grandTotal));
+  const quickAdd = (n) => setCashStr(prev => {
+    const next = Number(prev || 0) + n;
+    return next > 999999999 ? prev : String(next);
+  });
+
+  // keyboard fisik tetap jalan (kecuali saat mengetik di input teks)
+  useEffect(() => {
+    if (!showCart || paymentMethod !== 'Cash' || isSelfOrder) return;
+    const onKey = (e) => {
+      const tag = (e.target?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.key >= '0' && e.key <= '9') { pressDigit(e.key); e.preventDefault(); }
+      else if (e.key === 'Backspace') { pressBack(); e.preventDefault(); }
+      else if (e.key === 'Escape' || e.key === 'Delete') pressClear();
+      else if (e.key === 'Enter' && cart.length > 0 && Number(cashStr || 0) >= grandTotal && !isLoading) handleCheckout();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showCart, paymentMethod, cashStr, grandTotal, isLoading, cart.length]);
+
   if (!showCart) return null;
   const canPay = cart.length > 0 && !isLoading && !!paymentMethod && !(paymentMethod === 'Cash' && cashTendered < grandTotal);
+  const cashEnough = cashTendered >= grandTotal && grandTotal > 0;
+
+  // palet Quick Cashier Mode (light / dark) — angka netral, aksi oranye
+  const keyCls = 'py-3.5 sm:py-4 rounded-xl text-lg sm:text-xl font-extrabold select-none transition-all active:scale-95 press border bg-white dark:bg-[#272A2E] text-[#1D1D1B] dark:text-[#F5F5F2] border-[#E1E1DD] dark:border-[#34383D] hover:bg-[#F1F1EE] dark:hover:bg-[#30343A] active:bg-[#E7E7E3] dark:active:bg-[#383C42]';
+  const backCls = 'bg-[#FFF6E8] dark:bg-[#3A3021] text-[#A86200] dark:text-[#F2BD6B] border-[#F0E4D0] dark:border-[#4A4030] hover:bg-[#FDEED3] dark:hover:bg-[#463B29]';
+  const chipCls = 'shrink-0 px-3 py-1.5 rounded-full text-[10.5px] font-extrabold border transition-all active:scale-95 press bg-white dark:bg-[#272A2E] text-[#1D1D1B]/70 dark:text-[#F5F5F2]/70 border-[#E1E1DD] dark:border-[#34383D] hover:border-flame-400 active:bg-flame-50 dark:active:bg-flame-900/40 active:text-flame-600 dark:active:text-[#FF9A5C]';
 
   return (
     <div className="fixed inset-0 z-[100] bg-chrome-deep/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4 animate-fade-in" onClick={() => setShowCart(false)}>
@@ -222,31 +279,62 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
             {bill.serviceAmt > 0 && <div className="flex justify-between text-xs font-bold text-ink-faint"><span>{t('service')} ({bill.servicePercent}%)</span><span className="money">{formatIDR(bill.serviceAmt)}</span></div>}
           </div>
 
-          {/* TUNAI: uang pas / numpad */}
+          {/* ============ QUICK CASHIER MODE (Cash/Tunai) ============ */}
           {paymentMethod === 'Cash' && !isSelfOrder && (
-            <div className="p-4 bg-surface dark:bg-surface-dark rounded-2xl border border-line dark:border-line-dark space-y-3 animate-fade-in">
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setCashTendered(grandTotal)} className="bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf py-2.5 rounded-xl font-extrabold transition-colors flex items-center justify-center gap-1.5 text-xs border border-leaf/25"><Selesai className="w-4 h-4" /> Uang Pas</button>
-                <button onClick={() => setShowNumpad(!showNumpad)} className="bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold py-2.5 rounded-xl font-extrabold transition-colors flex items-center justify-center gap-1.5 text-xs border border-gold/25"><Edit3 className="w-4 h-4" /> Input Manual</button>
-              </div>
-              <div className="text-center font-extrabold text-2xl text-ink dark:text-ink-inv money py-1">{formatIDR(cashTendered)}</div>
-
-              {showNumpad && (
-                <div className="grid grid-cols-3 gap-2 pt-3 border-t border-line dark:border-line-dark">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
-                    <button key={num} onClick={() => setCashTendered(Number(`${cashTendered}${num}`))} className="py-3.5 bg-paper dark:bg-white/5 rounded-xl font-extrabold text-lg text-ink dark:text-ink-inv active:scale-95 transition press">{num}</button>
+            <div className="rounded-2xl overflow-hidden border border-[#E1E1DD] dark:border-[#34383D] bg-[#F6F6F4] dark:bg-[#151719] animate-fade-in">
+              <div className="px-3.5 pt-3 pb-3 bg-[#ECEDEA] dark:bg-[#1D2023] border-b border-[#E1E1DD] dark:border-[#34383D]">
+                <div className="flex items-center justify-between">
+                  <p className="text-[9px] font-extrabold uppercase tracking-[0.18em] text-[#1D1D1B]/55 dark:text-[#F5F5F2]/50">Quick Cashier Mode</p>
+                  <p className="text-[10.5px] font-extrabold text-flame-700 dark:text-apricot">Total {formatIDR(grandTotal)}</p>
+                </div>
+                {/* nominal dimasukkan — fokus utama */}
+                <div className={`mt-2.5 rounded-xl px-4 py-2.5 text-center border ${cashEnough ? 'bg-[#FFF0E5] dark:bg-[#3A281F] border-flame-200 dark:border-flame-900/60' : 'bg-[#F6F6F4] dark:bg-[#151719] border-[#E1E1DD] dark:border-[#34383D]'}`}>
+                  <p className="text-[9px] font-extrabold uppercase tracking-[0.2em] text-[#1D1D1B]/50 dark:text-[#F5F5F2]/45">Dibayar Tunai</p>
+                  <p className={`text-[26px] font-extrabold money leading-none mt-1 ${cashEnough ? 'text-flame-700 dark:text-apricot' : 'text-[#1D1D1B] dark:text-[#F5F5F2]'}`}>{formatIDR(cashTendered)}</p>
+                  <div className="mt-1.5 min-h-[17px]">
+                    {cashEnough ? (
+                      <p className="text-[11.5px] font-extrabold text-flame-700 dark:text-apricot">Kembalian {formatIDR(cashTendered - grandTotal)}</p>
+                    ) : cashTendered > 0 ? (
+                      <p className="text-[11.5px] font-extrabold text-[#C83B3B] dark:text-[#FF8B8B]">Kurang {formatIDR(grandTotal - cashTendered)}</p>
+                    ) : (
+                      <p className="text-[10px] font-bold text-[#1D1D1B]/40 dark:text-[#F5F5F2]/35">Masukkan nominal uang yang diterima</p>
+                    )}
+                  </div>
+                </div>
+                {/* tombol cepat — sederhana, tidak mengalahkan BAYAR */}
+                <div className="flex gap-1.5 mt-2.5 overflow-x-auto no-scrollbar pb-0.5">
+                  <button onClick={setExact} className={`${chipCls} ${cashTendered === grandTotal && grandTotal > 0 ? '!bg-flame-50 dark:!bg-flame-900/40 !text-flame-600 dark:!text-apricot !border-flame-300 dark:!border-[#5A3A22]' : ''}`}>
+                    <Selesai className="w-3 h-3 inline -mt-0.5" /> Uang Pas
+                  </button>
+                  {QUICK_ADDS.map(q => (
+                    <button key={q.val} onClick={() => quickAdd(q.val)} className={chipCls}>{q.label}</button>
                   ))}
-                  <button onClick={() => setCashTendered(Number(`${cashTendered}000`))} className="py-3.5 bg-paper dark:bg-white/5 rounded-xl font-extrabold text-xs text-ink dark:text-ink-inv active:scale-95 transition press">+000</button>
-                  <button onClick={() => setCashTendered(Number(`${cashTendered}0`))} className="py-3.5 bg-paper dark:bg-white/5 rounded-xl font-extrabold text-lg text-ink dark:text-ink-inv active:scale-95 transition press">0</button>
-                  <button onClick={() => setCashTendered(Number(cashTendered.toString().slice(0, -1)))} className="py-3.5 bg-brick-soft dark:bg-brick/10 text-brick rounded-xl font-extrabold active:scale-95 transition press"><MinusCircle className="w-5 h-5 mx-auto" /></button>
                 </div>
-              )}
-              {cashTendered >= grandTotal && (
-                <div className="flex justify-between text-base font-extrabold text-leaf-deep dark:text-leaf pt-3 border-t border-line dark:border-line-dark">
-                  <span>Kembalian:</span>
-                  <span className="money">{formatIDR(cashTendered - grandTotal)}</span>
-                </div>
-              )}
+              </div>
+
+              {/* keypad: angka netral, C merah lembut, backspace amber */}
+              <div className="p-3 bg-[#ECEDEA] dark:bg-[#1D2023] grid grid-cols-3 gap-2">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(n => (
+                  <button key={n} onClick={() => pressDigit(n)} className={keyCls} aria-label={n}>{n}</button>
+                ))}
+                <button onClick={pressClear} className={`${keyCls} !bg-[#FFF0F0] dark:!bg-[#3A2526] !text-[#C83B3B] dark:!text-[#FF8B8B] !border-[#F5D5D5] dark:!border-[#4A3031] !text-base hover:!bg-[#FCE4E4] dark:hover:!bg-[#462D2E]`} aria-label="Hapus semua">C</button>
+                <button onClick={() => pressDigit('0')} className={keyCls} aria-label="0">0</button>
+                <button onClick={pressBack} className={`${keyCls} ${backCls}`} aria-label="Hapus satu angka"><HapusBuddy className="w-5 h-5 mx-auto" /></button>
+                <button onClick={press00} className={`${keyCls} col-span-3 !py-3 text-base`} aria-label="Tambah dua nol">00</button>
+              </div>
+
+              {/* BAYAR — action utama, paling menonjol */}
+              <div className="p-3 pt-0 bg-[#ECEDEA] dark:bg-[#1D2023]">
+                <button onClick={handleCheckout} disabled={!canPay}
+                  className={`w-full py-4 rounded-xl font-extrabold text-base transition-all active:scale-[.98] flex items-center justify-center gap-2 press ${canPay
+                    ? 'bg-[#F26A21] dark:bg-[#F4772E] text-white shadow-card hover:brightness-105'
+                    : 'bg-[#E1E1DD] dark:bg-[#34383D] text-[#1D1D1B]/35 dark:text-[#F5F5F2]/30 cursor-not-allowed'}`}>
+                  {isLoading ? <><RefreshCw className="w-5 h-5 animate-spin" /> Memproses...</> : cashEnough
+                    ? <><Selesai className="w-5 h-5" /> BAYAR · Kembalian {formatIDR(cashTendered - grandTotal)}</>
+                    : <><Selesai className="w-5 h-5" /> BAYAR</>}
+                </button>
+                {!cashEnough && cashTendered > 0 && <p className="text-center text-[10px] font-bold text-[#C83B3B] dark:text-[#FF8B8B] mt-2">Nominal belum cukup. Tambah lewat keypad atau pilih Uang Pas.</p>}
+              </div>
             </div>
           )}
         </div>
@@ -256,13 +344,135 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
             <span className="text-ink-faint text-xs font-extrabold uppercase tracking-widest">{t('total')}</span>
             <span className="text-2xl font-extrabold text-ink dark:text-ink-inv money tracking-tight">{formatIDR(grandTotal)}</span>
           </div>
-          <button onClick={handleCheckout} disabled={!canPay}
-            className={`w-full py-4 rounded-xl font-extrabold text-sm transition-all active:scale-[.98] flex items-center justify-center gap-2 press ${canPay
-              ? 'bg-flame-600 hover:bg-flame-500 text-white shadow-card'
-              : 'bg-paper dark:bg-white/5 text-ink-faint'}`}>
-            {isLoading ? <><RefreshCw className="w-5 h-5 animate-spin" /> Memproses...</> : (!paymentMethod ? "Pilih Metode Pembayaran" : <><Selesai className="w-5 h-5" /> Proses Pesanan</>)}
-          </button>
+          {/* Cash: BAYAR sudah ada di keypad (Quick Cashier Mode) —
+              footer hanya ringkasan supaya tidak ada dua tombol bayar */}
+          {paymentMethod === 'Cash' && !isSelfOrder ? (
+            <p className="text-center text-[10.5px] font-bold text-ink-faint">
+              {cashEnough ? 'Semua siap. Tekan tombol BAYAR di keypad.' : 'Masukkan uang diterima di keypad tunai di atas.'}
+            </p>
+          ) : (
+            <button onClick={handleCheckout} disabled={!canPay}
+              className={`w-full py-4 rounded-xl font-extrabold text-sm transition-all active:scale-[.98] flex items-center justify-center gap-2 press ${canPay
+                ? 'bg-flame-600 hover:bg-flame-500 text-white shadow-card'
+                : 'bg-paper dark:bg-white/5 text-ink-faint'}`}>
+              {isLoading ? <><RefreshCw className="w-5 h-5 animate-spin" /> Memproses...</> : (!paymentMethod ? "Pilih Metode Pembayaran" : <><Selesai className="w-5 h-5" /> Proses Pesanan</>)}
+            </button>
+          )}
         </div>
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================
+   STATION KASIR GATE — identifikasi personal di POS Station.
+   Station tetap aktif di monitor; tiap kasir login pribadi dgn
+   PIN miliknya (dibuat di Manajemen Karyawan). Transaksi lalu
+   tercatat: station_id + branch_id + employee_id + shift_id.
+   ============================================================ */
+const StationKasirGate = ({ licenseInfo, onClose, triggerAlert }) => {
+  const staff = safeParse('karyawan_db', []).filter(e => (e.branchId || 'PUSAT') === (licenseInfo.branchId || 'PUSAT') && e.status !== 'nonaktif');
+  const [sel, setSel] = useState(null);
+  const [pin, setPin] = useState('');
+  const [err, setErr] = useState('');
+
+  // Shift aktif kasir (v12): penugasan owner dulu, lalu deteksi jam
+  // dari shift cabang. Shift ikut tercatat di setiap transaksi.
+  const shiftOfEmployee = (e) => {
+    const pusat = normShifts((safeParse('pengaturan_db', []).find(s => s.key === 'shift_pusat') || {}).shifts);
+    const shs = shiftsForBranch(licenseInfo.branchId || 'PUSAT', safeParse('cabang_db', []), pusat);
+    return (e?.shiftId ? shiftById(shs, e.shiftId) : null) || shiftOfMs(shs, Date.now());
+  };
+
+  const confirm = () => {
+    if (!sel) return;
+    if (sel.pin && String(sel.pin) !== pin) { setErr('PIN salah!'); setPin(''); return; }
+    try {
+      const sh = shiftOfEmployee(sel);
+      const saved = JSON.parse(localStorage.getItem('app_license') || '{}');
+      saved.employeeCid = sel.cid;
+      saved.employeeId = sel.empId || '';
+      saved.employeeName = sel.name;
+      saved.shiftId = sh ? `${licenseInfo.stationCode || 'POS'}-${sh.nama}-${todayKey()}` : `${licenseInfo.stationCode || 'POS'}-${sel.cid.slice(-4)}-${todayKey()}`;
+      saved.shiftNama = sh?.nama || null;
+      localStorage.setItem('app_license', JSON.stringify(saved));
+      auditLog(licenseInfo, 'STATION_KASIR_LOGIN', { target: sel.cid, kasir: sel.name, shift: sh?.nama || null }, { actor: sel.name, actorRole: sel.role || 'kasir' });
+      window.dispatchEvent(new Event('welp_session_update'));
+      triggerAlert(`Siap, ${sel.name}!${sh ? ` Shift ${sh.nama} (${sh.mulai}–${sh.selesai}).` : ''}`, 'success');
+      onClose();
+    } catch (e) { setErr('Gagal menyimpan sesi kasir.'); }
+  };
+
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'go'];
+  return (
+    <div className="fixed inset-0 z-[150] bg-chrome-deep/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+      <div className="w-full max-w-sm bg-surface dark:bg-surface-dark rounded-3xl shadow-pop p-5 animate-pop max-h-[92vh] overflow-y-auto custom-scrollbar">
+        <div className="flex items-center gap-2.5 mb-1">
+          <span className="w-9 h-9 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center"><Tim className="w-4.5 h-4.5" /></span>
+          <div>
+            <p className="font-extrabold text-[15px] text-ink dark:text-ink-inv">Kasir aktif di {licenseInfo.stationCode || 'Station'}</p>
+            <p className="text-[10px] font-bold text-ink-faint">Pilih namamu, lalu masukkan PIN pribadi</p>
+          </div>
+        </div>
+
+        {err && <p className="mt-3 px-3.5 py-2.5 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick text-xs font-bold">{err}</p>}
+
+        {!sel ? (
+          staff.length === 0 ? (
+            <div className="py-6 text-center">
+              <Tim className="w-9 h-9 text-ink-faint/40 mx-auto mb-2" />
+              <p className="text-xs font-bold text-ink-faint">Belum ada karyawan di cabang ini. Tambahkan dulu di Manajemen Karyawan.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              {staff.map(e => (
+                <button key={e.cid} onClick={() => { setSel(e); setPin(''); setErr(''); }}
+                  className="flex flex-col items-center gap-1.5 p-3 rounded-2xl border-2 border-line dark:border-line-dark bg-paper dark:bg-white/5 hover:border-flame-400 transition press">
+                  <span className="w-10 h-10 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold">{e.name?.[0]}</span>
+                  <span className="font-extrabold text-[12px] text-ink dark:text-ink-inv truncate max-w-full">{e.name}</span>
+                  <span className="text-[8.5px] font-extrabold uppercase tracking-wider text-ink-faint">{e.empId || 'ID belum ada'}</span>
+                </button>
+              ))}
+            </div>
+          )
+        ) : (
+          <div className="mt-4">
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-flame-50 dark:bg-flame-900/25 mb-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-9 h-9 rounded-2xl bg-flame-600 text-white flex items-center justify-center font-extrabold shrink-0">{sel.name?.[0]}</span>
+                <div className="min-w-0"><p className="font-extrabold text-sm truncate">{sel.name}</p><p className="text-[9.5px] font-bold text-ink-faint uppercase tracking-wider">{sel.empId || 'PIN belum diatur Owner'}</p></div>
+              </div>
+              <button onClick={() => { setSel(null); setPin(''); }} className="text-[10px] font-extrabold text-ink-faint hover:text-ink-soft transition shrink-0">Ganti</button>
+            </div>
+            {sel.pin ? (
+              <>
+                <div className="flex gap-2 justify-center mb-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className={`w-8 h-10 rounded-xl border-2 flex items-center justify-center ${i < pin.length ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25' : 'border-line dark:border-line-dark'}`}>
+                      {i < pin.length && <div className="w-2 h-2 rounded-full bg-flame-500" />}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {keys.map(k => k === 'del'
+                    ? <button key={k} onClick={() => setPin(p => p.slice(0, -1))} className="py-3 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick font-extrabold active:scale-95 press"><HapusBuddy className="w-4.5 h-4.5 mx-auto" /></button>
+                    : k === 'go'
+                      ? <button key={k} onClick={confirm} disabled={pin.length < 6} className="py-3 rounded-xl bg-flame-600 text-white flex items-center justify-center disabled:opacity-40 active:scale-95 press"><Check className="w-5 h-5" /></button>
+                      : <button key={k} onClick={() => setPin(p => (p.length < 6 ? p + k : p))} className="py-3 rounded-xl bg-paper dark:bg-white/5 text-ink dark:text-ink-inv text-lg font-extrabold active:scale-95 press">{k}</button>)}
+                </div>
+              </>
+            ) : (
+              <div className="text-center py-3">
+                <p className="text-[11px] font-bold text-ink-faint mb-3">Kasir ini belum punya PIN pribadi. Transaksi tetap tercatat atas namanya, tapi minta Owner mengatur PIN di Manajemen Karyawan biar aman.</p>
+                <Button onClick={confirm} className="w-full py-3.5">Lanjut sebagai {sel.name}</Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <button onClick={onClose} className="w-full mt-3 py-2.5 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition">
+          {licenseInfo?.employeeName ? 'Tutup' : 'Nanti saja'}
+        </button>
       </div>
     </div>
   );
@@ -290,6 +500,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
   const [profile, setProfile] = useState({});
   const [priceTier, setPriceTier] = useState('retail');
   const [isLoading, setIsLoading] = useState(false);
+  const [kasirGate, setKasirGate] = useState(false);   // POS Station: pilih kasir aktif
 
   // LIVE CAMERA SCANNER STATE
   const [liveScanner, setLiveScanner] = useState({ show: false, mode: '' });
@@ -318,6 +529,11 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     setActiveOrders(safeParse('active_orders_db', []));
     setProfile(safeParse('store_profile', {}));
   }, []);
+
+  // POS Station wajib punya kasir aktif (identitas manusia) sebelum transaksi
+  useEffect(() => {
+    if (licenseInfo?.isStation && !licenseInfo?.employeeName) setKasirGate(true);
+  }, [licenseInfo?.isStation, licenseInfo?.employeeName]);
 
   // LOGIKA LIVE CAMERA SCANNER — BarcodeDetector nyata (bukan simulasi).
   useEffect(() => {
@@ -430,8 +646,16 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
         total: bill.total, cashTendered: paymentMethod === 'Cash' ? cashTendered : 0,
         change: paymentMethod === 'Cash' ? Math.max(0, cashTendered - bill.total) : 0,
         orderType: orderType, tableNo: tableNo, notes: notes,
-        status: 'pending', branchId: BRANCH_ID
+        status: 'pending', branchId: licenseInfo?.branchId || BRANCH_ID,
+        // jejak perangkat & manusia: transaksi tercatat pada POS Station
+        // tertentu dan dilakukan oleh karyawan tertentu.
+        stationCode: licenseInfo?.stationCode || null,
+        employeeId: licenseInfo?.employeeId || null,
+        employeeName: licenseInfo?.employeeName || null,
+        shiftId: licenseInfo?.shiftId || `${licenseInfo?.stationCode || licenseInfo?.branchId || 'PUSAT'}-${todayKey()}`,
+        shiftNama: licenseInfo?.shiftNama || null
       };
+      auditLog(licenseInfo, 'TRANSAKSI_BARU', { target: newOrder.id, total: bill.total, method: paymentMethod, items: cart.length });
 
       const updatedProducts = [...products];
       const rawMaterialsDb = safeParse('raw_material_db', []);
@@ -484,6 +708,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     const completedOrder = { ...order, status: 'paid', paidAt: new Date().toISOString() };
     localStorage.setItem('pos_history_db', JSON.stringify([...history, completedOrder]));
     saveActiveOrders(activeOrders.map(o => o.id === order.id ? completedOrder : o));
+    auditLog(licenseInfo, 'TRANSAKSI_LUNAS', { target: order.id, total: order.total, method: order.paymentMethod });
     setSelectedOrder(completedOrder);
   };
 
@@ -509,6 +734,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       localStorage.setItem('product_stock_db', JSON.stringify(newStock));
       restoreMaterialUsage(order);
       saveActiveOrders(activeOrders.filter(o => o.id !== order.id));
+      auditLog(licenseInfo, 'TRANSAKSI_DIBATALKAN', { target: order.id, total: order.total });
       setSelectedOrder(null);
     }
   };
@@ -528,6 +754,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     setNotes(order.notes || '');
     setOrderType(order.orderType || 'Take away');
     setTableNo(order.tableNo || '');
+    setCashTendered(0);                                  // nominal lama tidak terbawa saat edit ulang
     saveActiveOrders(activeOrders.filter(o => o.id !== order.id));
     setSelectedOrder(null);
     setViewMode('shop');
@@ -661,6 +888,22 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
 
   return (
     <div className="h-full w-full max-w-7xl mx-auto relative">
+
+      {/* ===== banner POS STATION: identitas perangkat + kasir aktif ===== */}
+      {licenseInfo?.isStation && (
+        <div className="mb-4 flex items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-chrome-deep dark:bg-chrome-panel text-ink-inv shadow-card">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <LayarBuddy className="w-4.5 h-4.5 text-apricot shrink-0" />
+            <p className="text-[11px] font-extrabold truncate">
+              {licenseInfo.stationCode || 'POS'} · {licenseInfo.branchName || 'Cabang'} · Kasir: {licenseInfo.employeeName || 'belum ada'}
+              {licenseInfo.shiftNama && <span className="text-apricot"> · Shift {licenseInfo.shiftNama}</span>}
+            </p>
+          </div>
+          <button onClick={() => setKasirGate(true)} className="text-[10px] font-extrabold px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 transition shrink-0 press">
+            {licenseInfo.employeeName ? 'Ganti Kasir' : 'Pilih Kasir'}
+          </button>
+        </div>
+      )}
 
       {/* ===== view switcher ===== */}
       <div className="flex gap-1.5 mb-5 bg-surface dark:bg-surface-dark p-1 rounded-xl border border-line dark:border-line-dark shadow-card inline-flex">
@@ -880,6 +1123,13 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       )}
 
       {showReceipt && <ReceiptModal order={showReceipt} profile={profile} onClose={() => setShowReceipt(null)} />}
+
+      {/* ===== GATE KASIR AKTIF (POS Station) =====
+          Perangkat tetap login sebagai station, tapi tiap manusia
+          mengidentifikasi diri dengan akun employee sendiri. */}
+      {kasirGate && licenseInfo?.isStation && (
+        <StationKasirGate licenseInfo={licenseInfo} onClose={() => setKasirGate(false)} triggerAlert={triggerAlert} />
+      )}
 
       {/* ============ OVERLAY SCANNER ============ */}
       {liveScanner.show && (

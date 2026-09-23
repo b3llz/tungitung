@@ -114,7 +114,7 @@ const SelfOrderApp = ({ tableNo, profile, lic, token }) => {
       loading: { tone: 'bg-gold-soft dark:bg-gold/10 text-gold-deep dark:text-gold', icon: WaktuReal, t: 'Memeriksa sesi meja...' },
       'device-other': { tone: 'bg-brick-soft dark:bg-brick/10 text-brick-deep dark:text-brick', icon: Perangkat, t: 'Meja ini sedang dipakai perangkat lain. Satu QR hanya untuk satu perangkat yang memindai.' },
       closed: { tone: 'bg-gold-soft dark:bg-gold/10 text-gold-deep dark:text-gold', icon: Qris, t: 'Sesi meja sudah ditutup kasir. Minta pelayan memindai ulang QR untuk sesi baru.' },
-      invalid: { tone: 'bg-brick-soft dark:bg-brick/10 text-brick-deep dark:text-brick', icon: BahayaBuddy, t: 'QR tidak valid / sudah di-reset. Silakan scan QR terbaru yang tertempel di meja.' },
+      invalid: { tone: 'bg-brick-soft dark:bg-brick/10 text-brick-deep dark:text-brick', icon: BahayaBuddy, t: 'QR tidak valid atau sudah di-reset. Scan ulang QR terbaru yang tertempel di meja.' },
       legacy: { tone: 'bg-gold-soft dark:bg-gold/10 text-gold-deep dark:text-gold', icon: PerisaiBuddy, t: 'Mode aman: QR ini belum memakai token sesi. Menu hanya bisa dilihat — minta QR terbaru dari kasir untuk memesan.' },
     }[session.status] || { tone: '', icon: BahayaBuddy, t: '' };
     return (
@@ -154,7 +154,7 @@ const SelfOrderApp = ({ tableNo, profile, lic, token }) => {
                 <div className="col-span-2 pt-10 text-center text-ink-faint">
                   <Mascot pose="bingung" className="w-24 h-24 object-contain mx-auto mb-3" alt="" />
                   <p className="font-bold text-sm">Menu belum tersedia</p>
-                  <p className="text-xs mt-1">Silakan hubungi pelayan untuk memesan.</p>
+                  <p className="text-xs mt-1">Langsung aja panggil pelayan buat pesan.</p>
                 </div>
               ) : available.map(p => {
                 const inCart = cart.find(i => i.id === p.id);

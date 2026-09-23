@@ -11,7 +11,31 @@
    matang, ikon bertabur karakter, tipografi rounded-friendly.
    ============================================================ */
 
-:root { --font-sans: 'Nunito', ui-sans-serif, system-ui, sans-serif; }
+:root {
+  --font-sans: 'Nunito', ui-sans-serif, system-ui, sans-serif;
+
+  /* ============================================================
+     PALET BRAND WELP (v14) — sumber tunggal warna flame/apricot.
+     Semua kelas Tailwind flame-* / apricot-* membaca var ini.
+     Fitur Custom Aplikasi menimpa nilainya saat runtime lewat
+     applyBranding() di core.jsx (merah / biru / hijau / kustom).
+     Format: triplet RGB "244 98 46" agar alpha <alpha-value> jalan.
+     ============================================================ */
+  --fl-50: 255 244 235;   /* #FFF4EB */
+  --fl-100: 255 229 209;  /* #FFE5D1 */
+  --fl-200: 254 201 164;  /* #FEC9A4 */
+  --fl-300: 253 166 113;  /* #FDA671 */
+  --fl-400: 251 129 66;   /* #FB8142 */
+  --fl-500: 244 98 46;    /* #F4622E — accent utama */
+  --fl-600: 216 67 18;    /* #D84312 — CTA / hover */
+  --fl-700: 178 53 8;     /* #B23508 */
+  --fl-800: 143 44 12;    /* #8F2C0C */
+  --fl-900: 116 39 14;    /* #74270E */
+  --fl-950: 65 21 10;     /* #41150A */
+  --ap-base: 255 163 107; /* #FFA36B */
+  --ap-deep: 249 143 79;  /* #F98F4F */
+  --ap-dim: 192 102 47;   /* #C0662F */
+}
 
 html { -webkit-tap-highlight-color: transparent; }
 body {

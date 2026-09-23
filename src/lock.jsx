@@ -10,11 +10,11 @@
 // ============================================================
 import React, { useState } from 'react';
 import { doc, getDoc, collection, getDocs } from "firebase/firestore";
-import { db, safeParse, syncSession } from './core.jsx';
+import { db, safeParse, syncSession, auditLog } from './core.jsx';
 import { BrandLockup, BrandLogo, Mascot } from './brand.jsx';
 import {
   HppCalc, Kasir, Laporan, Pindai,
-  PerisaiBuddy, GembokBuddy, Kredensial, HapusBuddy, Lisensi, Cabang
+  PerisaiBuddy, GembokBuddy, Kredensial, HapusBuddy, Lisensi, Cabang, LayarBuddy
 } from './welp-icons.jsx';
 import {
   Arch, QuarterArcs, Halftone, WavyLines, Sticker, Burst,
@@ -52,11 +52,12 @@ const LoginDecor = () => (
 
 export const LockScreen = ({ onUnlock }) => {
   const [step, setStep] = useState(1);
-  const [mode, setMode] = useState('pusat');           // pusat | cabang
+  const [mode, setMode] = useState('pusat');           // pusat | cabang | station
   const [branches, setBranches] = useState([]);
   const [branchId, setBranchId] = useState('');
   const [inputId, setInputId] = useState("");
   const [inputPass, setInputPass] = useState("");
+  const [stationCode, setStationCode] = useState('');   // mode Station: POS-001
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [tenantData, setTenantData] = useState(null);
@@ -66,7 +67,46 @@ export const LockScreen = ({ onUnlock }) => {
 
   const handleTenantLogin = async () => {
     setErr('');
-    if (!inputId || !inputPass) return triggerAlert("Isi ID dan Password dulu, ya!");
+    if (!inputId) return triggerAlert("Isi ID Toko dulu, ya!");
+
+    /* ===== LOGIN POS STATION =====
+       Perangkat kasir: ID Toko + kode station + PIN station.
+       Tanpa password owner di monitor kasir. Station aktif
+       langsung ke konteks POS cabangnya (role kasir + isStation). */
+    if (mode === 'station') {
+      if (!stationCode.trim() || !inputPass) return triggerAlert('Isi kode station & PIN station-nya.');
+      setLoading(true);
+      try {
+        const docRef = doc(db, "licenses", inputId.toLowerCase());
+        const docSnap = await getDoc(docRef);
+        if (!docSnap.exists()) { triggerAlert('ID Toko tidak ditemukan!'); setLoading(false); return; }
+        const data = docSnap.data(); data.id = docSnap.id;
+        if (!data.active) { triggerAlert('Akun toko dinonaktifkan admin.'); setLoading(false); return; }
+        if (new Date() > new Date(data.validUntil)) { triggerAlert('Masa aktif habis.'); setLoading(false); return; }
+
+        const snap = await getDocs(collection(db, 'tenants', data.id, 'stations'));
+        const st = snap.docs.map(d => ({ cid: d.id, ...d.data() }))
+          .find(s => String(s.code || '').toLowerCase() === stationCode.trim().toLowerCase());
+        if (!st) { triggerAlert('Kode station tidak ditemukan. Cek di Manajemen Cabang bagian POS Station.'); setLoading(false); return; }
+        if (!st.active) { triggerAlert('Station ini sedang dinonaktifkan Owner.'); setLoading(false); return; }
+        if (String(st.pin) !== inputPass.trim()) { triggerAlert('PIN station salah!'); setLoading(false); return; }
+
+        const { password, ownerPin, ...safeLic } = data;
+        const sessionData = {
+          ...safeLic, currentUserRole: 'kasir', isStation: true,
+          stationCode: st.code, stationCid: st.cid,
+          branchId: st.branchId || 'PUSAT', branchName: st.branchName || 'Cabang',
+          employeeName: null, employeeId: null
+        };
+        syncSession('LOGIN_STATION', sessionData);
+        auditLog(sessionData, 'LOGIN_STATION', { target: st.code });
+        onUnlock(sessionData);
+      } catch (error) { triggerAlert('Error Koneksi: ' + error.message); }
+      setLoading(false);
+      return;
+    }
+
+    if (!inputPass) return triggerAlert("Isi password dulu, ya!");
     setLoading(true);
     try {
       const docRef = doc(db, "licenses", inputId.toLowerCase());
@@ -128,6 +168,7 @@ export const LockScreen = ({ onUnlock }) => {
         ...(branch ? { branchId: branch.cid, branchName: branch.name, isBranch: true } : { branchId: 'PUSAT' })
       };
       syncSession('LOGIN', sessionData);
+      auditLog(sessionData, branch ? 'LOGIN_CABANG' : (role === 'owner' ? 'LOGIN_OWNER' : 'LOGIN_KARYAWAN'), { target: sessionData.id }, { actorRole: role });
       onUnlock(sessionData);
     } else {
       triggerAlert("PIN salah atau akses ditolak!");
@@ -209,15 +250,16 @@ export const LockScreen = ({ onUnlock }) => {
                 <h1 className="text-[26px] font-display font-extrabold text-ink dark:text-ink-inv tracking-tight">Selamat datang!</h1>
                 <p className="text-xs text-ink-faint font-bold mt-1 mb-4">Masuk pakai akun tokomu untuk lanjut.</p>
 
-                {/* Mode: Pusat / Cabang */}
-                <div className="grid grid-cols-2 gap-2 mb-5 p-1 bg-paper dark:bg-white/5 rounded-2xl">
+                {/* Mode: Pusat / Cabang / Station */}
+                <div className="grid grid-cols-3 gap-1.5 mb-5 p-1 bg-paper dark:bg-white/5 rounded-2xl">
                   {[
-                    { id: 'pusat', label: 'Pusat (Owner)', icon: GembokBuddy },
+                    { id: 'pusat', label: 'Owner', icon: GembokBuddy },
                     { id: 'cabang', label: 'Cabang', icon: Cabang },
+                    { id: 'station', label: 'Station', icon: LayarBuddy },
                   ].map(m => (
                     <button key={m.id} type="button" onClick={() => { setMode(m.id); setErr(''); }}
-                      className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[11px] font-extrabold transition press ${mode === m.id ? 'bg-flame-500 text-white shadow-card' : 'text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv'}`}>
-                      <m.icon className="w-4 h-4" /> {m.label}
+                      className={`flex items-center justify-center gap-1 py-2.5 rounded-xl text-[10.5px] font-extrabold transition press ${mode === m.id ? 'bg-flame-500 text-white shadow-card' : 'text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv'}`}>
+                      <m.icon className="w-3.5 h-3.5" /> {m.label}
                     </button>
                   ))}
                 </div>
@@ -233,15 +275,34 @@ export const LockScreen = ({ onUnlock }) => {
                     <label className="kicker block mb-1.5 ml-0.5">ID Toko</label>
                     <input value={inputId} onChange={e => setInputId(e.target.value)} className="field-lg" placeholder="misal: kopi-senja" autoComplete="username" />
                   </div>
-                  <div>
-                    <label className="kicker block mb-1.5 ml-0.5">{mode === 'cabang' ? 'Password Cabang' : 'Password'}</label>
-                    <input type="password" value={inputPass} onChange={e => setInputPass(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleTenantLogin()}
-                      className="field-lg" placeholder="••••••••" autoComplete="current-password" />
-                  </div>
+                  {mode === 'station' ? (
+                    <>
+                      <div>
+                        <label className="kicker block mb-1.5 ml-0.5">Kode Station</label>
+                        <input value={stationCode} onChange={e => setStationCode(e.target.value)}
+                          className="field-lg font-mono" placeholder="POS-001" autoComplete="off" />
+                      </div>
+                      <div>
+                        <label className="kicker block mb-1.5 ml-0.5">PIN Station</label>
+                        <input type="password" value={inputPass} onChange={e => setInputPass(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleTenantLogin()}
+                          className="field-lg" placeholder="6 digit dari Owner" autoComplete="current-password" />
+                      </div>
+                      <p className="text-[10px] text-ink-faint font-bold flex items-center gap-1.5">
+                        <LayarBuddy className="w-3.5 h-3.5 text-flame-500" /> Mode perangkat kasir: station menetap di monitor, kasir login pribadi setelahnya.
+                      </p>
+                    </>
+                  ) : (
+                    <div>
+                      <label className="kicker block mb-1.5 ml-0.5">{mode === 'cabang' ? 'Password Cabang' : 'Password'}</label>
+                      <input type="password" value={inputPass} onChange={e => setInputPass(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleTenantLogin()}
+                        className="field-lg" placeholder="••••••••" autoComplete="current-password" />
+                    </div>
+                  )}
                   <button onClick={handleTenantLogin} disabled={loading}
                     className="w-full mt-2 bg-flame-600 hover:bg-flame-500 text-white py-3.5 rounded-2xl font-extrabold text-sm transition disabled:opacity-60 shadow-card flex items-center justify-center gap-2 press">
-                    {loading ? (<><span className="spinner-ring"></span> Memeriksa...</>) : (<>Masuk</>)}
+                    {loading ? (<><span className="spinner-ring"></span> Memeriksa...</>) : (mode === 'station' ? 'Aktifkan Station' : 'Masuk')}
                   </button>
                   <p className="text-[10px] text-ink-faint mt-3 flex items-center justify-center gap-1.5 font-bold">
                     <GembokBuddy className="w-3 h-3" /> Koneksi terenkripsi, data toko aman
@@ -319,7 +380,7 @@ export const LockScreen = ({ onUnlock }) => {
 
           <div className="flex items-center justify-center gap-1.5 mt-5">
             <Lisensi className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-            <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">Lisensi terkelola · WELP v10</p>
+            <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">Lisensi terkelola · WELP v14</p>
           </div>
         </div>
 

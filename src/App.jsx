@@ -13,7 +13,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { BrandLogo } from './ui';
 import { Gelap, Terang } from './welp-icons.jsx';
 
-import { db, safeParse, syncSession } from './core.jsx';
+import { db, safeParse, syncSession, useBranding } from './core.jsx';
 import { Toast } from './ui';
 import { LockScreen, BannedScreen, RestoredScreen } from './lock';
 import { HomeTab } from './home';
@@ -23,7 +23,7 @@ import { ReportTab } from './report';
 import { StockTab, OpnameTab, InOutTab, StockHistoryTab, SupplierTab } from './inventory';
 import { HistoryTab, CashOutTab, DiscountTab } from './ops';
 import { HardwareTab, ProfileTab, PaymentTab, SettingsTab } from './settings';
-import { BranchTab, KaryawanTab, OutletTab, AbsensiTab, PayrollTab } from './team';
+import { BranchTab, KaryawanTab, OutletTab, AbsensiTab, PayrollTab, PerusahaanTab } from './team';
 import { AbsensiApp } from './absensi-app';
 import { Sidebar, BottomNav, MenuSheet } from './shell';
 import { SelfOrderApp } from './selforder';
@@ -39,6 +39,10 @@ const MainAdminApp = () => {
   const [popup, setPopup] = useState({ show: false, message: '', type: 'success' });
   const [isEditingMode, setIsEditingMode] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Custom Aplikasi (v14): baca konfigurasi branding tenant realtime
+  // → logo & warna UI perusahaan langsung dipakai di seluruh app.
+  useBranding(licenseInfo);
 
   // Role + badge stok menipis (dibaca langsung dari localStorage agar selalu segar).
   const role = licenseInfo?.currentUserRole || 'owner';
@@ -146,6 +150,18 @@ const MainAdminApp = () => {
     return () => clearInterval(interval);
   }, [licenseInfo]);
 
+  // POS Station: ganti kasir aktif → segarkan sesi dari localStorage
+  useEffect(() => {
+    const onSess = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('app_license') || 'null');
+        if (saved) setLicenseInfo(saved);
+      } catch (e) { }
+    };
+    window.addEventListener('welp_session_update', onSess);
+    return () => window.removeEventListener('welp_session_update', onSess);
+  }, []);
+
   if (isBanned) return <BannedScreen id={licenseInfo?.id || "UNKNOWN"} />;
   if (isRestored) return <RestoredScreen onContinue={() => { setIsRestored(false); setIsLocked(true); }} />;
   if (isLocked) return <LockScreen onUnlock={handleUnlock} id={licenseInfo?.id} />;
@@ -180,8 +196,9 @@ const MainAdminApp = () => {
             <div className={active === 'discount' ? 'block' : 'hidden'}><DiscountTab triggerAlert={triggerAlert} /></div>
             <div className={active === 'employee' ? 'block' : 'hidden'}><BranchTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
             <div className={active === 'karyawan' ? 'block' : 'hidden'}><KaryawanTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
-            <div className={active === 'absensi' ? 'block' : 'hidden'}><AbsensiTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
+            <div className={active === 'absensi' ? 'block' : 'hidden'}><AbsensiTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} sessionRole={role} sessionBranchId={licenseInfo?.branchId || 'PUSAT'} /></div>
             <div className={active === 'payroll' ? 'block' : 'hidden'}><PayrollTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} sessionRole={role} sessionBranchId={licenseInfo?.branchId || 'PUSAT'} /></div>
+            <div className={active === 'perusahaan' ? 'block' : 'hidden'}><PerusahaanTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
 
             <div className={active === 'stock' ? 'block' : 'hidden'}>
               <StockTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} />
@@ -220,9 +237,9 @@ const App = () => {
 
   if (urlParams.get('dev') === 'panel') return <DeveloperPanel />;
 
-  // HALAMAN ABSENSI KARYAWAN — app terpisah dari kasir (?absen=1).
-  // Karyawan login pakai PIN cabang + pilih nama; selfie + GPS +
-  // waktu server; data realtime masuk ke Kelola Absensi owner.
+  // APLIKASI KARYAWAN — app terpisah dari kasir (?absen=1).
+  // Login pakai sistem utama WELP (ID toko + cabang + PIN pribadi
+  // karyawan); absensi, slip gaji pribadi, pengajuan cuti & profil.
   if (urlParams.get('absen') != null) {
     return <AbsensiApp preLic={urlParams.get('lic') || ''} />;
   }

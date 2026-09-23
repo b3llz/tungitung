@@ -729,7 +729,7 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
 
       <div className="flex items-center justify-center gap-1.5 pt-2">
         <BadgeCheck className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-        <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">WELP v10 · Fresh Ink</p>
+        <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">WELP v14 · Fresh Ink</p>
       </div>
     </div>
   );
