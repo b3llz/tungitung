@@ -1,5 +1,5 @@
 // ============================================================
-// DEVELOPER PANEL v9 (WELP v15.1) — route ?dev=panel.
+// DEVELOPER PANEL v9.1 (WELP v15.1) — route ?dev=panel.
 // v15.1 PERUBAHAN:
 //   • Allowlist email developer (DEV_EMAILS) — hapus tenant hanya
 //     utk email di daftar + email terverifikasi (selaras rules v15.1).
@@ -8,11 +8,20 @@
 //   • Registrasi tenant: modal KREDENSI TAMPAK SEKALI (copy) —
 //     catat sebelum menutup; setelah itu tersimpan hash.
 //   • Banner + tombol kirim verifikasi email bila belum verified.
+// v9.1 FIX (link verifikasi "sudah digunakan"):
+//   • Tombol CEK STATUS: reload user + paksa refresh token → badge langsung
+//     jujur (sebelumnya: email sudah terverifikasi tapi badge tetap kuning
+//     karena status sesi tidak pernah di-refresh).
+//   • Setelah verifikasi sukses, halaman Firebase me-redirect balik ke
+//     panel → status otomatis di-refresh, tidak perlu logout-login.
+//   • Cooldown kirim 45 dtk: kirim ulang MEMATIKAN link sebelumnya
+//     (Firebase hanya mengizinkan 1 link terbaru per user).
+//   • actionCodeSettings.url → balik ke panel, bukan halaman kosong.
 // ============================================================
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useReducer } from 'react';
 import { db, auth, fileToDataUrl, hexToTriplet, writeBrandMirror, makeCred, anonAuthBlocked } from './core.jsx';
 import {
-  getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, sendEmailVerification
+  getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, sendEmailVerification, applyActionCode
 } from 'firebase/auth';
 import {
   collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, writeBatch, onSnapshot, query, orderBy
@@ -242,6 +251,73 @@ export const DeveloperPanel = () => {
   const devListed = !!devEmail && DEV_EMAILS.includes(devEmail);
   const devVerified = devListed && user.emailVerified === true;
 
+  /* ---- v9.1: verifikasi email yang tidak bikin frustrasi ----
+   * Fakta Firebase: link verifikasi SEKALI pakai, dan hanya link
+   * TERBARU yang valid (kirim ulang = link lama mati). Status
+   * emailVerified di sesi juga TIDAK update sendiri — butuh
+   * reload() + refresh token supaya rules ikut percaya. */
+  const [resendCd, setResendCd] = useState(0);
+  const [busyVerif, setBusyVerif] = useState(false);
+  const [, bumpStatus] = useReducer((x) => x + 1, 0);
+
+  useEffect(() => {
+    if (resendCd <= 0) return undefined;
+    const t = setTimeout(() => setResendCd((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCd]);
+
+  const refreshDevStatus = async () => {
+    if (busyVerif) return;
+    setBusyVerif(true);
+    try {
+      const u = getAuth().currentUser;
+      if (!u) return;
+      await u.reload();
+      await u.getIdToken(true); // paksa token baru → claim email_verified terbarui utk rules
+      bumpStatus();
+      showToast(u.emailVerified
+        ? 'Status: TERVERIFIKASI ✓ — badge DEV hijau aktif.'
+        : 'Masih belum terverifikasi. Buka email TERBARU, klik link-nya SATU kali saja.');
+    } catch (e) {
+      showToast('Gagal cek status: ' + (e.code || e.message));
+    }
+    setBusyVerif(false);
+  };
+
+  const kirimVerifikasi = async () => {
+    if (busyVerif || resendCd > 0) return;
+    setBusyVerif(true);
+    try {
+      await sendEmailVerification(user, {
+        url: window.location.origin + window.location.pathname,
+        handleCodeInApp: false,
+      });
+      setResendCd(45);
+      showToast('Terkirim. Klik link di email PALING ATAS — cukup sekali. Link lama otomatis mati.');
+    } catch (e) {
+      showToast('Gagal kirim: ' + (e.code || e.message)
+        + (e.code === 'too-many-requests' ? ' — terlalu sering, tunggu beberapa menit.' : ''));
+    }
+    setBusyVerif(false);
+  };
+
+  // v9.1: balik dari link verifikasi (halaman hosted Firebase me-redirect
+  // ke panel dengan ?mode=verifyEmail&oobCode=...) → refresh otomatis.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('mode') !== 'verifyEmail' || !p.get('oobCode') || !authReady) return;
+    (async () => {
+      try {
+        try { await applyActionCode(getAuth(), p.get('oobCode')); } catch (_) { /* kode mungkin sudah dipakai halaman hosted — cek status saja */ }
+        const u = getAuth().currentUser;
+        if (u) { await u.reload().catch(() => {}); await u.getIdToken(true).catch(() => {}); }
+        window.history.replaceState({}, '', window.location.pathname);
+        bumpStatus();
+        showToast(u && u.emailVerified ? 'Email developer terverifikasi ✓' : 'Verifikasi diproses — tekan Cek Status bila badge belum hijau.');
+      } catch (_) { /* diam */ }
+    })();
+  }, [authReady]);
+
   if (!authReady) {
     return <div className="min-h-screen bg-paper dark:bg-chrome-deep flex items-center justify-center"><div className="spinner-ring"></div></div>;
   }
@@ -321,12 +397,21 @@ export const DeveloperPanel = () => {
           </div>
         )}
 
-        {/* v15.1: email dev terdaftar tapi belum verifikasi — hapus tenant akan ditolak rules */}
+        {/* v15.1 + v9.1: email dev terdaftar tapi belum verifikasi */}
         {devListed && !devVerified && (
           <div className="bg-gold-soft dark:bg-gold/10 border border-gold/40 text-gold-deep dark:text-gold text-[11px] font-bold p-3.5 rounded-2xl leading-relaxed">
             <p className="flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Email {user.email} ada di allowlist tapi <b>belum terverifikasi</b>. Verifikasi dulu supaya hapus tenant diizinkan rules v15.1.</p>
-            <button onClick={() => sendEmailVerification(user).then(() => showToast('Email verifikasi terkirim — cek inbox/spam.')).catch((e) => showToast('Gagal kirim: ' + (e.code || e.message)))}
-              className="mt-2 px-3.5 py-2 rounded-xl bg-gold/90 hover:bg-gold text-white text-[10.5px] font-extrabold press">Kirim email verifikasi</button>
+            <p className="mt-2 text-[10px] font-bold opacity-80 leading-relaxed">Link Firebase sekali pakai & kirim ulang mematikan link lama — jadi klik link di email <b>paling atas</b> (terbaru), <b>satu kali saja</b>, di tab browser biasa. Kalau link selalu tertulis "sudah digunakan", besar kemungkinan emailmu sebenarnya SUDAH terverifikasi sejak klik pertama: langsung tekan <b>Cek Status</b>.</p>
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              <button onClick={kirimVerifikasi} disabled={busyVerif || resendCd > 0}
+                className="px-3.5 py-2 rounded-xl bg-gold/90 hover:bg-gold text-white text-[10.5px] font-extrabold press disabled:opacity-50">
+                {resendCd > 0 ? 'Kirim ulang (' + resendCd + 's)' : 'Kirim email verifikasi'}
+              </button>
+              <button onClick={refreshDevStatus} disabled={busyVerif}
+                className="px-3.5 py-2 rounded-xl border border-gold/60 text-gold-deep dark:text-gold text-[10.5px] font-extrabold press disabled:opacity-50">
+                {busyVerif ? 'Memeriksa…' : 'Cek Status'}
+              </button>
+            </div>
           </div>
         )}
         {user && !devListed && (
