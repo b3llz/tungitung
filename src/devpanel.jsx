@@ -1,24 +1,39 @@
 // ============================================================
-// DEVELOPER PANEL v8 — route ?dev=panel. Logika 100% sama:
-// Firebase Auth (email/password developer), registrasi tenant ke
-// Firestore `licenses`, onSnapshot daftar tenant, suspend/aktif,
-// hapus, salin kredensial.
-// TAMPILAN BARU: mengikuti style aplikasi WELP — kartu surface,
-// gradasi flame, ikon Buddy, stat ringkas, badge status.
+// DEVELOPER PANEL v9 (WELP v15.1) — route ?dev=panel.
+// v15.1 PERUBAHAN:
+//   • Allowlist email developer (DEV_EMAILS) — hapus tenant hanya
+//     utk email di daftar + email terverifikasi (selaras rules v15.1).
+//   • Hapus tenant: konfirmasi 2 langkah + bersih-bersih data
+//     tenants/{lic} (best-effort) setelah lisensi terhapus.
+//   • Registrasi tenant: modal KREDENSI TAMPAK SEKALI (copy) —
+//     catat sebelum menutup; setelah itu tersimpan hash.
+//   • Banner + tombol kirim verifikasi email bila belum verified.
 // ============================================================
 import React, { useState, useEffect } from 'react';
 import { db, auth, fileToDataUrl, hexToTriplet, writeBrandMirror, makeCred, anonAuthBlocked } from './core.jsx';
 import {
-  getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
+  getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, sendEmailVerification
 } from 'firebase/auth';
 import {
-  collection, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy
+  collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, writeBatch, onSnapshot, query, orderBy
 } from 'firebase/firestore';
 import { AppSymbol, Mascot } from './brand.jsx';
 import {
   PerisaiBuddy, GembokBuddy, Lisensi, Trash2, Copy, Check,
   MonitorPusat, Kredensial, WaktuReal, BahayaBuddy, KoinBuddy, Terang, Gelap, Toko
 } from './welp-icons.jsx';
+
+// v15.1: allowlist developer — email di sini + email_verified di Firebase
+// = boleh menghapus tenant (selaras function isDev() di firestore.rules).
+const DEV_EMAILS = ['shandikazaid@gmail.com'];
+
+// Koleksi yang dibersihkan saat tenant dihapus (best-effort).
+const PURGE_COLLECTIONS = [
+  'produk', 'bahan', 'resep', 'orders', 'pos_history', 'kas_keluar',
+  'supplier', 'riwayat_stok', 'self_orders', 'pengaturan', 'cabang',
+  'karyawan', 'stations', 'absensi', 'payroll', 'pengajuan', 'dokumen',
+  'audit_log', 'meja_sessions'
+];
 
 export const DeveloperPanel = () => {
   const [user, setUser] = useState(null);
@@ -39,6 +54,11 @@ export const DeveloperPanel = () => {
   const [toast, setToast] = useState('');
   const [accessErr, setAccessErr] = useState('');
   const [copiedId, setCopiedId] = useState(null);
+  // v15.1: kredensial tenant baru — tampil SEKALI di modal setelah simpan
+  const [justMade, setJustMade] = useState(null);
+  // v15.1: konfirmasi hapus 2 langkah + status proses
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [delBusy, setDelBusy] = useState(false);
 
   // ===== FITUR CUSTOM APLIKASI (white-label) =====
   // Perusahaan yang mau custom bisa request ke developer. Developer
@@ -166,16 +186,61 @@ export const DeveloperPanel = () => {
         active: true, validUntil: date.toISOString(), createdAt: new Date().toISOString(),
         createdBy: auth.currentUser ? auth.currentUser.email : 'unknown'
       });
-      showToast('Tenant ' + storeName + ' terdaftar! Kredensial tersimpan hash — catat di tempat aman.');
+      // v15.1: kredensial ditampilkan SEKALI di modal — salin/catat dulu
+      // sebelum menutup. Setelah ini tersimpan hash, tidak bisa dilihat lagi.
+      setJustMade({ id: tenantId.toLowerCase(), tenant: storeName, pass: password, pin: ownerPin });
       setStoreName(''); setTenantId(''); setPassword(''); setOwnerPin('');
     } catch (e) { showToast('Gagal simpan: ' + e.message); }
     setSaving(false);
   };
   const toggleStatus = (id, status) => updateDoc(doc(db, 'licenses', id), { active: status }).catch((e) => showToast('Gagal: ' + e.code));
-  const delTenant = (id) => { if (confirm('Hapus tenant ' + id + ' permanen?')) deleteDoc(doc(db, 'licenses', id)).catch((e) => showToast('Gagal: ' + e.code)); };
+
+  // v15.1: bersih-bersih data tenants/{lic} (best-effort) — lisensi tetap
+  // dihapus dulu sebagai operasi kritis; kegagalan purge tidak membatalkan.
+  const purgeTenantData = async (lic) => {
+    let total = 0;
+    for (const col of PURGE_COLLECTIONS) {
+      try {
+        const snap = await getDocs(collection(db, 'tenants', lic, col));
+        if (snap.empty) continue;
+        let batch = writeBatch(db), n = 0;
+        snap.docs.forEach((d) => { batch.delete(d.ref); n++; total++; if (n % 400 === 0) { batch.commit().catch(() => {}); batch = writeBatch(db); n = 0; } });
+        if (n > 0) await batch.commit();
+      } catch (e) { /* lanjut koleksi berikutnya */ }
+    }
+    return total;
+  };
+
+  const delTenant = async (id) => {
+    if (!devVerified) return showToast('Hanya email developer terverifikasi yang boleh menghapus tenant (rules v15.1).');
+    if (confirmDel !== id) {
+      // langkah 1: arming — tombol berubah merah 4 detik
+      setConfirmDel(id);
+      setTimeout(() => setConfirmDel((c) => (c === id ? null : c)), 4000);
+      return;
+    }
+    // langkah 2: eksekusi
+    setConfirmDel(null); setDelBusy(true);
+    try {
+      await deleteDoc(doc(db, 'licenses', id));
+      const purged = await purgeTenantData(id).catch(() => -1);
+      showToast(purged >= 0
+        ? 'Tenant ' + id + ' dihapus permanen (±' + purged + ' data dibersihkan).'
+        : 'Tenant ' + id + ' dihapus. Sebagian data riwayat gagal dibersihkan (aman diabaikan).');
+    } catch (e) {
+      showToast('Gagal hapus: ' + (e.code || e.message)
+        + (e.code === 'permission-denied' ? ' — publish rules v15.1 & verifikasi email dev dulu.' : ''));
+    }
+    setDelBusy(false);
+  };
   const copyText = (txt, id) => { navigator.clipboard.writeText(txt); setCopiedId(id); showToast('Disalin!'); setTimeout(() => setCopiedId(null), 1500); };
 
   const daysLeft = (iso) => Math.max(0, Math.ceil((new Date(iso) - new Date()) / 864e5));
+
+  // v15.1: status developer utk UI — email di allowlist & terverifikasi
+  const devEmail = user ? String(user.email || '').toLowerCase() : '';
+  const devListed = !!devEmail && DEV_EMAILS.includes(devEmail);
+  const devVerified = devListed && user.emailVerified === true;
 
   if (!authReady) {
     return <div className="min-h-screen bg-paper dark:bg-chrome-deep flex items-center justify-center"><div className="spinner-ring"></div></div>;
@@ -231,7 +296,9 @@ export const DeveloperPanel = () => {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur text-white flex items-center justify-center"><MonitorPusat className="w-5.5 h-5.5" /></div>
             <div>
-              <h1 className="font-display font-extrabold text-sm leading-none text-white">Developer Console</h1>
+              <h1 className="font-display font-extrabold text-sm leading-none text-white flex items-center gap-2">Developer Console
+                {devListed && <span className={`text-[8.5px] px-2 py-0.5 rounded-full font-extrabold ${devVerified ? 'bg-leaf text-white' : 'bg-white/25 text-white'}`}>{devVerified ? 'DEV' : 'DEV·BELUM VERIF'}</span>}
+              </h1>
               <p className="text-[10px] text-white/70 font-bold mt-1">{user.email}</p>
             </div>
           </div>
@@ -251,6 +318,20 @@ export const DeveloperPanel = () => {
         {anonAuthBlocked() && (
           <div className="bg-gold-soft dark:bg-gold/10 border border-gold/40 text-gold-deep dark:text-gold text-[11px] font-bold p-3.5 rounded-2xl leading-relaxed">
             <p className="flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Sesi ANONIM Firebase belum aktif. Sebelum publish rules v15: Firebase Console → Authentication → Sign-in method → aktifkan <b>Anonymous</b>. Sampai itu dilakukan, app tetap jalan dengan rules lama (kurang ketat).</p>
+          </div>
+        )}
+
+        {/* v15.1: email dev terdaftar tapi belum verifikasi — hapus tenant akan ditolak rules */}
+        {devListed && !devVerified && (
+          <div className="bg-gold-soft dark:bg-gold/10 border border-gold/40 text-gold-deep dark:text-gold text-[11px] font-bold p-3.5 rounded-2xl leading-relaxed">
+            <p className="flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Email {user.email} ada di allowlist tapi <b>belum terverifikasi</b>. Verifikasi dulu supaya hapus tenant diizinkan rules v15.1.</p>
+            <button onClick={() => sendEmailVerification(user).then(() => showToast('Email verifikasi terkirim — cek inbox/spam.')).catch((e) => showToast('Gagal kirim: ' + (e.code || e.message)))}
+              className="mt-2 px-3.5 py-2 rounded-xl bg-gold/90 hover:bg-gold text-white text-[10.5px] font-extrabold press">Kirim email verifikasi</button>
+          </div>
+        )}
+        {user && !devListed && (
+          <div className="bg-gold-soft dark:bg-gold/10 border border-gold/40 text-gold-deep dark:text-gold text-[11px] font-bold p-3.5 rounded-2xl leading-relaxed">
+            <p className="flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Email ini <b>tidak ada di allowlist developer</b> ({DEV_EMAILS.join(', ')}). Daftar/suspend tetap bisa, tapi hapus tenant hanya utk developer terverifikasi.</p>
           </div>
         )}
 
@@ -439,16 +520,58 @@ export const DeveloperPanel = () => {
                   {c.active
                     ? <button onClick={() => toggleStatus(c.id, false)} className="flex-1 py-2.5 rounded-xl bg-brick-soft dark:bg-white/5 border border-brick/30 text-brick text-[11px] font-extrabold press">Suspend</button>
                     : <button onClick={() => toggleStatus(c.id, true)} className="flex-1 py-2.5 rounded-xl bg-flame-600 hover:bg-flame-500 text-white text-[11px] font-extrabold press">Buka Akses</button>}
-                  <button onClick={() => delTenant(c.id)} className="w-11 rounded-xl bg-paper dark:bg-white/5 border border-line dark:border-chrome-edge text-ink-faint hover:text-brick flex items-center justify-center transition press"><Trash2 className="w-4 h-4" /></button>
+                  {/* v15.1: hapus = khusus dev terverifikasi, konfirmasi 2 langkah */}
+                  <button onClick={() => delTenant(c.id)} disabled={delBusy} aria-label="Hapus tenant"
+                    title={devVerified ? 'Hapus tenant (2× klik)' : 'Hanya email developer terverifikasi'}
+                    className={`w-11 rounded-xl flex items-center justify-center transition press border ${confirmDel === c.id ? 'bg-brick border-brick text-white animate-pulse-dot' : 'bg-paper dark:bg-white/5 border-line dark:border-chrome-edge text-ink-faint hover:text-brick'} disabled:opacity-50`}>
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
+                {confirmDel === c.id && (
+                  <p className="text-[10px] font-extrabold text-brick mt-2 flex items-center gap-1.5"><BahayaBuddy className="w-3.5 h-3.5" /> Tekan sekali lagi untuk hapus permanen — lisensi & data tenants/{c.id} dibersihkan.</p>
+                )}
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] flex items-center justify-center gap-1.5"><WaktuReal className="w-3.5 h-3.5" /> WELP Developer Console v8 · Fresh Ink</p>
+        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] flex items-center justify-center gap-1.5"><WaktuReal className="w-3.5 h-3.5" /> WELP Developer Console v9 · v15.1</p>
       </div>
       {toast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-flame-600 text-white px-5 py-3 rounded-full shadow-pop text-sm font-extrabold animate-slide-up">{toast}</div>}
+
+      {/* v15.1: modal KREDENSI TAMPAK SEKALI setelah registrasi tenant */}
+      {justMade && (
+        <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) setJustMade(null); }}>
+          <div className="w-full max-w-sm bg-surface dark:bg-chrome-panel border border-line dark:border-chrome-edge rounded-3xl p-6 shadow-pop animate-rise">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-11 h-11 rounded-2xl bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf flex items-center justify-center shrink-0"><Check className="w-6 h-6" /></div>
+              <div>
+                <h3 className="font-extrabold text-ink dark:text-ink-inv text-sm">Tenant "{justMade.tenant}" terdaftar!</h3>
+                <p className="text-[10px] text-ink-faint font-bold">Salin & kirim kredensial ini ke client sekarang</p>
+              </div>
+            </div>
+            <div className="space-y-2.5 mb-4">
+              {[
+                { label: 'ID Tenant', val: justMade.id, key: 'id' },
+                { label: 'Password', val: justMade.pass, key: 'pass' },
+                { label: 'Owner PIN', val: justMade.pin, key: 'pin' }
+              ].map(r => (
+                <div key={r.key} className="flex items-center gap-2 p-3 rounded-2xl bg-paper dark:bg-white/5 border border-line dark:border-chrome-edge">
+                  <div className="min-w-0 flex-1">
+                    <p className="kicker mb-0.5">{r.label}</p>
+                    <p className="font-mono font-extrabold text-sm text-flame-700 dark:text-apricot tracking-wider truncate">{r.val}</p>
+                  </div>
+                  <button onClick={() => copyText(r.val, 'jm-' + r.key)} aria-label="Salin" className="w-9 h-9 rounded-xl bg-surface dark:bg-white/5 border border-line dark:border-chrome-edge text-ink-faint hover:text-flame-600 dark:hover:text-apricot flex items-center justify-center shrink-0 transition press">
+                    {copiedId === 'jm-' + r.key ? <Check className="w-4 h-4 text-leaf-deep dark:text-leaf" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-brick font-extrabold flex items-start gap-1.5 mb-4 leading-relaxed"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Ini SATU-SATUNYA kali kredensial tampil. Setelah modal ditutup, tersimpan sebagai hash — tidak bisa dilihat lagi.</p>
+            <button onClick={() => setJustMade(null)} className="w-full py-3 rounded-2xl bg-flame-600 hover:bg-flame-500 text-white font-extrabold text-sm press shadow-card">Saya sudah catat & salin</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

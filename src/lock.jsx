@@ -426,7 +426,7 @@ export const LockScreen = ({ onUnlock }) => {
 
           <div className="flex items-center justify-center gap-1.5 mt-5">
             <Lisensi className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-            <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">Lisensi terkelola · WELP v15</p>
+            <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">Lisensi terkelola · WELP v15.1</p>
           </div>
         </div>
 

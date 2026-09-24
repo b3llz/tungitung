@@ -700,7 +700,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
           </div>
         )}
 
-        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em] pt-1 pb-2">WELP v14 · Fresh Ink</p>
+        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em] pt-1 pb-2">WELP v15.1 · Fresh Ink</p>
       </div>
     </div>
   );
