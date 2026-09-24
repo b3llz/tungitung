@@ -36,8 +36,12 @@ export const sanitizeSession = (data) => {
 };
 
 // --- KONFIGURASI FIREBASE (SESUAIKAN DENGAN MILIKMU) ---
+// apiKey: utamakan dari .env (VITE_FIREBASE_API_KEY). Fallback ter-bake di
+// bawah hanya jaring pengaman agar build TANPA .env tidak menghasilkan
+// dist mati (key web Firebase memang terekspos client — batasi lewat
+// Firestore/Storage Rules + authorized domain, bukan dengan menyembunyikannya).
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyDqMpyCBFg1m5pA0Bn8U-VxEN_M2B-4A5Q',
   authDomain: "costlab-f221c.firebaseapp.com",
   projectId: "costlab-f221c",
   storageBucket: "costlab-f221c.firebasestorage.app",
