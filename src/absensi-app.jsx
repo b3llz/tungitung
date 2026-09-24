@@ -43,7 +43,10 @@ import {
   normShifts, shiftsForBranch, shiftById, shiftOfMs, fmtShiftRange,
   shiftDurMin, fmtJam, pairWorkMinutes, hkTargetOf,
   cutiPolicyOf, hakCutiOf, usedCutiDays, hariKerjaOf, hariLabelOf,
-  kontrakOf, buildSlipHtml, writeBrandMirror
+  kontrakOf, buildSlipHtml, writeBrandMirror,
+  ensureAuth, verifyCred, credIsLegacy, upgradeCred, makeCred, pinGate, pinGateMsg,   // v15 F0
+  empBranchIds, roleLabelOfV15, isAtasanRole, openDataUrl,   // v15 F2/F3/F4
+  reverseGeocode, uploadMedia   // v15 F5
 } from './core.jsx';
 import { Button, Toast, Mascot, Badge } from './ui';
 import { BrandLogo, useBrandState } from './brand.jsx';
@@ -55,8 +58,8 @@ const SESSION_KEY = 'welp_absen_session';
 
 const Kicker = ({ children }) => <p className="text-[9px] font-extrabold uppercase tracking-[0.2em] text-ink-faint dark:text-ink-inv/40">{children}</p>;
 
-const roleLabelOf = (r) => r === 'owner' ? 'Owner' : (r === 'admin' ? 'Admin Cabang' : 'Kasir');
-const isAtasan = (r) => r === 'owner' || r === 'admin';
+const roleLabelOf = roleLabelOfV15;   // v15 F3: label role lengkap
+const isAtasan = (r) => isAtasanRole(r);   // v15 F3: owner/direktur/manager/supervisor/admin/hr
 
 /* Badge keterlambatan, format mudah dibaca: 00j 15m 00d */
 const LateBadge = ({ ms, aturan }) => {
@@ -72,12 +75,18 @@ const LateBadge = ({ ms, aturan }) => {
    Identitas otomatis: role, perusahaan, cabang dari akun karyawan.
    ============================================================ */
 const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
-  const [step, setStep] = useState('lic');           // lic | cabang | pin | nama | pin2
-  const [licId, setLicId] = useState(preLic || '');
+  // v15 F2: LOGIN AKUN PRIBADI MURNI — ID Toko → Employee ID + PIN pribadi
+  // (tanpa PIN cabang). Bila karyawan terkait >1 cabang, muncul pemilih
+  // cabang BERBASIS RELASI (branchIds). Jalur "pilih nama + PIN cabang"
+  // dihapus (menutup temuan C1/C3).
+  const [step, setStep] = useState('lic');           // lic | login | branch
+  // v15 F2: "ingat ID toko & Employee ID" (bukan PIN) — dibaca sekali saat mount
+  const lastLogin = (() => { try { return JSON.parse(localStorage.getItem('welp_absen_last') || 'null'); } catch (e) { return null; } })();
+  const [licId, setLicId] = useState(preLic || lastLogin?.lic || '');
+  const [empIdInput, setEmpIdInput] = useState(lastLogin?.empId || '');
   const [tenant, setTenant] = useState(null);
-  const [branch, setBranch] = useState(null);
   const [emp, setEmp] = useState(null);
-  const [pin, setPin] = useState('');
+  const [myBranchList, setMyBranchList] = useState([]);
   const [pin2, setPin2] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -90,60 +99,63 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
     if (!licId.trim()) return setErr('Isi ID Toko dulu, ya!');
     setBusy(true);
     try {
+      // v15 F0: sesi anonymous Firebase dulu — prasyarat rules v15.
+      await ensureAuth();
       const snap = await getDoc(doc(db, 'licenses', licId.trim().toLowerCase()));
       if (!snap.exists()) { setErr('ID Toko tidak ditemukan. Coba cek lagi.'); setBusy(false); return; }
       const data = snap.data();
       if (!data.active) { setErr('Akun toko dinonaktifkan admin.'); setBusy(false); return; }
       setTenant({ id: snap.id, tenant: data.tenant || snap.id });
-      setStep('cabang');
+      setStep('login');
     } catch (e) {
       setErr('Koneksi gagal: ' + (e.message || 'coba lagi') + '. Pastikan internet & Firestore rules aktif.');
     }
     setBusy(false);
   };
 
-  const checkPin = () => {
-    setErr('');
-    if (!branch) return setErr('Pilih cabang dulu.');
-    if (pin.length !== 6) return setErr('PIN harus 6 digit.');
-    if (String(branch.pin) !== pin) { setErr('PIN cabang salah!'); setPin(''); return; }
-    setStep('nama');
-  };
-
-  const pickEmployee = (e) => {
-    if (e.status === 'nonaktif') { setErr('Akun kamu nonaktif. Hubungi owner/admin.'); return; }
-    setEmp(e); setPin2(''); setErr('');
-    if (!e.pin) {
-      // karyawan lama belum punya PIN pribadi → langsung masuk + minta atur PIN di Profil
-      finish(e, false);
-    } else {
-      setStep('pin2');
-    }
-  };
-
-  const checkPin2 = () => {
-    setErr('');
-    if (pin2.length !== 6) return setErr('PIN pribadi harus 6 digit.');
-    if (String(emp.pin) !== pin2) { setErr('PIN pribadi salah!'); setPin2(''); return; }
-    finish(emp, true);
-  };
-
-  const finish = (e, hasPin) => {
+  const finishAt = (e, br) => {
     const session = {
       lic: tenant.id, tenant: tenant.tenant,
-      branchId: branch.cid, branchName: branch.name,
+      branchId: br?.cid || e.branchId || 'PUSAT', branchName: br?.name || 'Cabang',
       employeeCid: e.cid, employeeName: e.name, empId: e.empId || '', role: e.role || 'kasir',
-      hasPin: !!hasPin, at: Date.now(), deviceId: getDeviceId()
+      hasPin: true, at: Date.now(), deviceId: getDeviceId()
     };
-    try { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch (err) { }
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      localStorage.setItem('welp_absen_last', JSON.stringify({ lic: tenant.id, empId: e.empId || '' }));   // ingat ID (bukan PIN)
+    } catch (err) { }
     onDone(session);
   };
 
-  const staffOfBranch = employees.filter(e => branch && (e.branchId || 'PUSAT') === branch.cid && e.status !== 'nonaktif');
+  const checkPersonal = async () => {
+    setErr('');
+    if (!empIdInput.trim()) return setErr('Isi Employee ID kamu (mis. PST-001).');
+    if (pin2.length !== 6) return setErr('PIN pribadi harus 6 digit.');
+    const rec = employees.find(e => String(e.empId || '').toLowerCase() === empIdInput.trim().toLowerCase());
+    if (!rec) return setErr('Employee ID tidak ditemukan di toko ini. Cek lagi, atau minta owner.');
+    if (rec.status === 'nonaktif') return setErr('Akun kamu nonaktif. Hubungi owner/admin.');
+    if (!rec.pin && !rec.cred) return setErr('PIN pribadimu belum diatur. Minta owner mengaturnya di Manajemen Karyawan (atau minta reset PIN).');
+    const gateKey = `absen_login:${tenant.id}:${rec.cid}`;
+    const st = pinGate.status(gateKey);
+    if (st.locked) return setErr(pinGateMsg(st));
+    if (!(await verifyCred(pin2, rec, 'pin'))) {
+      const gst = pinGate.fail(gateKey);
+      setErr(gst.locked ? pinGateMsg(gst) : `PIN salah! Sisa ${5 - gst.fails} percobaan.`);
+      setPin2(''); return;
+    }
+    pinGate.reset(gateKey);
+    if (credIsLegacy(rec)) upgradeCred(['tenants', tenant.id, 'karyawan', rec.cid], pin2, 'pin');
+    // Branch context (F2): auto-branch bila 1 relasi, picker bila >1
+    const ids = empBranchIds(rec);
+    const myBranches = ids.map(bid => branches.find(b => b.cid === bid)).filter(Boolean);
+    if (myBranches.length > 1) { setEmp(rec); setMyBranchList(myBranches); setStep('branch'); return; }
+    finishAt(rec, myBranches[0] || null);
+  };
+
   const pinKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'go'];
 
   const StepTitle = ({ n, children }) => (
-    <div className="text-center"><Kicker>Langkah {n} dari 4</Kicker>
+    <div className="text-center"><Kicker>Langkah {n} dari 3</Kicker>
       <p className="text-[13px] font-extrabold text-ink dark:text-ink-inv mt-1">{children}</p>
     </div>
   );
@@ -170,8 +182,8 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
 
         <div className="card p-6">
           <div className="flex items-center justify-center gap-1.5 mb-5">
-            {['lic', 'cabang', 'pin', 'nama'].map(s => {
-              const order = { lic: 0, cabang: 1, pin: 2, nama: 3, pin2: 3 };
+            {['lic', 'login', 'branch'].map(s => {
+              const order = { lic: 0, login: 1, branch: 2 };
               return <span key={s} className={`h-1.5 rounded-full transition-all ${order[step] >= order[s] ? 'w-7 bg-flame-500' : 'w-3 bg-line dark:bg-white/10'}`} />;
             })}
           </div>
@@ -197,95 +209,58 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
             </div>
           )}
 
-          {step === 'cabang' && (
+          {/* v15 F2: LOGIN PRIBADI — Employee ID + PIN (tanpa PIN cabang) */}
+          {step === 'login' && (
             <div className="space-y-4">
-              <StepTitle n={2}>Pilih cabang tempat kerjamu</StepTitle>
-              {branches.length === 0 ? (
-                <div className="py-6 text-center">
-                  <Mascot pose="bingung" className="w-20 h-20 object-contain mx-auto mb-2" alt="" />
-                  <p className="text-xs font-bold text-ink-faint">Belum ada cabang terdaftar.<br />Minta owner menambahkan di Manajemen Cabang.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-2">
-                  {branches.map(b => (
-                    <button key={b.cid} onClick={() => { setBranch(b); setErr(''); setStep('pin'); }}
-                      className="flex items-center gap-3 p-3.5 rounded-2xl border-2 border-line dark:border-line-dark bg-surface dark:bg-surface-dark text-left hover:border-flame-400 transition press">
-                      <span className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center shrink-0"><Cabang className="w-4.5 h-4.5" /></span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-extrabold text-[13px] text-ink dark:text-ink-inv truncate">{b.name}</span>
-                        <span className="block text-[10px] text-ink-faint font-semibold truncate">{b.location || 'Lokasi belum diisi'}</span>
-                      </span>
-                    </button>
+              <StepTitle n={2}>Masuk ke akun pribadimu</StepTitle>
+              <div>
+                <label className="kicker block mb-1.5 ml-0.5">Employee ID</label>
+                <input value={empIdInput} onChange={e => setEmpIdInput(e.target.value.toUpperCase())}
+                  className="field-lg font-mono tracking-widest uppercase" placeholder="misal: PST-001" autoComplete="off" />
+                {empIdInput && <p className="text-[9.5px] font-bold text-ink-faint mt-1.5">Employee ID-mu tercetak di kartu karyawan / dari owner.</p>}
+              </div>
+              <div>
+                <label className="kicker block mb-1.5 ml-0.5">PIN Pribadi (6 digit)</label>
+                <div className="flex gap-2 justify-center">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className={`w-9 h-11 rounded-2xl border-2 flex items-center justify-center transition-all ${i < pin2.length ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25' : 'border-line dark:border-line-dark bg-paper dark:bg-night/60'}`}>
+                      {i < pin2.length && <div className="w-2.5 h-2.5 rounded-full bg-flame-500 animate-pop" />}
+                    </div>
                   ))}
                 </div>
-              )}
-              <button onClick={() => { setStep('lic'); setErr(''); }} className="w-full py-2.5 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition">Kembali</button>
+                <div className="grid grid-cols-3 gap-2 mt-3">
+                  {pinKeys.map(k => {
+                    if (k === 'del') return <button key={k} onClick={() => setPin2(p => p.slice(0, -1))} aria-label="Hapus" className="py-3 rounded-2xl bg-brick-soft dark:bg-brick/10 text-brick text-lg font-extrabold transition active:scale-95 press">⌫</button>;
+                    if (k === 'go') return <button key={k} onClick={checkPersonal} disabled={pin2.length !== 6 || busy} aria-label="Masuk" className="py-3 rounded-2xl bg-flame-600 text-white flex items-center justify-center transition active:scale-95 press disabled:opacity-40 hover:bg-flame-500"><Check className="w-5 h-5" /></button>;
+                    return <button key={k} onClick={() => setPin2(p => (p.length < 6 ? p + k : p))} className="py-3 rounded-2xl bg-paper dark:bg-white/5 text-ink dark:text-ink-inv text-lg font-extrabold transition active:scale-95 press hover:bg-flame-50 dark:hover:bg-flame-900/20">{k}</button>;
+                  })}
+                </div>
+              </div>
+              <p className="text-[10px] text-ink-faint font-bold text-center leading-relaxed">
+                Lupa Employee ID atau PIN? Atasanmu bisa mereset PIN langsung dari Aplikasi Karyawan.
+              </p>
+              <button onClick={() => { setStep('lic'); setErr(''); }} className="w-full py-2.5 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition">Ganti ID Toko</button>
             </div>
           )}
 
-          {step === 'pin' && (
+          {/* v15 F2: PEMILIH CABANG BERBASIS RELASI — muncul hanya bila
+              karyawan tercatat di lebih dari satu cabang */}
+          {step === 'branch' && emp && (
             <div className="space-y-4">
-              <StepTitle n={3}>PIN cabang <span className="text-flame-700 dark:text-apricot">{branch?.name}</span></StepTitle>
-              <div className="flex gap-2 justify-center">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className={`w-9 h-11 rounded-2xl border-2 flex items-center justify-center transition-all ${i < pin.length ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25' : 'border-line dark:border-line-dark bg-paper dark:bg-night/60'}`}>
-                    {i < pin.length && <div className="w-2.5 h-2.5 rounded-full bg-flame-500 animate-pop" />}
-                  </div>
+              <StepTitle n={3}>Halo, {emp.name}! Kerja di cabang mana hari ini?</StepTitle>
+              <div className="grid grid-cols-1 gap-2">
+                {myBranchList.map(b => (
+                  <button key={b.cid} onClick={() => finishAt(emp, b)}
+                    className="flex items-center gap-3 p-3.5 rounded-2xl border-2 border-line dark:border-line-dark bg-surface dark:bg-surface-dark text-left hover:border-flame-400 transition press">
+                    <span className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center shrink-0"><Cabang className="w-4.5 h-4.5" /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-extrabold text-[13px] text-ink dark:text-ink-inv truncate">{b.name}</span>
+                      <span className="block text-[10px] text-ink-faint font-semibold truncate">{b.location || 'Lokasi belum diisi'}</span>
+                    </span>
+                  </button>
                 ))}
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                {pinKeys.map(k => {
-                  if (k === 'del') return <button key={k} onClick={() => setPin(p => p.slice(0, -1))} aria-label="Hapus" className="py-3 rounded-2xl bg-brick-soft dark:bg-brick/10 text-brick text-lg font-extrabold transition active:scale-95 press">⌫</button>;
-                  if (k === 'go') return <button key={k} onClick={checkPin} disabled={pin.length !== 6} aria-label="Lanjut" className="py-3 rounded-2xl bg-flame-600 text-white flex items-center justify-center transition active:scale-95 press disabled:opacity-40 hover:bg-flame-500"><Check className="w-5 h-5" /></button>;
-                  return <button key={k} onClick={() => setPin(p => (p.length < 6 ? p + k : p))} className="py-3 rounded-2xl bg-paper dark:bg-white/5 text-ink dark:text-ink-inv text-lg font-extrabold transition active:scale-95 press hover:bg-flame-50 dark:hover:bg-flame-900/20">{k}</button>;
-                })}
-              </div>
-              <button onClick={() => { setStep('cabang'); setPin(''); setErr(''); }} className="w-full py-2.5 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition">Ganti cabang</button>
-            </div>
-          )}
-
-          {step === 'nama' && (
-            <div className="space-y-4">
-              <StepTitle n={4}>Pilih namamu, lalu masukkan PIN pribadi</StepTitle>
-              {staffOfBranch.length === 0 ? (
-                <div className="py-6 text-center">
-                  <Mascot pose="pikir" className="w-20 h-20 object-contain mx-auto mb-2" alt="" />
-                  <p className="text-xs font-bold text-ink-faint">Belum ada karyawan aktif di cabang ini.<br />Minta owner menambahkan nama di Manajemen Karyawan.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto custom-scrollbar">
-                  {staffOfBranch.map(e => (
-                    <button key={e.cid} onClick={() => pickEmployee(e)}
-                      className="flex flex-col items-center gap-2 p-3.5 rounded-2xl border-2 border-line dark:border-line-dark bg-surface dark:bg-surface-dark hover:border-flame-400 transition press">
-                      <span className="w-11 h-11 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold text-base">{e.name[0]}</span>
-                      <span className="font-extrabold text-[12px] text-ink dark:text-ink-inv truncate max-w-full">{e.name}</span>
-                      <span className="text-[8.5px] font-extrabold uppercase tracking-wider text-ink-faint font-mono">{e.empId || (e.role === 'admin' ? 'Admin' : 'Kasir')}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <button onClick={() => { setStep('pin'); setErr(''); }} className="w-full py-2.5 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition">Kembali</button>
-            </div>
-          )}
-
-          {step === 'pin2' && emp && (
-            <div className="space-y-4">
-              <StepTitle n={4}>PIN pribadi <span className="text-flame-700 dark:text-apricot">{emp.name}</span></StepTitle>
-              <div className="flex gap-2 justify-center">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className={`w-9 h-11 rounded-2xl border-2 flex items-center justify-center transition-all ${i < pin2.length ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25' : 'border-line dark:border-line-dark bg-paper dark:bg-night/60'}`}>
-                    {i < pin2.length && <div className="w-2.5 h-2.5 rounded-full bg-flame-500 animate-pop" />}
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {pinKeys.map(k => {
-                  if (k === 'del') return <button key={k} onClick={() => setPin2(p => p.slice(0, -1))} aria-label="Hapus" className="py-3 rounded-2xl bg-brick-soft dark:bg-brick/10 text-brick text-lg font-extrabold transition active:scale-95 press">⌫</button>;
-                  if (k === 'go') return <button key={k} onClick={checkPin2} disabled={pin2.length !== 6} aria-label="Masuk" className="py-3 rounded-2xl bg-flame-600 text-white flex items-center justify-center transition active:scale-95 press disabled:opacity-40 hover:bg-flame-500"><Check className="w-5 h-5" /></button>;
-                  return <button key={k} onClick={() => setPin2(p => (p.length < 6 ? p + k : p))} className="py-3 rounded-2xl bg-paper dark:bg-white/5 text-ink dark:text-ink-inv text-lg font-extrabold transition active:scale-95 press hover:bg-flame-50 dark:hover:bg-flame-900/20">{k}</button>;
-                })}
-              </div>
-              <button onClick={() => { setStep('nama'); setPin2(''); setErr(''); }} className="w-full py-2.5 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition">Bukan kamu? Ganti nama</button>
+              <button onClick={() => { setStep('login'); setPin2(''); setErr(''); }} className="w-full py-2.5 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition">Kembali</button>
             </div>
           )}
         </div>
@@ -302,7 +277,7 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
    FLOW ABSEN — kamera framing 3:4 WYSIWYG + mirror kamera depan
    + stempel foto dari data sistem (logo, perusahaan, jam, GPS).
    ============================================================ */
-const AbsenFlow = ({ type, session, branch, branchName, aturan, onClose, onSubmit }) => {
+const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClose, onSubmit }) => {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const facingRef = useRef('user');
@@ -362,11 +337,11 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, onClose, onSubmi
     ctx.drawImage(v, cx, cy, cw, ch, 0, 0, cv.width, cv.height);
     const raw = cv.toDataURL('image/jpeg', 0.8);
     setBusy(true);
-    // stempel dari data sistem — bukan input manual
+    // stempel dari data sistem — bukan input manual (logo perusahaan ikut F5/E1)
     const stamped = await stampAbsenPhoto({
       dataUrl: raw, company: session.tenant, branchName,
       employeeName: session.employeeName, type, atMs: trustedNow(), geo,
-      trusted: trustedSourceLabel() === 'server'
+      trusted: trustedSourceLabel() === 'server', logo: brandLogo
     });
     setBusy(false);
     setPhoto(stamped);
@@ -381,7 +356,7 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, onClose, onSubmi
       const stamped = await stampAbsenPhoto({
         dataUrl: raw, company: session.tenant, branchName,
         employeeName: session.employeeName, type, atMs: trustedNow(), geo,
-        trusted: trustedSourceLabel() === 'server'
+        trusted: trustedSourceLabel() === 'server', logo: brandLogo
       });
       setPhoto(stamped);
     } catch (e) { setCamErr('Gagal memuat foto: ' + e.message); }
@@ -393,7 +368,10 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, onClose, onSubmi
   const submit = async () => {
     if (!photo) return;
     setBusy(true);
-    await onSubmit({ photo, geo, dist, outOfRadius: !!outOfRadius, type });
+    // v15 F5/F1: absen TETAP BISA tanpa GPS (izin ditolak/sinyal buruk/
+    // desktop) — tercatat dgn flag geoStatus 'unavailable' agar owner
+    // tahu lokasi belum terverifikasi.
+    await onSubmit({ photo, geo, geoStatus: geo ? 'ok' : 'unavailable', dist, outOfRadius: !!outOfRadius, type });
     setBusy(false);
   };
 
@@ -476,6 +454,11 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, onClose, onSubmi
             </p>
           )}
           {geoErr && <p className="text-[10px] font-bold text-brick-deep dark:text-brick mt-1">{geoErr}</p>}
+          {!geo && !geoErr && (
+            <p className="text-[10px] font-extrabold text-gold-deep dark:text-gold mt-1.5 flex items-start gap-1.5">
+              <BahayaBuddy className="w-3.5 h-3.5 shrink-0 mt-0.5" /> Lokasi belum terbaca. Absen tetap bisa dikirim, tapi owner melihat penanda TANPA GPS.
+            </p>
+          )}
           {outOfRadius && (
             <p className="text-[10px] font-extrabold text-gold-deep dark:text-gold mt-1.5 flex items-start gap-1.5">
               <BahayaBuddy className="w-3.5 h-3.5 shrink-0 mt-0.5" /> Kamu di luar radius {aturan.radius}m. Absen tetap tercatat, tapi ditandai owner.
@@ -483,7 +466,8 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, onClose, onSubmi
           )}
         </div>
 
-        <Button onClick={submit} disabled={!photo || !geo || busy} className="w-full py-4 mt-4 text-sm" icon={busy ? WaktuReal : (type === 'in' ? AbsenMasuk : AbsenPulang)}>
+        {/* v15 F5/F1: GPS bukan lagi syarat mutlak — hanya foto */}
+        <Button onClick={submit} disabled={!photo || busy} className="w-full py-4 mt-4 text-sm" icon={busy ? WaktuReal : (type === 'in' ? AbsenMasuk : AbsenPulang)}>
           {busy ? 'Mengirim...' : `Kirim Absen ${type === 'in' ? 'Masuk' : 'Pulang'}`}
         </Button>
         <p className="text-[9.5px] text-ink-faint font-semibold text-center mt-2.5 leading-relaxed flex items-center justify-center gap-1.5">
@@ -819,8 +803,8 @@ const EmpAbsensi = ({ session, target = 0 }) => {
                     const t = trustedTime(a);
                     return (
                       <div key={a.cid} className="flex items-center gap-2.5 p-2.5 rounded-xl bg-paper dark:bg-white/[.03]">
-                        {a.photo
-                          ? <img src={a.photo} alt="Selfie absensi" className="w-9 h-9 rounded-xl object-cover border border-line dark:border-line-dark" />
+                        {(a.photo || a.photoUrl)
+                          ? <img src={a.photoUrl || a.photo} alt="Selfie absensi" className="w-9 h-9 rounded-xl object-cover border border-line dark:border-line-dark" />
                           : <span className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold text-[10px]">{a.employeeName?.[0]}</span>}
                         <div className="min-w-0 flex-1">
                           <p className="text-[11.5px] font-extrabold truncate">{a.type === 'in' ? 'Absen masuk' : 'Absen pulang'} · {fmtTime(t.ms)}</p>
@@ -989,6 +973,22 @@ const EmpAjukan = ({ session, me }) => {
   const doneAll = pengajuan
     .filter(p => (p.status === 'DISETUJUI' || p.status === 'DITOLAK') && (session.role === 'owner' ? true : (p.branchId === session.branchId)))
     .sort((a, b) => trustedTime(b).ms - trustedTime(a).ms).slice(0, 6);
+
+  // v15 F2: reset PIN karyawan oleh atasan (dengan audit)
+  const [showResetPin, setShowResetPin] = useState(false);
+  const [resetTarget, setResetTarget] = useState('Pilih karyawan...');
+  const doResetPin = async () => {
+    const cid = resetTarget.split('||')[0];
+    const rec = karyawan.find(k => k.cid === cid);
+    if (!rec) return alert('Pilih dulu karyawan yang PIN-nya mau direset.', 'error');
+    const np = String(Math.floor(100000 + Math.random() * 900000));
+    const cred = await makeCred(np);
+    updateRow(rec.cid, { cred, pin: null });
+    auditLog({ id: session.lic, tenant: session.tenant, currentUserRole: session.role, branchId: session.branchId, employeeName: session.employeeName },
+      'KARYAWAN_PIN_RESET', { target: rec.empId || rec.cid, oleh: session.employeeName });
+    alert(`PIN ${rec.name} baru: ${np} — catat sekarang, tampil sekali.`, 'success');
+    setResetTarget('Pilih karyawan...');
+  };
 
   const reviewReq = (rec, to, note = '') => {
     const from = rec.status || 'DIAJUKAN';
@@ -1187,9 +1187,9 @@ const EmpAjukan = ({ session, me }) => {
                     ) : (
                       <div className="flex flex-wrap gap-2 mt-3">
                         {p.letter && (
-                          <a href={p.letter} target="_blank" rel="noreferrer" className="py-2.5 px-3 rounded-xl bg-surface dark:bg-white/5 border border-line dark:border-line-dark text-[10.5px] font-extrabold text-ink-soft dark:text-ink-inv/80 flex items-center gap-1.5 press">
+                          <button type="button" onClick={() => openDataUrl(p.letter, 'surat')} className="py-2.5 px-3 rounded-xl bg-surface dark:bg-white/5 border border-line dark:border-line-dark text-[10.5px] font-extrabold text-ink-soft dark:text-ink-inv/80 flex items-center gap-1.5 press">
                             <BuktiTransfer className="w-3.5 h-3.5" /> Surat
-                          </a>
+                          </button>
                         )}
                         {p.status === 'DIAJUKAN' && (
                           <button onClick={() => reviewReq(p, 'DITINJAU')} className="py-2.5 px-3 rounded-xl bg-surface dark:bg-white/5 border border-line dark:border-line-dark text-[10.5px] font-extrabold text-ink-soft dark:text-ink-inv/80 press">Ditinjau</button>
@@ -1211,6 +1211,28 @@ const EmpAjukan = ({ session, me }) => {
               })}
             </div>
           )}
+
+          {/* v15 F2: RESET PIN KARYAWAN OLEH ATASAN — langsung dari app,
+              dengan audit log. PIN baru ditampilkan SEKALI. */}
+          <div className="mt-4 pt-4 border-t border-line dark:border-line-dark">
+            <button type="button" onClick={() => setShowResetPin(!showResetPin)}
+              className="text-[11px] font-extrabold text-ink-soft dark:text-ink-inv/70 flex items-center gap-1.5">
+              <Kredensial className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" /> Reset PIN karyawan {showResetPin ? '▲' : '▼'}
+            </button>
+            {showResetPin && (
+              <div className="mt-2.5 space-y-2">
+                <select value={resetTarget} onChange={e => setResetTarget(e.target.value)}
+                  className="field !text-[11px] w-full">
+                  <option value="Pilih karyawan...">Pilih karyawan...</option>
+                  {karyawan.filter(k => k.cid !== session.employeeCid && (session.role === 'owner' || empBranchIds(k).includes(session.branchId))).map(k => (
+                    <option key={k.cid} value={`${k.cid}||${k.name}${k.empId ? ' (' + k.empId + ')' : ''}`}>{k.name}{k.empId ? ` (${k.empId})` : ''}</option>
+                  ))}
+                </select>
+                <button onClick={doResetPin} className="w-full py-2.5 rounded-xl bg-flame-600 text-white text-[11px] font-extrabold press">Buat PIN Baru (acak)</button>
+                <p className="text-[9.5px] font-bold text-ink-faint leading-relaxed">PIN baru tampil sekali — berikan langsung ke yang bersangkutan, lalu minta ia menggantinya sendiri di Profil.</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1242,9 +1264,9 @@ const EmpAjukan = ({ session, me }) => {
                 <Badge tone={flow.tone}>{flow.label}</Badge>
               </div>
               {p.letter && (
-                <a href={p.letter} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 py-2 px-3 rounded-xl bg-paper dark:bg-white/5 border border-line dark:border-line-dark text-[10.5px] font-extrabold text-ink-soft dark:text-ink-inv/80">
+                <button type="button" onClick={() => openDataUrl(p.letter, 'surat')} className="mt-3 inline-flex items-center gap-1.5 py-2 px-3 rounded-xl bg-paper dark:bg-white/5 border border-line dark:border-line-dark text-[10.5px] font-extrabold text-ink-soft dark:text-ink-inv/80">
                   <BuktiTransfer className="w-3.5 h-3.5" /> Lihat surat/bukti terlampir
-                </a>
+                </button>
               )}
             </div>
           );
@@ -1274,10 +1296,12 @@ const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
 
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'go'];
 
-  const submitPin = () => {
+  const submitPin = async () => {
     setErr('');
     if (newPin.length !== 6) return setErr('PIN baru harus 6 digit.');
-    updateRow(session.employeeCid, { pin: newPin });
+    // v15 F0: PIN baru disimpan sebagai hash cred (plaintext tidak disimpan)
+    const cred = await makeCred(newPin);
+    updateRow(session.employeeCid, { cred, pin: null });
     auditLog({ id: session.lic, tenant: session.tenant, currentUserRole: 'karyawan', branchId: session.branchId, employeeName: session.employeeName }, 'KARYAWAN_GANTI_PIN', { oleh: 'karyawan sendiri' });
     try {
       const s = JSON.parse(localStorage.getItem(SESSION_KEY) || '{}');
@@ -1330,10 +1354,10 @@ const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
           ))}
           <p className="text-[10px] font-extrabold text-ink-faint uppercase tracking-wider pt-1.5">Surat / Bukti Pengajuan ({myLetters.length})</p>
           {myLetters.length === 0 ? <p className="text-[11px] font-bold text-ink-faint">Belum ada surat terlampir.</p> : myLetters.slice(0, 3).map(p => (
-            <a key={p.cid} href={p.letter} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-paper dark:bg-white/[.03] hover:border-flame-300 border border-transparent transition">
+            <button key={p.cid} type="button" onClick={() => openDataUrl(p.letter, 'surat')} className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-paper dark:bg-white/[.03] hover:border-flame-300 border border-transparent transition text-left w-full">
               <p className="text-[11px] font-extrabold text-ink dark:text-ink-inv truncate">{(CUTI_TYPES.find(x => x.id === p.type)?.label) || p.type} · {p.startDate}</p>
               <BuktiTransfer className="w-4 h-4 text-ink-faint shrink-0" />
-            </a>
+            </button>
           ))}
           <p className="text-[9.5px] text-ink-faint font-semibold pt-1">Dokumen ini hanya milikmu. Karyawan lain tidak bisa melihatnya.</p>
         </div>
@@ -1348,16 +1372,16 @@ const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
           return (
             <div className="space-y-2">
               {shared.map(d => (
-                <a key={d.cid} href={d.fileData} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 p-2.5 rounded-xl bg-paper dark:bg-white/[.03] hover:border-flame-300 border border-transparent transition">
+                <button key={d.cid} type="button" onClick={() => d.fileUrl ? window.open(d.fileUrl, '_blank') : openDataUrl(d.fileData, 'dokumen')} className="flex items-center gap-2.5 p-2.5 rounded-xl bg-paper dark:bg-white/[.03] hover:border-flame-300 border border-transparent transition text-left w-full">
                   {d.fileType === 'application/pdf'
                     ? <span className="w-9 h-9 rounded-lg bg-brick-soft dark:bg-brick/10 text-brick flex items-center justify-center font-extrabold text-[8.5px] shrink-0">PDF</span>
-                    : d.fileData ? <img src={d.fileData} alt={d.nama} className="w-9 h-9 rounded-lg object-cover shrink-0" /> : null}
+                    : (d.fileData || d.fileUrl) ? <img src={d.fileUrl || d.fileData} alt={d.nama} className="w-9 h-9 rounded-lg object-cover shrink-0" /> : null}
                   <div className="min-w-0 flex-1">
                     <p className="text-[11.5px] font-extrabold text-ink dark:text-ink-inv truncate">{d.nama}</p>
                     <p className="text-[9px] font-bold text-ink-faint">{d.kategori}</p>
                   </div>
                   <BuktiTransfer className="w-4 h-4 text-ink-faint shrink-0" />
-                </a>
+                </button>
               ))}
               <p className="text-[9.5px] text-ink-faint font-semibold pt-1">Dokumen resmi dari perusahaan: kontrak kerja, hak karyawan, dan kebijakan.</p>
             </div>
@@ -1391,7 +1415,7 @@ const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
               {keys.map(k => k === 'del'
                 ? <button key={k} onClick={() => setOldPin(p => p.slice(0, -1))} className="py-2.5 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick font-extrabold active:scale-95 press">⌫</button>
                 : k === 'go'
-                  ? <button key={k} disabled={oldPin.length !== 6} onClick={() => { if (String(me.pin) !== oldPin) { setErr('PIN lama salah!'); setOldPin(''); return; } setErr(''); setStage('new'); }} className="py-2.5 rounded-xl bg-flame-600 text-white flex items-center justify-center disabled:opacity-40 active:scale-95 press"><Check className="w-4.5 h-4.5" /></button>
+                  ? <button key={k} disabled={oldPin.length !== 6} onClick={async () => { if (!(await verifyCred(oldPin, me, 'pin'))) { setErr('PIN lama salah!'); setOldPin(''); return; } setErr(''); setStage('new'); }} className="py-2.5 rounded-xl bg-flame-600 text-white flex items-center justify-center disabled:opacity-40 active:scale-95 press"><Check className="w-4.5 h-4.5" /></button>
                   : <button key={k} onClick={() => setOldPin(p => (p.length < 6 ? p + k : p))} className="py-2.5 rounded-xl bg-paper dark:bg-white/5 text-ink dark:text-ink-inv font-extrabold active:scale-95 press">{k}</button>)}
             </div>
             <button onClick={() => { setStage('idle'); setErr(''); }} className="w-full mt-3 py-2 text-[11px] font-extrabold text-ink-faint">Batal</button>
@@ -1458,6 +1482,10 @@ export const AbsensiApp = ({ preLic = '' }) => {
     document.documentElement.classList.toggle('dark', nd);
   };
 
+  // v15 F0: sesi anonymous Firebase sejak boot (sesi tersimpan pun
+  // butuh auth untuk listener tenant).
+  useEffect(() => { ensureAuth(); }, []);
+
   const [session, setSession] = useState(() => safeParse(SESSION_KEY, null));
   const [tab, setTab] = useState('home');
   const [flow, setFlow] = useState(null);            // 'in' | 'out' | null
@@ -1492,25 +1520,44 @@ export const AbsensiApp = ({ preLic = '' }) => {
   const myShift = me?.shiftId ? shiftById(branchShifts, me.shiftId) : null;
   const myTarget = hkTargetOf(aturan, me);   // target HK efektif karyawan (v13)
 
-  const doSubmit = async ({ photo, geo, dist, outOfRadius, type }) => {
+  // v15 F5/E1: logo perusahaan (Custom Aplikasi) dipakai sbg watermark foto
+  const brandLogo = (() => {
+    const rec = (settings || []).find(s => s.key === 'branding');
+    return rec && rec.aktif ? (rec.logo || null) : null;
+  })();
+
+  const doSubmit = async ({ photo, geo, geoStatus, dist, outOfRadius, type }) => {
     try {
-      const li = lateInfo(Date.now(), aturan);
+      // v15 F4-H11: telat dihitung dari waktu terpercaya (offset server)
+      const li = lateInfo(trustedNow(), aturan);
       const sh = myShift || shiftOfMs(branchShifts, Date.now());   // shift tercatat di absensi
+      // v15 F5/F2: alamat manusiawi dari koordinat (Nominatim) — koordinat
+      // & akurasi ASLI tetap disimpan; gagal resolve = tanpa alamat.
+      let alamat = null;
+      if (geo && geo.lat != null) alamat = await reverseGeocode(geo.lat, geo.lng);
+      // v15 F5/J3: foto diunggah ke Storage (URL hemat kuota baca);
+      // bila Storage belum siap → fallback base64 inline seperti sebelumnya.
+      let photoUrl = null;
+      if (photo) photoUrl = await uploadMedia(session.lic, `absensi/${todayKey()}/${session.employeeCid}_${Date.now()}.jpg`, photo);
       addRow({
         employeeName: session.employeeName, employeeCid: session.employeeCid, empId: session.empId || '', role: session.role,
         branchId: session.branchId, branchName, date: todayKey(), type,
         shiftId: sh?.id || null, shiftNama: sh?.nama || null,
         lat: geo?.lat ?? null, lng: geo?.lng ?? null, acc: geo?.acc ?? null,
         dist: dist ?? null, far: outOfRadius,
+        geoStatus: geoStatus || (geo ? 'ok' : 'unavailable'), alamat,
         lateMin: type === 'in' ? li.telatMin : null, lateStatus: type === 'in' ? li.status : null,
-        photo: photo || null, deviceId: session.deviceId || getDeviceId(), deviceTs: Date.now()
+        photo: photoUrl ? null : (photo || null), photoUrl,
+        deviceId: session.deviceId || getDeviceId(), deviceTs: Date.now()
       });
       auditLog({ id: session.lic, tenant: session.tenant, currentUserRole: 'karyawan', branchId: session.branchId, employeeName: session.employeeName },
-        'ABSEN_' + (type === 'in' ? 'MASUK' : 'PULANG'), { jarak: dist, luarRadius: outOfRadius });
+        'ABSEN_' + (type === 'in' ? 'MASUK' : 'PULANG'), { jarak: dist, luarRadius: outOfRadius, tanpaGps: !geo });
       setFlow(null);
-      alert(outOfRadius
+      alert(!geo
+        ? 'Absen tercatat TANPA lokasi GPS. Owner melihat penandanya.'
+        : outOfRadius
         ? `Absen tercatat, tapi kamu ${dist}m dari cabang. Owner akan melihat tandanya.`
-        : `Absen ${type === 'in' ? 'masuk' : 'pulang'} tercatat! Waktu dikunci server.`, outOfRadius ? 'error' : 'success');
+        : `Absen ${type === 'in' ? 'masuk' : 'pulang'} tercatat! Waktu dikunci server.`, (!geo || outOfRadius) ? 'error' : 'success');
     } catch (e) {
       alert('Gagal mengirim absensi: ' + (e.message || 'coba lagi'), 'error');
     }
@@ -1547,7 +1594,7 @@ export const AbsensiApp = ({ preLic = '' }) => {
       </nav>
 
       {flow && (
-        <AbsenFlow type={flow} session={session} branch={branch} branchName={branchName} aturan={aturan}
+        <AbsenFlow type={flow} session={session} branch={branch} branchName={branchName} aturan={aturan} brandLogo={brandLogo}
           onClose={() => setFlow(null)} onSubmit={doSubmit} />
       )}
     </div>

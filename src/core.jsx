@@ -6,9 +6,12 @@ import React, { useState, useEffect } from 'react';
 import { initializeApp } from "firebase/app";
 import {
   getFirestore, collection, doc, addDoc, setDoc, deleteDoc,
-  onSnapshot, serverTimestamp
+  onSnapshot, serverTimestamp, updateDoc, deleteField,
+  getDocs, writeBatch
 } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth, signInAnonymously } from "firebase/auth";
+import { getStorage, ref as sRef, uploadString, getDownloadURL } from "firebase/storage";
+import jsQR from 'jsqr';
 import { Uang, Qris, Dompet } from './welp-icons.jsx';
 
 export const safeParse = (key, fallback = []) => {
@@ -16,6 +19,20 @@ export const safeParse = (key, fallback = []) => {
     const data = localStorage.getItem(key);
     return data ? JSON.parse(data) : fallback;
   } catch (e) { return fallback; }
+};
+
+// v15 F0 — SANITASI SESI: hapus SEMUA kredensial dari objek sesi
+// (dipakai lock.jsx, App.jsx, pos.jsx saat menulis app_license).
+// _branchList kini hanya menyimpan metadata: cid, name, role.
+export const sanitizeSession = (data) => {
+  if (!data || typeof data !== 'object') return data;
+  const { password, ownerPin, cred, _branchList, ...rest } = data;
+  if (Array.isArray(_branchList)) {
+    rest._branchList = _branchList.map(b => ({
+      cid: b.cid, name: b.name, role: b.role
+    }));
+  }
+  return rest;
 };
 
 // --- KONFIGURASI FIREBASE (SESUAIKAN DENGAN MILIKMU) ---
@@ -42,6 +59,128 @@ try {
 }
 export { db, auth, firebaseInitError };
 
+// ============================================================
+// v15 · F0 — KEAMANAN KREDENSIAL & SESI
+// (1) Kredensial (password owner, PIN cabang/station/karyawan,
+//     ownerPin) kini disimpan sebagai HASH PBKDF2-SHA256 dgn salt
+//     acak per kredensial — plaintext tidak lagi tersimpan di
+//     Firestore. Data lama yang masih plaintext tetap sah dan
+//     OTOMATIS di-upgrade ke hash pada login sukses berikutnya.
+// (2) ensureAuth() — sesi anonymous Firebase dibuka sebelum read
+//     Firestore apapun, sebagai prasyarat rules v15
+//     (request.auth != null). Bila provider Anonymous belum
+//     diaktifkan di Firebase Console, app tetap jalan dgn rules
+//     lama (flag anonAuthBlocked untuk peringatan dev panel).
+// (3) pinGate — throttle percobaan PIN per perangkat: 5 gagal →
+//     lockout 5 menit (pesan jelas ke pengguna).
+// ============================================================
+
+const PBKDF2_ITERS = 60000;
+const bufToHex = (buf) => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+export const randomSalt = (bytes = 16) => bufToHex(crypto.getRandomValues(new Uint8Array(bytes)));
+
+export const hashSecret = async (secret, saltHex, iters = PBKDF2_ITERS) => {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(String(secret)), 'PBKDF2', false, ['deriveBits']);
+  const saltBytes = Uint8Array.from(String(saltHex).match(/.{2}/g).map(h => parseInt(h, 16)));
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: saltBytes, iterations: iters, hash: 'SHA-256' }, key, 256);
+  return bufToHex(bits);
+};
+
+// Bentuk tersimpan di doc: cred: { alg, iters, salt, hash }
+export const makeCred = async (secret) => {
+  const salt = randomSalt();
+  return { alg: 'pbkdf2-sha256', iters: PBKDF2_ITERS, salt, hash: await hashSecret(secret, salt) };
+};
+
+// perbandingan konstan-waktu sederhana (anti timing scan)
+const safeEq = (a, b) => {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+};
+
+// Verifikasi input terhadap record: cek cred (hash) dulu, lalu
+// fallback field plaintext legacy (pin/password/ownerPin).
+// credField: nama field hash — 'cred' (PIN tunggal), 'credPass'/'credPin'
+// dipakai record yang punya DUA kredensial (cabang: password + PIN).
+export const verifyCred = async (input, rec, legacyField = 'pin', credField = 'cred') => {
+  const s = String(input ?? '');
+  if (!s || !rec) return false;
+  const c = rec[credField];
+  if (c && c.hash && c.salt) {
+    try { return safeEq(await hashSecret(s, c.salt, c.iters || PBKDF2_ITERS), c.hash); }
+    catch (e) { return false; }
+  }
+  return rec[legacyField] != null && safeEq(String(rec[legacyField]), s);
+};
+
+// rec masih plaintext (belum ter-hash)? — untuk auto-upgrade & UI.
+export const credIsLegacy = (rec, credField = 'cred') => !!rec && !(rec[credField] && rec[credField].hash && rec[credField].salt);
+
+// Setelah verifikasi legacy sukses: ganti plaintext → hash (hapus
+// field plaintext). Best-effort; bila gagal, upgrade dicoba lagi
+// pada login sukses berikutnya.
+export const upgradeCred = async (pathSegments, input, legacyField, credField = 'cred') => {
+  try {
+    if (!db || !input) return false;
+    const cred = await makeCred(input);
+    const patch = { [credField]: cred };
+    if (legacyField) patch[legacyField] = deleteField();
+    await updateDoc(doc(db, ...pathSegments), patch);
+    return true;
+  } catch (e) { return false; }
+};
+
+// --- AUTH GATE (anonymous) -------------------------------------------
+let _anonOk = null;   // null = belum dicoba
+export const anonAuthBlocked = () => _anonOk === false;
+export const ensureAuth = async () => {
+  if (!auth) return false;
+  if (auth.currentUser) return true;
+  try {
+    await signInAnonymously(auth);
+    _anonOk = true;
+    return true;
+  } catch (e) {
+    _anonOk = false;
+    console.warn('[WELP auth] Sesi anonim tidak tersedia (' + (e.code || '') + '). Publish rules v15 setelah mengaktifkan provider Anonymous.', e.code || e);
+    return false;
+  }
+};
+
+// --- PIN GATE (throttle percobaan per perangkat) ----------------------
+const PIN_GATE_KEY = 'welp_pin_gate';
+export const PIN_GATE_MAX = 5;
+export const PIN_GATE_LOCK_MS = 5 * 60 * 1000;
+const pinGateRead = () => { try { return JSON.parse(localStorage.getItem(PIN_GATE_KEY) || '{}'); } catch (e) { return {}; } };
+const pinGateWrite = (d) => { try { localStorage.setItem(PIN_GATE_KEY, JSON.stringify(d)); } catch (e) { } };
+export const pinGate = {
+  status(key) {
+    const d = pinGateRead()[key];
+    if (!d) return { locked: false, msLeft: 0, fails: 0 };
+    const left = (d.lockedUntil || 0) - Date.now();
+    return { locked: left > 0, msLeft: Math.max(0, left), fails: d.n || 0 };
+  },
+  fail(key) {
+    const all = pinGateRead();
+    const d = all[key] || { n: 0 };
+    d.n = (d.n || 0) + 1;
+    if (d.n >= PIN_GATE_MAX) { d.lockedUntil = Date.now() + PIN_GATE_LOCK_MS; d.n = 0; }
+    all[key] = d; pinGateWrite(all);
+    return pinGate.status(key);
+  },
+  reset(key) { const all = pinGateRead(); delete all[key]; pinGateWrite(all); }
+};
+export const pinGateMsg = (st) => {
+  if (!st.locked) return '';
+  const s = Math.ceil(st.msLeft / 1000);
+  const m = Math.floor(s / 60), d = s % 60;
+  return `Terlalu banyak percobaan salah. Coba lagi dalam ${m > 0 ? m + ' menit ' : ''}${d} detik.`;
+};
+
 export const BRANCH_ID = "PUSAT";
 export const isPro = (info) => info && (info.type === 'PRO' || info.type === 'PREMIUM');
 
@@ -50,11 +189,152 @@ export const formatIDR = (number) => new Intl.NumberFormat('id-ID', {
   minimumFractionDigits: 0, maximumFractionDigits: 0
 }).format(number || 0);
 
+// v15 F4-H3 — format ribuan gaya Indonesia (TITIK) selaras formatIDR.
+// Input longgar: terima "150.5" (desimal titik) & "150,5" (desimal koma).
 export const formatNumberDisplay = (val) => {
   if (val === undefined || val === null || isNaN(val)) return '';
-  if (val === 0) return '0';
-  const num = val.toString().replace(/[^0-9.]/g, '');
-  return num.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  if (Number(val) === 0) return '0';
+  const raw = String(val).trim().replace(/\./g, '').replace(',', '.');
+  const num = Number(raw);
+  if (!isFinite(num)) return '';
+  const [int, dec] = String(num).split('.');
+  return int.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec ? ',' + dec : '');
+};
+// parse balik teks ribuan id-ID → Number (untuk NumericInput dkk).
+export const parseNumberID = (txt) => {
+  const n = Number(String(txt ?? '').trim().replace(/\./g, '').replace(',', '.'));
+  return isFinite(n) ? n : 0;
+};
+
+// ============================================================
+// v15 · F1 — DATA KOMERSIAL KE FIRESTORE (menutup split-brain B1)
+// Data komersial kini tersimpan di Firestore tenants/{lic}/<koleksi>
+// dan tetap di-mirror ke localStorage agar offline & kompatibel dengan
+// seluruh pembaca lama.
+//   • hydrateDb(lic)  : sekali setelah login — bila Firestore kosong &
+//     lokal ada data → IMPORT SEKALI; selain itu isi Firestore menang
+//     dan ditulis ke mirror.
+//   • dbSet(lic, key, rows) : tulis lokal + diff per-record ke Firestore
+//     (setDoc merge / deleteDoc) — komponen tetap memakai pola array lama.
+//   • dbSetDoc / profil & bizconfig : dokumen objek di koleksi pengaturan.
+// Setiap perubahan memancarkan event 'welp_db_sync' agar tab lain
+// (keep-alive) ikut membaca ulang mirror.
+// ============================================================
+export const DB_MAP = {
+  product_stock_db: 'produk',
+  raw_material_db: 'bahan',
+  hpp_pro_db: 'resep',
+  active_orders_db: 'orders',
+  pos_history_db: 'pos_history',
+  expense_db: 'kas_keluar',
+  supplier_db: 'supplier',
+  stock_history_db: 'riwayat_stok',
+  self_orders_db: 'self_orders'
+};
+// Dokumen OBJEK (bukan koleksi): key lokal → id doc di koleksi 'pengaturan'
+export const DB_DOC_MAP = {
+  store_profile: 'toko_profile',
+  discount_tax_db: 'bizconfig'
+};
+
+const _dbSnap = {};
+const DB_SYNC_EVT = 'welp_db_sync';
+const fireDbSync = () => { try { window.dispatchEvent(new Event(DB_SYNC_EVT)); } catch (e) { } };
+const idOf = (r, i) => String(r.id ?? r.cid ?? ('r' + i));
+const stripCloud = (r) => { const c = { ...r }; delete c.cid; delete c.serverAt; return c; };
+
+export const hydrateDb = async (licId) => {
+  if (!licId || !db) return false;
+  let touched = false;
+  for (const [key, col] of Object.entries(DB_MAP)) {
+    try {
+      const snap = await getDocs(collection(db, 'tenants', licId, col));
+      const cloud = snap.docs.map(d => ({ ...d.data(), cid: d.id }));
+      const local = safeParse(key, []);
+      if (snap.empty && local.length > 0) {
+        // IMPORT SEKALI — data komersial lokal dipindah ke Firestore
+        const batch = writeBatch(db);
+        local.slice(0, 450).forEach((r, i) => batch.set(doc(db, 'tenants', licId, col, idOf(r, i)), { ...stripCloud(r) }));
+        await batch.commit();
+        _dbSnap[key] = Object.fromEntries(local.map((r, i) => [idOf(r, i), JSON.stringify(stripCloud(r))]));
+      } else if (!snap.empty) {
+        const cloudRows = cloud.map(stripCloud);
+        try { localStorage.setItem(key, JSON.stringify(cloudRows)); } catch (e) { }
+        _dbSnap[key] = Object.fromEntries(cloudRows.map((r, i) => [idOf(r, i), JSON.stringify(r)]));
+        touched = true;
+      } else {
+        _dbSnap[key] = {};
+      }
+    } catch (e) { console.warn('[WELP f1:' + col + ']', e.code || e.message); }
+  }
+  for (const [key, docId] of Object.entries(DB_DOC_MAP)) {
+    try {
+      const ref = doc(db, 'tenants', licId, 'pengaturan', docId);
+      const ds = await getDoc(ref);
+      const local = safeParse(key, null);
+      if (!ds.exists()) {
+        if (local && (typeof local !== 'object' || Object.keys(local).length > 0)) {
+          await setDoc(ref, { ...stripCloud(local) });
+          _dbSnap[key] = JSON.stringify(stripCloud(local));
+        } else _dbSnap[key] = null;
+      } else {
+        const data = stripCloud(ds.data());
+        try { localStorage.setItem(key, JSON.stringify(data)); } catch (e) { }
+        _dbSnap[key] = JSON.stringify(data);
+        touched = true;
+      }
+    } catch (e) { console.warn('[WELP f1:' + key + ']', e.code || e.message); }
+  }
+  if (touched) fireDbSync();
+  return true;
+};
+
+// Tulis array komersial: mirror lokal + diff ke Firestore.
+export const dbSet = (licId, key, rows) => {
+  const arr = Array.isArray(rows) ? rows : [];
+  try { localStorage.setItem(key, JSON.stringify(arr)); } catch (e) { }
+  fireDbSync();
+  if (!licId || !db || !DB_MAP[key]) return;
+  const col = DB_MAP[key];
+  const prev = _dbSnap[key] || {};
+  const next = {};
+  arr.forEach((r, i) => {
+    const id = idOf(r, i);
+    const clean = stripCloud(r);
+    const json = JSON.stringify(clean);
+    next[id] = json;
+    if (prev[id] !== json) {
+      setDoc(doc(db, 'tenants', licId, col, id), { ...clean, serverAt: serverTimestamp() }, { merge: true })
+        .catch(e => console.warn('[WELP f1w:' + col + ']', e.code || e.message));
+    }
+  });
+  Object.keys(prev).forEach(id => {
+    if (!next[id]) deleteDoc(doc(db, 'tenants', licId, col, id)).catch(() => { });
+  });
+  _dbSnap[key] = next;
+};
+
+// Tulis dokumen objek (store_profile, bizconfig): mirror + merge Firestore.
+export const dbSetDoc = (licId, key, obj) => {
+  const val = obj && typeof obj === 'object' ? obj : {};
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { }
+  fireDbSync();
+  if (!licId || !db || !DB_DOC_MAP[key]) return;
+  const clean = stripCloud(val);
+  const json = JSON.stringify(clean);
+  if (_dbSnap[key] === json) return;
+  _dbSnap[key] = json;
+  setDoc(doc(db, 'tenants', licId, 'pengaturan', DB_DOC_MAP[key]), { ...clean, serverAt: serverTimestamp() }, { merge: true })
+    .catch(e => console.warn('[WELP f1d:' + key + ']', e.code || e.message));
+};
+
+// Hook re-read mirror saat ada sinkronisasi (tab keep-alive ikut segar)
+export const useDbSync = (rebind) => {
+  useEffect(() => {
+    const h = () => rebind();
+    window.addEventListener(DB_SYNC_EVT, h);
+    return () => window.removeEventListener(DB_SYNC_EVT, h);
+  });
 };
 
 // ============================================================
@@ -195,6 +475,40 @@ export const parseEmv = (payload) => {
   return out;
 };
 
+// v15 F5/G2 — VALIDASI & METADATA QRIS: verifikasi CRC-16 tag 63,
+// bedakan statis/dinamis, dan baca metadata merchant (tag 26 sub-05,
+// 59 nama merchant, 60 kota). Dipakai saat upload QRIS di Pengaturan.
+export const verifyQrisCrc = (payload) => {
+  try {
+    const p = String(payload || '').trim();
+    if (!p.endsWith('6304') || p.length < 8) return false;
+    const body = p.slice(0, -4);
+    return crc16CCITT(body) === p.slice(-4).toUpperCase();
+  } catch (e) { return false; }
+};
+export const qrisMeta = (payload) => {
+  try {
+    const m = parseEmv(payload);
+    // tag 26 berisi sub-TLV: cari ID penempat (mis. IDCO.../936...) →
+    // sub-tag 05 = ID merchant; tag 51= kripto; fallback: pola QRID/ID
+    let mid = '';
+    const t26 = m['26'] || '';
+    const sub = parseEmv(t26);
+    mid = sub['05'] || sub['02'] || '';
+    return {
+      type: m['01'] === '12' ? 'dinamis' : 'statis',
+      merchant: m['59'] || null,
+      city: m['60'] || null,
+      merchantId: mid || null,
+      nmid: sub['05'] || null,
+      crcValid: verifyQrisCrc(payload),
+      amount: m['54'] ? Number(m['54']) : null,
+      country: m['58'] || null,
+      currency: m['53'] || null
+    };
+  } catch (e) { return null; }
+};
+
 // return payload dinamis siap di-render, atau null jika payload tidak valid.
 export const buildDynamicQris = (staticPayload, amount) => {
   try {
@@ -321,6 +635,38 @@ export const getLocation = (timeout = 12000) => new Promise((resolve, reject) =>
   );
 });
 
+// v15 F5/F2 — REVERSE GEOCODING (alamat manusiawi dari koordinat).
+// Nominatim/OpenStreetMap dipakai langsung (tanpa key, volume rendah:
+// hanya saat absen submit). Koordinat & akurasi ASLI tetap disimpan —
+// alamat hanya pelengkap agar monitoring owner mudah dibaca.
+export const reverseGeocode = async (lat, lng) => {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=id`,
+      { headers: { 'Accept': 'application/json' } });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j?.display_name ? String(j.display_name) : null;
+  } catch (e) { return null; }
+};
+
+// v15 F5/J3 — MEDIA BESAR KE FIREBASE STORAGE (graceful).
+// Mengunggah dataURL ke tenants/{lic}/<path> dan mengembalikan URL.
+// Bila Storage belum dikonfigurasi / rules menolak → null (pemanggil
+// fallback ke base64 inline seperti sebelumnya). Batas 900KB.
+export const uploadMedia = async (licId, path, dataUrl) => {
+  try {
+    if (!licId || !dataUrl || !app) return null;
+    if (dataUrl.length > 900 * 1024 * 1.37) return null;   // ~900KB biner
+    const st = getStorage(app);
+    const r = sRef(st, `tenants/${licId}/${path}`);
+    await uploadString(r, dataUrl, 'data_url');
+    return await getDownloadURL(r);
+  } catch (e) {
+    console.warn('[WELP storage]', e.code || e.message);
+    return null;
+  }
+};
+
 // Jarak meter antar dua titik (haversine) — cek absen dekat cabang.
 export const distanceMeters = (a, b) => {
   if (!a || !b || a.lat == null || b.lat == null) return null;
@@ -349,19 +695,49 @@ export const fileToDataUrl = (file, maxSide = 900, quality = 0.72) => new Promis
   r.readAsDataURL(file);
 });
 
-// Decode QR dari gambar (upload QRIS) via BarcodeDetector bila ada.
+// v15 F5/G1/G3 — Decode QR dari gambar (upload QRIS):
+// BarcodeDetector (Chrome/Edge) dulu, lalu FALLBACK jsQR (bundled, tanpa
+// CDN) sehingga Safari iOS & Firefox ikut terbaca. Decode pada resolusi
+// asli (tanpa kompresi ulang) agar angka keberhasilan tinggi.
 export const decodeQrFromImage = async (dataUrl) => {
-  if (!('BarcodeDetector' in window)) return null;
   try {
     const img = new Image();
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = dataUrl; });
     const cv = document.createElement('canvas');
     cv.width = img.naturalWidth; cv.height = img.naturalHeight;
-    cv.getContext('2d').drawImage(img, 0, 0);
-    const det = new window.BarcodeDetector({ formats: ['qr_code'] });
-    const codes = await det.detect(cv);
-    return codes?.[0]?.rawValue || null;
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    // 1) BarcodeDetector bila tersedia
+    if ('BarcodeDetector' in window) {
+      try {
+        const det = new window.BarcodeDetector({ formats: ['qr_code'] });
+        const codes = await det.detect(cv);
+        if (codes?.[0]?.rawValue) return codes[0].rawValue;
+      } catch (e) { /* lanjut ke jsQR */ }
+    }
+    // 2) fallback jsQR (WASM-free, bundled)
+    const data = ctx.getImageData(0, 0, cv.width, cv.height);
+    const res = jsQR(data.data, cv.width, cv.height, { inversionAttempts: 'attemptBoth' });
+    return res?.data || null;
   } catch (e) { return null; }
+};
+
+// v15 F4-H10 — buka dokumen dataURL via Blob URL. Chrome modern memblokir
+// navigasi top-frame ke URL data:, sehingga "Buka di tab baru" yang memakai
+// <a href={dataURL}> bisa mati diam-diam. Blob URL selalu sah.
+export const openDataUrl = (dataUrl, filename = 'dokumen') => {
+  try {
+    const [meta, b64] = String(dataUrl).split(',');
+    const mime = (meta.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
+    const bin = atob(b64 || '');
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([arr], { type: mime }));
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    window.open(dataUrl, '_blank');   // fallback lama bila format tak terbaca
+  }
 };
 
 // Tab hari ini (YYYY-MM-DD) lokal.
@@ -398,6 +774,104 @@ export const hkTargetOf = (aturan, employee) => {
   const own = Number(employee?.hkBulan);
   const t = (Number.isFinite(own) && own > 0) ? own : Number(aturan?.hkBulan);
   return Math.min(31, Math.max(0, t || 0));
+};
+
+// v15 F2 — RELASI KARYAWAN↔CABANG: branchIds[] (multi-cabang) +
+// branchId (primer, data lama). Urutan: primer dulu, tanpa duplikat.
+export const empBranchIds = (e) => {
+  const ids = [e?.branchId, ...(Array.isArray(e?.branchIds) ? e.branchIds : [])].filter(Boolean);
+  return [...new Set(ids)];
+};
+
+// ============================================================
+// v15 · F3 — PERMISSION GRANULAR & ROLE
+// Permission disimpan per tenant di pengaturan/roles (doc 'roles'):
+//   { matrix: { owner: [...], manager: [...], ... } }
+// Role bawaan = preset; owner bisa menyesuaikan per role dari UI
+// Manajemen Karyawan → Role & Hak Akses. Menu & guard komponen
+// membaca permsOf(); rules Firestore memvalidasi sesi (F0).
+// ============================================================
+export const PERMISSIONS = [
+  { key: 'dashboard.view',   label: 'Beranda & ringkasan bisnis' },
+  { key: 'pos.use',          label: 'Operasional kasir (POS)' },
+  { key: 'product.manage',   label: 'Kelola produk, harga & HPP' },
+  { key: 'inventory.manage', label: 'Kelola stok & gudang' },
+  { key: 'purchasing.manage',label: 'Barang masuk/keluar & supplier' },
+  { key: 'report.financial', label: 'Laporan & riwayat keuangan' },
+  { key: 'attendance.manage',label: 'Kelola absensi & persetujuan cuti' },
+  { key: 'payroll.view',     label: 'Lihat data penggajian' },
+  { key: 'payroll.manage',   label: 'Kelola & bayar penggajian' },
+  { key: 'employee.manage',  label: 'Kelola karyawan & PIN' },
+  { key: 'branch.manage',    label: 'Kelola cabang, station & outlet' },
+  { key: 'settings.manage',  label: 'Pengaturan, profil & perusahaan' },
+  { key: 'role.manage',      label: 'Atur role & hak akses' },
+  { key: 'refund.perform',   label: 'Batalkan / refund transaksi' },
+];
+
+export const ROLE_META = {
+  owner:      { label: 'Owner',      atasan: true  },
+  direktur:   { label: 'Direktur',   atasan: true  },
+  manager:    { label: 'Manager',    atasan: true  },
+  supervisor: { label: 'Supervisor', atasan: true  },
+  admin:      { label: 'Admin',      atasan: true  },
+  hr:         { label: 'HR',         atasan: true  },
+  finance:    { label: 'Finance',    atasan: false },
+  inventory:  { label: 'Inventory',  atasan: false },
+  kasir:      { label: 'Kasir',      atasan: false },
+};
+export const roleLabelOfV15 = (r) => (ROLE_META[r] || ROLE_META.kasir).label;
+export const isAtasanRole = (r) => !!(ROLE_META[r] || ROLE_META.kasir).atasan;
+
+const P = PERMISSIONS.map(p => p.key);
+export const ROLE_PRESETS = {
+  owner:      P,
+  direktur:   P.filter(k => k !== 'role.manage'),
+  manager:    ['dashboard.view','pos.use','product.manage','inventory.manage','purchasing.manage','report.financial','attendance.manage','payroll.view','employee.manage','branch.manage','refund.perform'],
+  supervisor: ['dashboard.view','pos.use','inventory.manage','report.financial','attendance.manage','refund.perform'],
+  admin:      P.filter(k => k !== 'role.manage'),
+  hr:         ['dashboard.view','attendance.manage','payroll.view','payroll.manage','employee.manage','report.financial'],
+  finance:    ['dashboard.view','report.financial','payroll.view','payroll.manage'],
+  inventory:  ['dashboard.view','inventory.manage','purchasing.manage','product.manage'],
+  kasir:      ['dashboard.view','pos.use'],
+};
+
+// Preset lama dgn field 'roles' di NAV (array role string) tetap
+// dipertahankan sbg fallback ketika tenant belum mengatur matrix.
+export const getRolesMatrix = (settingsRows) => {
+  const rec = (settingsRows || []).find(s => s.key === 'roles');
+  const base = (rec && rec.matrix && typeof rec.matrix === 'object') ? rec.matrix : {};
+  return { ...ROLE_PRESETS, ...base };
+};
+export const permsOf = (role, matrix) => {
+  const m = matrix || ROLE_PRESETS;
+  return new Set(m[role] || m.kasir || []);
+};
+export const canDo = (perms, key) => !!(perms && perms.has && perms.has(key));
+
+// Peta menu → permission (untuk shell/nav). null = semua boleh.
+export const NAV_PERMS = {
+  home: 'dashboard.view',
+  pos: 'pos.use',
+  calc: 'product.manage',
+  history: 'report.financial',
+  cashout: 'report.financial',
+  discount: 'pos.use',
+  stock: 'inventory.manage',
+  opname: 'inventory.manage',
+  inout: 'purchasing.manage',
+  stockhistory: 'inventory.manage',
+  supplier: 'purchasing.manage',
+  report: 'report.financial',
+  employee: 'branch.manage',
+  karyawan: 'employee.manage',
+  absensi: 'attendance.manage',
+  payroll: 'payroll.manage',
+  perusahaan: 'settings.manage',
+  outlet: 'branch.manage',
+  profile: 'settings.manage',
+  payment: 'settings.manage',
+  hardware: 'settings.manage',
+  settings: 'settings.manage',
 };
 
 // Kategori keterlambatan relatif jam masuk + toleransi.
@@ -469,12 +943,20 @@ export const trustedSourceLabel = () => (_timeOffset != null ? 'server' : 'peran
 // Foto absensi diberi stempel dari data sistem (bukan input manual):
 // logo & nama WELP, nama perusahaan + cabang, tanggal & jam (waktu
 // terpercaya), koordinat GPS bila tersedia, nama karyawan & jenis absen.
-export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, type, atMs, geo, trusted }) => {
+export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, type, atMs, geo, trusted, logo }) => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onerror = () => resolve(dataUrl);          // gagal render → foto polos tetap dipakai
-    img.onload = () => {
+    img.onload = async () => {
       try {
+        // v15 F5/E1: logo dimuat DULU (bila ada) supaya pasti ikut terstempel
+        let logoImg = null;
+        if (logo) {
+          logoImg = await new Promise((res) => {
+            const x = new Image();
+            x.onload = () => res(x); x.onerror = () => res(null); x.src = logo;
+          });
+        }
         const cv = document.createElement('canvas');
         cv.width = img.width; cv.height = img.height;
         const ctx = cv.getContext('2d');
@@ -493,6 +975,19 @@ export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, ty
         const u = W / 360;                            // unit skala
         const pad = Math.round(14 * u);
         const brandC = brandAccentHex('#F4622E');     // ikut warna custom brand
+
+        // v15 F5/E1: LOGO PERUSAHAAN sebagai watermark image — opacity,
+        // aspect ratio dipertahankan, safe-area dari tepi kanan-atas.
+        if (logoImg) {
+          const maxW = Math.round(W * 0.34), maxH = Math.round(cv.height * 0.13);
+          const ratio = Math.min(maxW / (logoImg.naturalWidth || 1), maxH / (logoImg.naturalHeight || 1), 1);
+          const lw = Math.round((logoImg.naturalWidth || 1) * ratio);
+          const lh = Math.round((logoImg.naturalHeight || 1) * ratio);
+          ctx.save();
+          ctx.globalAlpha = 0.55;
+          ctx.drawImage(logoImg, W - pad - lw, pad, lw, lh);
+          ctx.restore();
+        }
 
         // logo WELP: kotak flame rounded + huruf W + titik
         const bx = pad, by = y0 + Math.round(10 * u), bs = Math.round(26 * u);

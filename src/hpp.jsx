@@ -12,7 +12,8 @@ import {
 } from './welp-icons.jsx';
 import {
   safeParse, formatIDR, isPro,
-  MATERIAL_UNITS, VARIABLE_COST_TYPES, loadXLSX
+  MATERIAL_UNITS, VARIABLE_COST_TYPES, loadXLSX,
+  dbSet, useDbSync   // v15 F1
 } from './core.jsx';
 import { Button, Card, NumericInput, Select, Toggle, Badge, Modal, EmptyState, ImageCropperModal } from './ui';
 
@@ -178,11 +179,18 @@ export const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => 
     } else {
       updatedProducts = [...currentProducts, newProductItem];
     }
-    localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
+    // v15 F1: mirror + Firestore
+    dbSet(licenseInfo?.id, 'product_stock_db', updatedProducts);
 
     // SIMPAN RESEP dengan productId stabil
     const data = { id: Date.now(), productId: newProductItem.id, product, materials, variableOps, fixedOps, production, hppBersih, finalPrice };
-    setSavedRecipes(prev => { const n = [...prev, data]; localStorage.setItem('hpp_pro_db', JSON.stringify(n)); return n; });
+    setSavedRecipes(prev => {
+      // v15 F1 + bug lama teraudit: resep untuk produk yang sama DIGANTI
+      // (bukan ditumpuk) — pencocokan checkout tidak lagi memakai resep basi.
+      const n = [...prev.filter(r => r.productId !== newProductItem.id), data];
+      dbSet(licenseInfo?.id, 'hpp_pro_db', n);   // v15 F1: mirror + Firestore
+      return n;
+    });
 
     const currentRawMaterials = safeParse("raw_material_db");
     let updatedRawMaterials = [...currentRawMaterials];
@@ -200,7 +208,8 @@ export const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => 
         });
       }
     });
-    localStorage.setItem('raw_material_db', JSON.stringify(updatedRawMaterials));
+    // v15 F1: mirror + Firestore
+    dbSet(licenseInfo?.id, 'raw_material_db', updatedRawMaterials);
 
     triggerAlert("Data Tersimpan! Stok & Bahan Baku terupdate.");
   };
@@ -617,7 +626,7 @@ export const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => 
                 <h4 className="font-extrabold text-ink dark:text-ink-inv text-xs truncate">{r.product?.name}</h4>
                 <p className="text-[10px] text-ink-faint money mt-0.5">{formatIDR(r.finalPrice)} • {new Date(r.id).toLocaleDateString()}</p>
               </div>
-              <button onClick={(e) => { e.stopPropagation(); setSavedRecipes(savedRecipes.filter(i => i.id !== r.id)); localStorage.setItem('hpp_pro_db', JSON.stringify(savedRecipes.filter(i => i.id !== r.id))); }}
+              <button onClick={(e) => { e.stopPropagation(); const n = savedRecipes.filter(i => i.id !== r.id); setSavedRecipes(n); dbSet(licenseInfo?.id, 'hpp_pro_db', n); }}
                 className="text-ink-faint hover:text-brick self-center"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}

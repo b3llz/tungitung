@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
 import { X, HelpCircle, AlertCircle, Check } from './welp-icons.jsx';
 import { BrandLogo, BrandLockup, Mascot, AppSymbol } from './brand.jsx';
 import Cropper from "react-easy-crop";
-import { formatNumberDisplay } from './core.jsx';
+import { formatNumberDisplay, parseNumberID } from './core.jsx';
 
 /* Brand dibuka kembali dari sini supaya pemanggil lama yang
    mengimpor dari './ui' tetap satu sumber (brand.jsx). */
@@ -66,13 +66,16 @@ export const Button = ({ children, onClick, variant = 'primary', className = "",
 };
 
 /* ---------- CARD ---------- */
+// v15 F4-H1: HelpBox dikeluarkan dari h3.truncate — judul panjang
+// tidak lagi memotong ikon tanda tanya (akar bug ikon hilang di 320px).
 export const Card = ({ children, className = "", title, icon: Icon, action, help, flush }) => (
   <section className={`card ${className}`}>
     {(title || action) && (
       <header className="flex justify-between items-center gap-3 px-5 py-3.5 border-b border-line/70 dark:border-line-dark/70">
         <div className="flex items-center gap-2.5 min-w-0">
           {Icon && <Icon className="w-5 h-5 text-flame-500 dark:text-apricot shrink-0" />}
-          <h3 className="font-extrabold text-[14px] text-ink dark:text-ink-inv flex items-center gap-1.5 truncate">{title} {help && <HelpBox text={help} />}</h3>
+          <h3 className="font-extrabold text-[14px] text-ink dark:text-ink-inv truncate min-w-0">{title}</h3>
+          {help && <span className="shrink-0 inline-flex"><HelpBox text={help} /></span>}
         </div>
         {action}
       </header>
@@ -93,14 +96,16 @@ export const PageTitle = ({ title, sub, right, mascot }) => (
 );
 
 /* ---------- NUMERIC INPUT ---------- */
+// v15 F4-H3: format ribuan gaya Indonesia (TITIK: 150.000), desimal
+// KOMA — konsisten dengan formatIDR & cara baca pengguna Indonesia.
 export const NumericInput = ({ value, onChange, placeholder, className, prefix, suffix, label }) => {
   const [displayValue, setDisplayValue] = useState('');
   useEffect(() => { setDisplayValue(formatNumberDisplay(value)); }, [value]);
   const handleChange = (e) => {
-    const rawValue = e.target.value.replace(/,/g, '');
-    if (rawValue === '' || /^[0-9]*\.?[0-9]*$/.test(rawValue)) {
-      setDisplayValue(formatNumberDisplay(rawValue));
-      onChange(rawValue === '' ? 0 : parseFloat(rawValue));
+    const rawValue = e.target.value;
+    if (rawValue === '' || /^[0-9.,]*$/.test(rawValue)) {
+      setDisplayValue(rawValue);
+      onChange(rawValue === '' ? 0 : parseNumberID(rawValue));
     }
   };
   return (
@@ -174,13 +179,14 @@ export const Segmented = ({ items, value, onChange, className = "" }) => (
 export const Badge = ({ tone = 'neutral', children, className = "" }) => {
   const tones = {
     neutral: 'bg-paper dark:bg-white/5 text-ink-faint dark:text-ink-inv/60',
+    grey: 'bg-paper dark:bg-white/5 text-ink-faint dark:text-ink-inv/60',   // v15 F4-H12: alias neutral
     green: 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf',
     gold: 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold',
     red: 'bg-brick-soft dark:bg-brick/10 text-brick-deep dark:text-brick',
     lime: 'bg-flame-50 dark:bg-flame-500/15 text-flame-700 dark:text-apricot',
     teal: 'bg-teal2-soft dark:bg-teal2/15 text-teal2 dark:text-teal2'
   };
-  return <span className={`badge ${tones[tone]} ${className}`}>{children}</span>;
+  return <span className={`badge ${tones[tone] || tones.neutral} ${className}`}>{children}</span>;
 };
 
 /* ---------- MODAL BASE ---------- */
@@ -204,6 +210,52 @@ export const Modal = ({ open, onClose, title, sub, children, width = 'max-w-md',
         {footer && <div className={`px-5 py-4 border-t ${tone === 'dark' ? 'border-chrome-edge' : 'border-line/70 dark:border-line-dark/70'}`}>{footer}</div>}
       </div>
     </div>
+  );
+};
+
+/* ---------- CONFIRM DIALOG (v15 F4/K2) ----------
+   Pengganti confirm() native untuk aksi berisiko: konsisten dengan
+   design system, bisa ditutup dgn Escape, dan mendukung mode
+   "ketik kata kunci" utk aksi destruktif yang tak bisa dibatalkan
+   (mis. Reset Aplikasi yang menghapus seluruh data lokal). */
+export const ConfirmDialog = ({ open, title, message, confirmLabel = 'Ya, lanjutkan', cancelLabel = 'Batal', danger, typeWord, onConfirm, onCancel }) => {
+  const [word, setWord] = useState('');
+  useEffect(() => { if (open) setWord(''); }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') onCancel && onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onCancel]);
+  if (!open) return null;
+  const armed = !typeWord || word.trim().toUpperCase() === String(typeWord).toUpperCase();
+  return createPortal(
+    <div className="fixed inset-0 z-[170] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-chrome-deep/70 backdrop-blur-sm animate-fade-in" onClick={onCancel}>
+      <div className="w-full max-w-sm bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-t-[1.8rem] sm:rounded-[1.8rem] shadow-pop p-5 animate-pop" onClick={e => e.stopPropagation()} role="alertdialog" aria-modal="true">
+        <div className="flex items-start gap-3 mb-4">
+          <span className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${danger ? 'bg-brick-soft dark:bg-brick/15 text-brick' : 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold'}`}>
+            <AlertCircle className="w-5 h-5" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="font-extrabold text-[15px] text-ink dark:text-ink-inv leading-snug">{title}</h3>
+            {message && <p className="text-xs text-ink-faint font-semibold mt-1 leading-relaxed">{message}</p>}
+          </div>
+        </div>
+        {typeWord && (
+          <div className="mb-4">
+            <label className="kicker block mb-1.5 ml-0.5">Ketik <span className="text-brick font-mono uppercase">{typeWord}</span> untuk konfirmasi</label>
+            <input value={word} onChange={e => setWord(e.target.value)} placeholder={typeWord}
+              className="field font-mono uppercase tracking-widest" autoComplete="off" />
+          </div>
+        )}
+        <div className="flex gap-2 justify-end">
+          <button onClick={onCancel} className="px-4 py-2.5 rounded-2xl text-xs font-extrabold bg-paper dark:bg-white/5 text-ink-soft dark:text-ink-inv/70 hover:bg-line/40 transition press">{cancelLabel}</button>
+          <button onClick={() => armed && onConfirm && onConfirm()} disabled={!armed}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold transition press disabled:opacity-40 disabled:pointer-events-none ${danger ? 'bg-brick hover:bg-brick-deep text-white' : 'bg-flame-600 hover:bg-flame-500 text-white'}`}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 };
 

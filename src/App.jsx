@@ -13,7 +13,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { BrandLogo } from './ui';
 import { Gelap, Terang } from './welp-icons.jsx';
 
-import { db, safeParse, syncSession, useBranding } from './core.jsx';
+import { db, safeParse, syncSession, useBranding, ensureAuth, sanitizeSession, hydrateDb, useTenantCol, getRolesMatrix, permsOf, NAV_PERMS } from './core.jsx';
 import { Toast } from './ui';
 import { LockScreen, BannedScreen, RestoredScreen } from './lock';
 import { HomeTab } from './home';
@@ -49,6 +49,11 @@ const MainAdminApp = () => {
   const lowStockThreshold = parseInt(localStorage.getItem('low_stock_threshold')) || 5;
   const lowStockCount = safeParse('product_stock_db', []).filter(p => (p.stock || 0) <= lowStockThreshold).length;
 
+  // v15 F3: matrix role per tenant → Set permission utk nav & guard.
+  const { items: settingsRows } = useTenantCol(licenseInfo, 'pengaturan', 'pengaturan_db');
+  const rolesMatrix = getRolesMatrix(settingsRows);
+  const perms = permsOf(role, rolesMatrix);
+
   const triggerAlert = useCallback((message, type = 'success') => {
     setPopup({ show: true, message, type });
   }, []);
@@ -79,7 +84,11 @@ const MainAdminApp = () => {
     const saved = localStorage.getItem('app_license');
     if (saved) {
       try {
-        const data = JSON.parse(saved);
+        let data = JSON.parse(saved);
+        // v15 F0: migrasi sesi lama — buang kredensial apapun yang sempat
+        // tersimpan (password/ownerPin/cred/_branchList plaintext).
+        data = sanitizeSession(data);
+        localStorage.setItem('app_license', JSON.stringify(data));
         if (new Date() < new Date(data.validUntil)) {
           setLicenseInfo(data);
           setIsLocked(false);
@@ -88,6 +97,9 @@ const MainAdminApp = () => {
         }
       } catch (e) { setIsLocked(true); }
     }
+    // v15 F0: sesi anonymous Firebase dibuka sejak boot agar onSnapshot
+    // lisensi & seluruh listener tenant lolos rules v15 (auth != null).
+    ensureAuth();
   }, []);
 
   const checkValidity = () => {
@@ -95,7 +107,7 @@ const MainAdminApp = () => {
     const saved = localStorage.getItem('app_license');
     if (saved) {
       try {
-        const data = JSON.parse(saved);
+        const data = sanitizeSession(JSON.parse(saved));
         if (new Date() < new Date(data.validUntil)) { setLicenseInfo(data); setIsLocked(false); }
         else { localStorage.removeItem('app_license'); setIsLocked(true); setLicenseInfo(null); }
       } catch (e) { setIsLocked(true); }
@@ -112,8 +124,10 @@ const MainAdminApp = () => {
 
   const handleUnlock = (data) => {
     if (isBanned) return triggerAlert("Akses Ditolak.", "error");
-    // SECURITY: jangan simpan password & ownerPin plaintext di localStorage.
-    const { password, ownerPin, ...safeSession } = data || {};
+    // SECURITY v15 F0: satu pintu sanitasi — password, ownerPin, cred,
+    // dan seluruh kredensial cabang (_branchList) TIDAK PERNAH masuk
+    // localStorage. Metadata cabang (cid/name/role) tetap dipertahankan.
+    const safeSession = sanitizeSession(data);
     localStorage.setItem('app_license', JSON.stringify(safeSession));
     setLicenseInfo(safeSession); setIsLocked(false);
   };
@@ -150,6 +164,13 @@ const MainAdminApp = () => {
     return () => clearInterval(interval);
   }, [licenseInfo]);
 
+  // v15 F1: data komersial tersinkron ke Firestore — import sekali dari
+  // localStorage (device pertama pindah ke v15) atau hidrasi mirror dari
+  // Firestore (device kedua dst). Dipanggil setiap sesi login berubah.
+  useEffect(() => {
+    if (licenseInfo?.id) { hydrateDb(licenseInfo.id); }
+  }, [licenseInfo?.id]);
+
   // POS Station: ganti kasir aktif → segarkan sesi dari localStorage
   useEffect(() => {
     const onSess = () => {
@@ -162,6 +183,13 @@ const MainAdminApp = () => {
     return () => window.removeEventListener('welp_session_update', onSess);
   }, []);
 
+  // v15 F3: guard tab aktif — bila permission menu dicabut saat sesi
+  // berjalan, kembalikan ke beranda.
+  useEffect(() => {
+    const need = NAV_PERMS[active];
+    if (need && !perms.has(need)) setActive('home');
+  }, [active, perms]);
+
   if (isBanned) return <BannedScreen id={licenseInfo?.id || "UNKNOWN"} />;
   if (isRestored) return <RestoredScreen onContinue={() => { setIsRestored(false); setIsLocked(true); }} />;
   if (isLocked) return <LockScreen onUnlock={handleUnlock} id={licenseInfo?.id} />;
@@ -171,7 +199,7 @@ const MainAdminApp = () => {
       <div className="min-h-screen w-full bg-paper dark:bg-night text-ink dark:text-ink-inv transition-colors">
 
         {/* SIDEBAR DOCK (desktop) */}
-        <Sidebar role={role} active={active} setActive={setActive} licenseInfo={licenseInfo} dark={dark} toggleDark={toggleDarkMode} onLogout={handleLogout} lowStockCount={lowStockCount} editing={isEditingMode} />
+        <Sidebar role={role} perms={perms} active={active} setActive={setActive} licenseInfo={licenseInfo} dark={dark} toggleDark={toggleDarkMode} onLogout={handleLogout} lowStockCount={lowStockCount} editing={isEditingMode} />
 
         <div className="lg:pl-[260px]">
 
@@ -192,8 +220,8 @@ const MainAdminApp = () => {
             <div className={active === 'pos' ? 'block' : 'hidden'}><PosTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
             <div className={active === 'calc' ? 'block' : 'hidden'}><CalculatorTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} /></div>
             <div className={active === 'history' ? 'block' : 'hidden'}><HistoryTab activeTab={active} /></div>
-            <div className={active === 'cashout' ? 'block' : 'hidden'}><CashOutTab triggerAlert={triggerAlert} /></div>
-            <div className={active === 'discount' ? 'block' : 'hidden'}><DiscountTab triggerAlert={triggerAlert} /></div>
+            <div className={active === 'cashout' ? 'block' : 'hidden'}><CashOutTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
+            <div className={active === 'discount' ? 'block' : 'hidden'}><DiscountTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
             <div className={active === 'employee' ? 'block' : 'hidden'}><BranchTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
             <div className={active === 'karyawan' ? 'block' : 'hidden'}><KaryawanTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
             <div className={active === 'absensi' ? 'block' : 'hidden'}><AbsensiTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} sessionRole={role} sessionBranchId={licenseInfo?.branchId || 'PUSAT'} /></div>
@@ -203,22 +231,22 @@ const MainAdminApp = () => {
             <div className={active === 'stock' ? 'block' : 'hidden'}>
               <StockTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} />
             </div>
-            <div className={active === 'opname' ? 'block' : 'hidden'}><OpnameTab triggerAlert={triggerAlert} /></div>
-            <div className={active === 'inout' ? 'block' : 'hidden'}><InOutTab triggerAlert={triggerAlert} /></div>
+            <div className={active === 'opname' ? 'block' : 'hidden'}><OpnameTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
+            <div className={active === 'inout' ? 'block' : 'hidden'}><InOutTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
             <div className={active === 'stockhistory' ? 'block' : 'hidden'}><StockHistoryTab activeTab={active} /></div>
-            <div className={active === 'supplier' ? 'block' : 'hidden'}><SupplierTab triggerAlert={triggerAlert} /></div>
+            <div className={active === 'supplier' ? 'block' : 'hidden'}><SupplierTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
 
             <div className={active === 'profile' ? 'block' : 'hidden'}><ProfileTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
             <div className={active === 'report' ? 'block' : 'hidden'}><ReportTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} /></div>
-            <div className={active === 'payment' ? 'block' : 'hidden'}><PaymentTab triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
+            <div className={active === 'payment' ? 'block' : 'hidden'}><PaymentTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
             <div className={active === 'settings' ? 'block' : 'hidden'}><SettingsTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
-            <div className={active === 'hardware' ? 'block' : 'hidden'}><HardwareTab triggerAlert={triggerAlert} /></div>
+            <div className={active === 'hardware' ? 'block' : 'hidden'}><HardwareTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} /></div>
             <div className={active === 'outlet' ? 'block' : 'hidden'}><OutletTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
           </main>
         </div>
 
         {/* MENU SHEET (mobile drawer, RBAC sama) */}
-        <MenuSheet open={isMenuOpen} onClose={() => setIsMenuOpen(false)} role={role} active={active} setActive={setActive} licenseInfo={licenseInfo} onLogout={handleLogout} dark={dark} toggleDark={toggleDarkMode} />
+        <MenuSheet open={isMenuOpen} onClose={() => setIsMenuOpen(false)} role={role} perms={perms} active={active} setActive={setActive} licenseInfo={licenseInfo} onLogout={handleLogout} dark={dark} toggleDark={toggleDarkMode} />
 
         {/* TOAST GLOBAL */}
         {popup.show && <Toast message={popup.message} type={popup.type} onClose={() => setPopup({ ...popup, show: false })} />}

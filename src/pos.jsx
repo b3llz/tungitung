@@ -7,7 +7,7 @@
 // ============================================================
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, setDoc, doc } from 'firebase/firestore';
 import {
   Toko, WaktuReal, LayarBuddy, Search, Pindai, Plus, Trash2,
   Keranjang, RefreshCw, Selesai, Check, X, Edit3, StrukCetak,
@@ -17,7 +17,9 @@ import {
 import {
   safeParse, formatIDR, isPro, computeOrderTotals, getBizConfig,
   getPaymentIcon, qrUrl, buildDynamicQris, t, BRANCH_ID, db,
-  auditLog, todayKey, normShifts, shiftsForBranch, shiftById, shiftOfMs
+  auditLog, todayKey, normShifts, shiftsForBranch, shiftById, shiftOfMs,
+  verifyCred, credIsLegacy, upgradeCred, pinGate, pinGateMsg,   // v15 F0
+  dbSet, dbSetDoc   // v15 F1
 } from './core.jsx';
 import { Button, Card, Badge, EmptyState } from './ui';
 
@@ -384,9 +386,20 @@ const StationKasirGate = ({ licenseInfo, onClose, triggerAlert }) => {
     return (e?.shiftId ? shiftById(shs, e.shiftId) : null) || shiftOfMs(shs, Date.now());
   };
 
-  const confirm = () => {
+  const confirm = async () => {
     if (!sel) return;
-    if (sel.pin && String(sel.pin) !== pin) { setErr('PIN salah!'); setPin(''); return; }
+    // v15 F0: PIN pribadi kasir diverifikasi hash cred (fallback plaintext
+    // legacy + upgrade) + gate percobaan per perangkat.
+    const gateKey = `kasir:${licenseInfo.id}:${licenseInfo.stationCode || 'POS'}:${sel.cid}`;
+    const st = pinGate.status(gateKey);
+    if (st.locked) { setErr(pinGateMsg(st)); setPin(''); return; }
+    if ((sel.pin != null || sel.cred) && !(await verifyCred(pin, sel, 'pin'))) {
+      const gst = pinGate.fail(gateKey);
+      setErr(gst.locked ? pinGateMsg(gst) : 'PIN salah!');
+      setPin(''); return;
+    }
+    pinGate.reset(gateKey);
+    if (credIsLegacy(sel)) upgradeCred(['tenants', licenseInfo.id, 'karyawan', sel.cid], pin, 'pin');
     try {
       const sh = shiftOfEmployee(sel);
       const saved = JSON.parse(localStorage.getItem('app_license') || '{}');
@@ -567,6 +580,22 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
             if (typeof val === 'string' && val.startsWith('CL-ORDER:')) {
               try { table = JSON.parse(val.slice(9)).t; } catch (e) { }
             }
+            // v15 F1/B2b: validasi BERBASIS FIRESTORE dulu (pesanan self-order
+            // yang sama yang dikirim pelanggan), baru fallback pesanan lokal.
+            const remote = (table !== null && table !== undefined && remoteSelfOrders.find(o => String(o.tableNo) === String(table))) ||
+              (table === null || table === undefined ? remoteSelfOrders[0] : null);
+            if (remote) {
+              // tandai tervalidasi di Firestore — HP pelanggan langsung melihat statusnya
+              setDoc(doc(db, 'tenants', licenseInfo.id, 'self_orders', remote.cid),
+                { status: 'pending', validatedAt: Date.now(), validatedBy: licenseInfo.employeeName || licenseInfo.stationCode || 'kasir' },
+                { merge: true }).catch(() => { });
+              // cid DIPERTAHANKAN di salinan lokal — dipakai confirmPayment/
+              // cancelOrder untuk menulis status balik ke dokumen self_orders.
+              const localCopy = { ...remote, status: 'pending' };
+              saveActiveOrders([localCopy, ...safeParse('active_orders_db', []).filter(o => o.id !== remote.id)]);
+              setSelectedOrder(localCopy);
+              return;
+            }
             const ords = safeParse('active_orders_db', []);
             const found = (table !== null && table !== undefined && ords.find(o => o.status === 'pending' && String(o.tableNo) === String(table))) ||
               ords.find(o => o.status === 'pending');
@@ -595,9 +624,10 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     return cleanup;
   }, [liveScanner.show]);
 
+  // v15 F1: pesanan aktif tersinkron Firestore (koleksi orders) via dbSet
   const saveActiveOrders = (ords) => {
     setActiveOrders(ords);
-    localStorage.setItem('active_orders_db', JSON.stringify(ords));
+    dbSet(licenseInfo?.id, 'active_orders_db', ords);
   };
 
   const addToCart = (p) => {
@@ -691,8 +721,8 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       newOrder.materialUsage = materialUsageByItem;
 
       setProducts(updatedProducts);
-      localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
-      localStorage.setItem('raw_material_db', JSON.stringify(updatedRawMaterials));
+      dbSet(licenseInfo?.id, 'product_stock_db', updatedProducts);
+      dbSet(licenseInfo?.id, 'raw_material_db', updatedRawMaterials);
       saveActiveOrders([newOrder, ...activeOrders]);
 
       setCart([]); setBuyerName(''); setNotes(''); setCashTendered(0); setPaymentMethod('');
@@ -706,8 +736,16 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
   const confirmPayment = (order) => {
     const history = safeParse('pos_history_db', []);
     const completedOrder = { ...order, status: 'paid', paidAt: new Date().toISOString() };
-    localStorage.setItem('pos_history_db', JSON.stringify([...history, completedOrder]));
+    dbSet(licenseInfo?.id, 'pos_history_db', [...history, completedOrder]);
     saveActiveOrders(activeOrders.map(o => o.id === order.id ? completedOrder : o));
+    // v15 F1/B2b: status PAID ikut ditulis ke dokumen self_orders Firestore
+    // bila pesanan berasal dari self-order meja — HP pelanggan melihat
+    // status berubah realtime ( Siklus pesanan tidak putus lagi).
+    if (order.cid && licenseInfo?.id && db) {
+      setDoc(doc(db, 'tenants', licenseInfo.id, 'self_orders', order.cid),
+        { status: 'paid', paidAt: Date.now(), paidBy: licenseInfo.employeeName || 'kasir' },
+        { merge: true }).catch(() => { });
+    }
     auditLog(licenseInfo, 'TRANSAKSI_LUNAS', { target: order.id, total: order.total, method: order.paymentMethod });
     setSelectedOrder(completedOrder);
   };
@@ -721,7 +759,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       const idx = updated.findIndex(rm => rm.id === rawMaterialId);
       if (idx >= 0) updated[idx].stock = (updated[idx].stock || 0) + qty;
     });
-    localStorage.setItem('raw_material_db', JSON.stringify(updated));
+    dbSet(licenseInfo?.id, 'raw_material_db', updated);
   };
 
   const cancelOrder = (order) => {
@@ -731,9 +769,14 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
         return inOrder ? { ...p, stock: p.stock + inOrder.qty } : p;
       });
       setProducts(newStock);
-      localStorage.setItem('product_stock_db', JSON.stringify(newStock));
+      dbSet(licenseInfo?.id, 'product_stock_db', newStock);
       restoreMaterialUsage(order);
       saveActiveOrders(activeOrders.filter(o => o.id !== order.id));
+      // v15 F1/B2b: status DIBATALKAN ikut ke Firestore utk self-order
+      if (order.cid && licenseInfo?.id && db) {
+        setDoc(doc(db, 'tenants', licenseInfo.id, 'self_orders', order.cid),
+          { status: 'cancelled', cancelledAt: Date.now() }, { merge: true }).catch(() => { });
+      }
       auditLog(licenseInfo, 'TRANSAKSI_DIBATALKAN', { target: order.id, total: order.total });
       setSelectedOrder(null);
     }
@@ -746,7 +789,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       return inOrder ? { ...p, stock: p.stock + inOrder.qty } : p;
     });
     setProducts(newStock);
-    localStorage.setItem('product_stock_db', JSON.stringify(newStock));
+    dbSet(licenseInfo?.id, 'product_stock_db', newStock);
     restoreMaterialUsage(order);
     setCart(order.items.map(i => ({ ...i })));
     setBuyerName(order.buyer === 'Tanpa Nama' ? '' : (order.buyer || ''));
@@ -799,8 +842,15 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
   const pendingCount = mergedOrders.filter(o => o.status === 'pending').length;
   const isFnb = localStorage.getItem('biz_mode') === 'fnb';
 
+  // v15 F4-H4: pencarian mencakup SKU/barcode — sesuai placeholder
+  // "Ketik SKU / Nama Produk..."
   const filteredProducts = products
-    .filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+    .filter(p => {
+      const q = search.trim().toLowerCase();
+      if (!q) return true;
+      return (p.name || '').toLowerCase().includes(q) ||
+        (p.sku && String(p.sku).toLowerCase().includes(q));
+    })
     .filter(p => activeCategory === 'Semua' ? true : p.type === activeCategory);
 
   /* ---------- kartu produk ---------- */

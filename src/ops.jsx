@@ -8,7 +8,7 @@ import {
   GembokBuddy, GembokBuka, Toko, Omzet, PaketBuddy,
   LayarBuddy, JaringanBuddy, Riwayat
 } from './welp-icons.jsx';
-import { safeParse, formatIDR } from './core.jsx';
+import { safeParse, formatIDR, dbSet, dbSetDoc, useDbSync } from './core.jsx';
 import { Button, Card, PageTitle, NumericInput, Select, Badge, EmptyState } from './ui';
 
 /* ================= RIWAYAT TRANSAKSI ================= */
@@ -20,6 +20,7 @@ export const HistoryTab = ({ activeTab }) => {
   useEffect(() => {
     if (activeTab === 'history') setTxs(safeParse('pos_history_db', []));
   }, [activeTab]);
+  useDbSync(() => setTxs(safeParse('pos_history_db', [])));
 
   const totalHariIni = txs
     .filter(t2 => new Date(t2.date).toDateString() === new Date().toDateString())
@@ -115,16 +116,17 @@ export const HistoryTab = ({ activeTab }) => {
 };
 
 /* ================= KAS KELUAR ================= */
-export const CashOutTab = ({ triggerAlert }) => {
+export const CashOutTab = ({ triggerAlert, licenseInfo }) => {
   const [expenses, setExpenses] = useState(safeParse('expense_db', []));
   const [form, setForm] = useState({ note: '', amount: 0, category: 'Operasional' });
+  useDbSync(() => setExpenses(safeParse('expense_db', [])));
 
   const saveExpense = () => {
     if (!form.note || form.amount <= 0) return triggerAlert("Isi catatan dan nominal dengan benar!", "error");
     const newEx = { id: `exp_${Date.now()}`, date: new Date().toISOString(), ...form };
     const updated = [newEx, ...expenses];
     setExpenses(updated);
-    localStorage.setItem('expense_db', JSON.stringify(updated));
+    dbSet(licenseInfo?.id, 'expense_db', updated);   // v15 F1
     setForm({ note: '', amount: 0, category: 'Operasional' });
     triggerAlert("Kas Keluar Berhasil Dicatat!");
   };
@@ -134,7 +136,7 @@ export const CashOutTab = ({ triggerAlert }) => {
     if (confirm("Hapus catatan pengeluaran ini?")) {
       const updated = expenses.filter(e => e.id !== id);
       setExpenses(updated);
-      localStorage.setItem('expense_db', JSON.stringify(updated));
+      dbSet(licenseInfo?.id, 'expense_db', updated);   // v15 F1
       triggerAlert("Catatan pengeluaran dihapus.");
     }
   };
@@ -190,14 +192,15 @@ export const CashOutTab = ({ triggerAlert }) => {
 };
 
 /* ================= DISKON, PAJAK & BIAYA ================= */
-export const DiscountTab = ({ triggerAlert }) => {
+export const DiscountTab = ({ triggerAlert, licenseInfo }) => {
   // HARDENING: safeParse agar data korup tidak membuat crash.
   const [config, setConfig] = useState(safeParse('discount_tax_db', { tax: 0, service: 0, globalDiscount: 0 }));
+  useDbSync(() => setConfig(safeParse('discount_tax_db', { tax: 0, service: 0, globalDiscount: 0 })));
 
   const saveConfig = (key, val) => {
     const newConf = { ...config, [key]: val };
     setConfig(newConf);
-    localStorage.setItem('discount_tax_db', JSON.stringify(newConf));
+    dbSetDoc(licenseInfo?.id, 'discount_tax_db', newConf);   // v15 F1: dokumen pengaturan/bizconfig
     triggerAlert("Pengaturan Diperbarui!");
   };
 

@@ -19,7 +19,7 @@ import {
   Search, Toko
 } from './welp-icons.jsx';
 import {
-  formatIDR, useTenantCol, trustedTime, getLocation,
+  formatIDR, useTenantCol, trustedTime, trustedNow, getLocation,
   distanceMeters, todayKey, fileToDataUrl,
   getAturan, DEFAULT_ATURAN, lateInfo, lateInfoMs, fmtDurJMD,
   dateKeyOf, dayLabel, dayLabelShort, qrUrl,
@@ -29,7 +29,8 @@ import {
   shiftById, fmtJam, pairWorkMinutes, hhmmToMin, hkTargetOf,
   JENIS_KONTRAK, kontrakOf, cutiPolicyOf, hakCutiOf, usedCutiDays,
   hariKerjaOf, hariLabelOf, HARI_MINGGUAN, brandAccentHex, brandAccentDeepHex,
-  buildSlipHtml
+  buildSlipHtml, makeCred, credIsLegacy,   // v15 F0
+  roleLabelOfV15, ROLE_META, PERMISSIONS, getRolesMatrix, permsOf, openDataUrl, uploadMedia   // v15 F3-F5
 } from './core.jsx';
 import { Button, Card, PageTitle, Badge, EmptyState, Modal, Toggle, Select, NumericInput } from './ui';
 
@@ -63,8 +64,11 @@ const FieldCard = ({ icon: Icon, label, desc, children }) => (
   </div>
 );
 
+// v15 F4-H2: PinDots responsif — grid keypad 6 kolom memakai
+// min-w-0 + gap kecil + font lebih ramping agar tidak terpotong
+// (scrollWidth 40 vs clientWidth 30 pada layar 320px).
 const PinDots = ({ pin, onKey }) => (
-  <div>
+  <div className="w-full min-w-0">
     <div className="flex gap-2 justify-center mb-3">
       {Array.from({ length: 6 }).map((_, i) => (
         <div key={i} className={`w-8 h-10 rounded-xl border-2 flex items-center justify-center transition-all ${i < pin.length ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25' : 'border-line dark:border-line-dark bg-paper dark:bg-white/5'}`}>
@@ -72,10 +76,10 @@ const PinDots = ({ pin, onKey }) => (
         </div>
       ))}
     </div>
-    <div className="grid grid-cols-6 gap-1.5">
+    <div className="grid grid-cols-6 gap-1 w-full min-w-0">
       {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'rand', '0', 'del'].map(k => (
         <button key={k} type="button" onClick={() => onKey(k)}
-          className={`h-9 rounded-lg text-sm font-extrabold transition active:scale-95 press ${k === 'del' ? 'bg-brick-soft dark:bg-brick/10 text-brick' : k === 'rand' ? 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold text-[10px] uppercase' : 'bg-paper dark:bg-white/5 text-ink dark:text-ink-inv hover:bg-flame-50 dark:hover:bg-flame-900/20'}`}>
+          className={`h-9 min-w-0 rounded-lg text-[13px] font-extrabold transition active:scale-95 press ${k === 'del' ? 'bg-brick-soft dark:bg-brick/10 text-brick' : k === 'rand' ? 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold text-[8.5px] uppercase tracking-tight' : 'bg-paper dark:bg-white/5 text-ink dark:text-ink-inv hover:bg-flame-50 dark:hover:bg-flame-900/20'}`}>
           {k === 'del' ? '⌫' : k === 'rand' ? 'Acak' : k}
         </button>
       ))}
@@ -243,17 +247,24 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
     setGeoBusy(false);
   };
 
-  const save = () => {
+  // v15 F0: password & PIN cabang disimpan sebagai HASH (credPass/credPin).
+  // Saat edit, biarkan kosong = tidak diganti. Plaintext legacy dihapus
+  // begitu kredensial baru di-hash.
+  const save = async () => {
     if (!form.name.trim()) return triggerAlert('Nama cabang wajib diisi dulu, ya!', 'error');
-    if (!form.password) return triggerAlert('Password cabang wajib diisi (dipakai login cabang)!', 'error');
-    if (pin.length !== 6 && !(editingId && branches.find(b => b.cid === editingId)?.pin)) return triggerAlert('PIN 6 digit wajib diisi (dipakai login cabang)!', 'error');
+    if (!editingId && !form.password) return triggerAlert('Password cabang wajib diisi (dipakai login cabang)!', 'error');
+    if (pin.length !== 6 && !(editingId && branches.find(b => b.cid === editingId)?.pin) && !(editingId && branches.find(b => b.cid === editingId)?.credPin)) return triggerAlert('PIN 6 digit wajib diisi (dipakai login cabang)!', 'error');
     // Validasi shift: nama & jam wajib, mulai tidak boleh sama dgn selesai
     const badShift = form.shifts.find(s => !s.mulai || !s.selesai || s.mulai === s.selesai);
     if (badShift) return triggerAlert(`Shift "${badShift.nama || 'tanpa nama'}" belum lengkap — jam mulai & selesai tidak boleh sama/kosong.`, 'error');
     const oldRec = editingId ? branches.find(b => b.cid === editingId) : null;
+    const credPass = form.password ? await makeCred(form.password) : null;
+    const credPin = pin ? await makeCred(pin) : null;
     const payload = {
       name: form.name.trim(), location: form.location.trim(),
-      password: form.password, pin: pin || oldRec?.pin, role: form.role, payrollEnabled: !!form.payrollEnabled,
+      role: form.role, payrollEnabled: !!form.payrollEnabled,
+      ...(credPass ? { credPass, password: null } : {}),
+      ...(credPin ? { credPin, pin: null } : {}),
       aturan: {
         jamMasuk: form.jamMasuk || DEFAULT_ATURAN.jamMasuk,
         toleransi: Math.max(0, parseInt(form.toleransi, 10) || 0),
@@ -271,7 +282,9 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
   const startEdit = (b) => {
     const at = getAturan(b);
     setEditingId(b.cid);
-    setForm({ name: b.name || '', location: b.location || '', password: b.password || '', pin: '', role: b.role || 'admin', payrollEnabled: !!b.payrollEnabled, jamMasuk: at.jamMasuk, toleransi: at.toleransi, radius: at.radius, hkBulan: at.hkBulan, shifts: normShifts(b.shifts) });
+    // v15 F0: password tidak lagi bisa dibaca (tersimpan hash) —
+    // kolom kosong berarti "tidak diganti".
+    setForm({ name: b.name || '', location: b.location || '', password: '', pin: '', role: b.role || 'admin', payrollEnabled: !!b.payrollEnabled, jamMasuk: at.jamMasuk, toleransi: at.toleransi, radius: at.radius, hkBulan: at.hkBulan, shifts: normShifts(b.shifts) });
     setPin(''); setGeo(b.lat != null ? { lat: b.lat, lng: b.lng, acc: b.geoAcc } : null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -304,9 +317,9 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
           </FieldCard>
 
           <div className="grid sm:grid-cols-2 gap-3.5">
-            <FieldCard icon={Kredensial} label="Password Cabang" desc="Dipakai di layar login, mode Cabang">
+            <FieldCard icon={Kredensial} label="Password Cabang" desc={editingId ? 'Biarkan kosong bila tidak diganti (tersimpan hash)' : 'Dipakai di layar login, mode Cabang'}>
               <div className="flex gap-2">
-                <input className="field min-w-0 flex-1" type={showPw ? 'text' : 'password'} placeholder="Password cabang"
+                <input className="field min-w-0 flex-1" type={showPw ? 'text' : 'password'} placeholder={editingId ? 'Tidak diganti' : 'Password cabang'}
                   value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
                 <button type="button" aria-label={showPw ? 'Sembunyikan password' : 'Lihat password'} onClick={() => setShowPw(!showPw)} className="px-2.5 rounded-xl bg-paper dark:bg-white/5 text-ink-faint hover:text-ink-soft transition">
                   {showPw ? <GembokBuka className="w-4 h-4" /> : <GembokBuddy className="w-4 h-4" />}
@@ -320,7 +333,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
             </FieldCard>
           </div>
 
-          <FieldCard icon={Absensi} label="PIN Login Cabang (6 digit)" desc="Masuk sebagai staf cabang ini">
+          <FieldCard icon={Absensi} label="PIN Login Cabang (6 digit)" desc={editingId ? 'Isi hanya bila ingin mengganti (tersimpan hash)' : 'Masuk sebagai staf cabang ini'}>
             <PinDots pin={pin} onKey={(k) => {
               if (k === 'del') setPin(p => p.slice(0, -1));
               else if (k === 'rand') setPin(String(Math.floor(100000 + Math.random() * 900000)));
@@ -419,17 +432,12 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
                       ))}
                     </div>
                   )}
-                  {/* PIN cabang: tersembunyi, tampil hanya saat tombol mata ditekan */}
+                  {/* v15 F0: PIN cabang tersimpan hash — tidak ada lagi tombol lihat.
+                      Status: ter-hash (aman) atau legacy (otomatis ter-hash saat login pertama). */}
                   <div className="mt-2 flex items-center gap-2">
                     <span className="text-[10px] font-extrabold text-ink-soft dark:text-ink-inv/70 flex items-center gap-1.5 bg-paper dark:bg-white/5 border border-line dark:border-line-dark rounded-lg px-2 py-1">
-                      <Kredensial className="w-3.5 h-3.5 text-ink-faint" /> PIN: <span className="font-mono tracking-widest">{b.pin ? (revealed ? b.pin : '••••••') : '-'}</span>
+                      <GembokBuddy className="w-3.5 h-3.5 text-ink-faint" /> PIN: {b.credPin ? 'ter-hash aman' : (b.pin ? 'legacy · ter-hash saat login' : '-')}
                     </span>
-                    {b.pin && (
-                      <button onClick={() => setRevealPinId(revealed ? null : b.cid)} aria-label={revealed ? 'Sembunyikan PIN' : 'Lihat PIN'}
-                        className="p-1.5 rounded-lg bg-paper dark:bg-white/5 border border-line dark:border-line-dark text-ink-faint hover:text-flame-600 dark:hover:text-apricot transition">
-                        {revealed ? <GembokBuka className="w-3.5 h-3.5" /> : <GembokBuddy className="w-3.5 h-3.5" />}
-                      </button>
-                    )}
                   </div>
                 </div>
                 <div className="flex gap-1.5 shrink-0">
@@ -499,7 +507,6 @@ const StationsCard = ({ licenseInfo, branches, triggerAlert }) => {
         {stations.length === 0 ? (
           <p className="text-[11px] font-bold text-ink-faint text-center py-3">Belum ada station. Buat satu untuk tiap monitor kasir di cabang.</p>
         ) : stations.map(s => {
-          const revealed = revealId === s.cid;
           return (
             <div key={s.cid} className={`flex items-center gap-3 p-3.5 rounded-2xl border ${s.active ? 'border-line dark:border-line-dark bg-surface dark:bg-surface-dark' : 'border-line dark:border-line-dark bg-paper dark:bg-white/[.02] opacity-70'}`}>
               <span className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${s.active ? 'bg-chrome-deep text-apricot' : 'bg-paper dark:bg-white/5 text-ink-faint'}`}><LayarBuddy className="w-5 h-5" /></span>
@@ -510,15 +517,13 @@ const StationsCard = ({ licenseInfo, branches, triggerAlert }) => {
                 </p>
                 <p className="text-[10px] font-bold text-ink-faint mt-0.5 flex items-center gap-2 flex-wrap">
                   <span className="flex items-center gap-1"><Cabang className="w-3 h-3" /> {s.branchName || branchName(s.branchId)}</span>
-                  <span className="flex items-center gap-1 font-mono">PIN: {revealed ? s.pin : '••••••'}</span>
-                  <button onClick={() => setRevealId(revealed ? null : s.cid)} aria-label="Lihat PIN station" className="text-flame-600 dark:text-apricot normal-case font-extrabold">
-                    {revealed ? 'sembunyikan' : 'lihat'}
-                  </button>
+                  {/* v15 F0: PIN station ter-hash — tidak bisa dilihat, hanya diganti */}
+                  <span className="flex items-center gap-1"><GembokBuddy className="w-3 h-3" /> PIN {s.cred ? 'ter-hash aman' : (s.pin ? 'legacy · ter-hash saat login' : '-')}</span>
                 </p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <Toggle size="sm" on={!!s.active} onClick={() => { updateRow(s.cid, { active: !s.active }); auditLog(licenseInfo, s.active ? 'STATION_NONAKTIF' : 'STATION_AKTIF', { target: s.code }); }} />
-                <button onClick={() => { const np = String(Math.floor(100000 + Math.random() * 900000)); updateRow(s.cid, { pin: np }); setRevealId(s.cid); triggerAlert(`PIN ${s.code} diganti: ${np}`, 'success'); auditLog(licenseInfo, 'STATION_PIN_GANTI', { target: s.code }); }}
+                <button onClick={async () => { const np = String(Math.floor(100000 + Math.random() * 900000)); const cred = await makeCred(np); updateRow(s.cid, { cred, pin: null }); triggerAlert(`PIN ${s.code} diganti: ${np} — catat & bagikan ke kasir (tersimpan hash).`, 'success'); auditLog(licenseInfo, 'STATION_PIN_GANTI', { target: s.code }); }}
                   aria-label="Ganti PIN station" className="p-2 rounded-xl bg-paper dark:bg-white/5 border border-line dark:border-line-dark text-ink-faint hover:text-flame-600 dark:hover:text-apricot transition"><Kredensial className="w-4 h-4" /></button>
                 <button onClick={() => { if (confirm(`Hapus station ${s.code}?`)) { removeRow(s.cid); auditLog(licenseInfo, 'STATION_HAPUS', { target: s.code }); } }}
                   className="p-2 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick hover:bg-brick hover:text-white transition"><Trash2 className="w-4 h-4" /></button>
@@ -557,21 +562,45 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
   const [showPinForm, setShowPinForm] = useState(false);
 
   const branchName = (id) => id === 'PUSAT' ? 'Pusat' : (branches.find(b => b.cid === id)?.name || 'Cabang');
-  const reset = () => { setForm({ name: '', role: 'kasir', branchId: 'PUSAT', pin: '', status: 'aktif', shiftId: '', hkBulan: '', jenisKontrak: 'tetap', upahHarian: '', gajiPokok: '', hakCuti: '' }); setEditingId(null); setShowPinForm(false); };
+  const reset = () => { setForm({ name: '', role: 'kasir', branchId: 'PUSAT', branchIds: [], pin: '', status: 'aktif', shiftId: '', hkBulan: '', jenisKontrak: 'tetap', upahHarian: '', gajiPokok: '', hakCuti: '' }); setEditingId(null); setShowPinForm(false); };
   const formShifts = shiftsOf(form.branchId);
   const formKontrak = JENIS_KONTRAK[form.jenisKontrak] || JENIS_KONTRAK.tetap;
 
-  const roleLabelOf = (r) => r === 'owner' ? 'Owner' : (r === 'admin' ? 'Admin Cabang' : 'Kasir');
+  const roleLabelOf = roleLabelOfV15;
+  // v15 F3/D3: hanya Owner yang boleh menciptakan role Owner baru
+  const sessionRole = licenseInfo?.currentUserRole || 'owner';
+  const myPerms = permsOf(sessionRole, getRolesMatrix(settings));
+  const canRoleManage = myPerms.has('role.manage');
 
-  const save = () => {
+  // ---- v15 F3: ROLE & HAK AKSES (matrix editor) ----
+  const rolesRec = (settings || []).find(s => s.key === 'roles');
+  const matrix = getRolesMatrix(settings);
+  const [permRole, setPermRole] = useState('manager');
+  const saveMatrixRole = (roleKey, nextPerms) => {
+    const next = { ...matrix, [roleKey]: nextPerms };
+    if (rolesRec) updateRow(rolesRec.cid, { matrix: next });
+    else addRow({ key: 'roles', matrix: next });
+    auditLog(licenseInfo, 'ROLE_MATRIX_UBAH', { role: roleKey, jumlah: nextPerms.length });
+    triggerAlert(`Hak akses ${roleLabelOfV15(roleKey)} diperbarui.`, 'success');
+  };
+
+  const save = async () => {
     if (!form.name.trim()) return triggerAlert('Nama karyawan wajib diisi dulu!', 'error');
+    // v15 F3/D3: role Owner hanya bisa ditetapkan oleh sesi Owner
+    if (form.role === 'owner' && sessionRole !== 'owner') return triggerAlert('Hanya Owner yang bisa menetapkan role Owner.', 'error');
+    if (!editingId && form.role === 'owner' && !confirm(`Jadikan ${form.name} sebagai OWNER dengan akses penuh? Tindakan ini berpengaruh besar.`)) return;
     const oldRec = editingId ? employees.find(e => e.cid === editingId) : null;
     if (!editingId && form.pin.length !== 6) return triggerAlert('Atur PIN pribadi 6 digit dulu (bisa tekan Acak).', 'error');
     if (editingId && form.pin && form.pin.length !== 6) return triggerAlert('PIN harus 6 digit.', 'error');
-    const pin = form.pin || oldRec?.pin || '';
+    // v15 F0: PIN pribadi karyawan disimpan sebagai HASH cred — plaintext
+    // tidak pernah dikirim ke Firestore. Edit tanpa ganti PIN = cred lama dipertahankan.
+    const cred = form.pin ? await makeCred(form.pin) : null;
     const payload = {
       name: form.name.trim(), role: form.role, branchId: form.branchId,
-      pin, status: form.status || 'aktif',
+      status: form.status || 'aktif',
+      ...(cred ? { cred, pin: null } : {}),
+      // v15 F2: relasi cabang tambahan (multi-cabang)
+      branchIds: (form.branchIds || []).filter(x => x && x !== form.branchId),
       shiftId: formShifts.some(s => s.id === form.shiftId) ? form.shiftId : '',
       // Target HK khusus (v13): 0/kosong = ikuti aturan cabang
       hkBulan: Math.min(31, Math.max(0, parseInt(form.hkBulan, 10) || 0)) || null,
@@ -595,17 +624,19 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
 
   const startEdit = (e) => {
     setEditingId(e.cid);
-    setForm({ name: e.name, role: e.role || 'kasir', branchId: e.branchId || 'PUSAT', pin: '', status: e.status || 'aktif', shiftId: e.shiftId || '', hkBulan: e.hkBulan ?? '', jenisKontrak: JENIS_KONTRAK[e.jenisKontrak] ? e.jenisKontrak : 'tetap', upahHarian: e.upahHarian ?? '', gajiPokok: e.gajiPokok ?? '', hakCuti: e.hakCuti ?? '' });
+    setForm({ name: e.name, role: e.role || 'kasir', branchId: e.branchId || 'PUSAT', branchIds: Array.isArray(e.branchIds) ? e.branchIds : [], pin: '', status: e.status || 'aktif', shiftId: e.shiftId || '', hkBulan: e.hkBulan ?? '', jenisKontrak: JENIS_KONTRAK[e.jenisKontrak] ? e.jenisKontrak : 'tetap', upahHarian: e.upahHarian ?? '', gajiPokok: e.gajiPokok ?? '', hakCuti: e.hakCuti ?? '' });
     setShowPinForm(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const regenPin = (e) => {
+  const regenPin = async (e) => {
     const np = String(Math.floor(100000 + Math.random() * 900000));
-    updateRow(e.cid, { pin: np });
-    setRevealPinId(e.cid);
+    // v15 F0: PIN baru disimpan sebagai hash — tampilkan SEKALI di toast,
+    // setelah itu tidak bisa dilihat lagi dari app.
+    const cred = await makeCred(np);
+    updateRow(e.cid, { cred, pin: null });
     auditLog(licenseInfo, 'KARYAWAN_PIN_GANTI', { target: e.empId || e.cid, nama: e.name });
-    triggerAlert(`PIN ${e.name} diganti: ${np}`, 'success');
+    triggerAlert(`PIN ${e.name} diganti: ${np} — catat & bagikan ke yang bersangkutan (tersimpan hash).`, 'success');
   };
 
   const groupIds = ['PUSAT', ...branches.map(b => b.cid)];
@@ -626,21 +657,46 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
             <input className="field" placeholder="Contoh: Rani" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
           </FieldCard>
           <div className="grid sm:grid-cols-2 gap-3.5">
-            <FieldCard icon={PerisaiBuddy} label="Role" desc="Menentukan menu yang terlihat & hak di Aplikasi Karyawan">
-              <Select value={form.role === 'kasir' ? 'Kasir' : (form.role === 'owner' ? 'Owner' : 'Admin')} options={['Kasir', 'Admin', 'Owner']}
-                onChange={v => setForm({ ...form, role: v.toLowerCase() })} />
+            <FieldCard icon={PerisaiBuddy} label="Role" desc="Menentukan menu & hak akses (dikelola di Role & Hak Akses)">
+              <Select value={roleLabelOfV15(form.role)}
+                options={Object.keys(ROLE_META).map(roleLabelOfV15)}
+                onChange={v => {
+                  const key = Object.keys(ROLE_META).find(k => roleLabelOfV15(k) === v);
+                  setForm({ ...form, role: key || 'kasir' });
+                }} />
             </FieldCard>
-            <FieldCard icon={Cabang} label="Cabang" desc="Tempat tugas karyawan ini">
+            <FieldCard icon={Cabang} label="Cabang Utama" desc="Tempat tugas utama karyawan ini">
               <Select value={branchName(form.branchId)}
                 options={['Pusat', ...branches.map(b => b.name)]}
                 onChange={v => {
                   const bid = v === 'Pusat' ? 'PUSAT' : (branches.find(b => b.name === v)?.cid || 'PUSAT');
                   // ganti cabang → shift lama tak selalu berlaku: reset bila tidak ada di cabang baru
                   const sh = shiftsOf(bid);
-                  setForm(f => ({ ...f, branchId: bid, shiftId: sh.some(s => s.id === f.shiftId) ? f.shiftId : '' }));
+                  setForm(f => ({ ...f, branchId: bid, shiftId: sh.some(s => s.id === f.shiftId) ? f.shiftId : '', branchIds: (f.branchIds || []).filter(x => x !== bid) }));
                 }} />
             </FieldCard>
           </div>
+
+          {/* v15 F2: RELASI MULTI-CABANG — karyawan bisa tercatat di >1 cabang;
+              saat login app karyawan, ia memilih cabang kerja hari itu */}
+          <FieldCard icon={Cabang} label="Cabang Tambahan (Opsional)" desc="Centang bila karyawan ini juga bekerja di cabang lain">
+            <div className="flex flex-wrap gap-1.5">
+              {['PUSAT', ...branches.map(b => b.cid)].filter(cid => cid !== form.branchId).map(cid => {
+                const label = cid === 'PUSAT' ? 'Pusat' : (branches.find(b => b.cid === cid)?.name || cid);
+                const on = (form.branchIds || []).includes(cid);
+                return (
+                  <button key={cid} type="button" onClick={() => setForm(f => ({
+                    ...f,
+                    branchIds: on ? (f.branchIds || []).filter(x => x !== cid) : [...(f.branchIds || []), cid]
+                  }))}
+                    className={`px-3 py-2 rounded-xl text-[10.5px] font-extrabold border-2 transition press ${on ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25 text-flame-700 dark:text-apricot' : 'border-line dark:border-line-dark text-ink-faint'}`}>
+                    {on ? '✓ ' : ''}{label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[9.5px] text-ink-faint font-semibold mt-2">Dipakai di Aplikasi Karyawan: pilihan cabang saat login mengikuti daftar ini (utama + tambahan).</p>
+          </FieldCard>
 
           <FieldCard icon={WaktuReal} label="Shift Kerja & Target HK" desc="Pilih shift dari cabangnya; target HK opsional khusus karyawan ini">
             {formShifts.length === 0 ? (
@@ -794,20 +850,14 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
                           {Number(e.hkBulan) > 0 && <Badge tone="neutral">target {e.hkBulan} HK</Badge>}
                           <Badge tone={e.jenisKontrak === 'harian' ? 'gold' : 'teal'}>{kontrakOf(e).short}{e.jenisKontrak === 'harian' && e.upahHarian ? ` · ${formatIDR(e.upahHarian)}/hari` : ''}</Badge>
                           {Number(e.hakCuti) > 0 && <Badge tone="neutral">cuti {e.hakCuti} hari</Badge>}
-                          {e.pin && (
-                            <span className="text-[9px] font-extrabold font-mono text-ink-faint bg-paper dark:bg-white/5 border border-line dark:border-line-dark rounded-md px-1.5 py-0.5 tracking-widest">
-                              {revealPinId === e.cid ? e.pin : 'PIN ••••••'}
+                          {(e.pin || e.cred) && (
+                            <span className="text-[9px] font-extrabold text-ink-faint bg-paper dark:bg-white/5 border border-line dark:border-line-dark rounded-md px-1.5 py-0.5 flex items-center gap-1">
+                              <GembokBuddy className="w-2.5 h-2.5" /> {e.cred ? 'PIN ter-hash' : 'PIN legacy'}
                             </span>
                           )}
                         </div>
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        {e.pin && (
-                          <button onClick={() => setRevealPinId(revealPinId === e.cid ? null : e.cid)} aria-label="Lihat PIN pribadi"
-                            className="p-2 rounded-xl bg-paper dark:bg-white/5 border border-line dark:border-line-dark text-ink-faint hover:text-flame-600 dark:hover:text-apricot transition">
-                            {revealPinId === e.cid ? <GembokBuka className="w-3.5 h-3.5" /> : <GembokBuddy className="w-3.5 h-3.5" />}
-                          </button>
-                        )}
                         <button onClick={() => regenPin(e)} aria-label="Ganti PIN pribadi acak"
                           className="p-2 rounded-xl bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold hover:brightness-95 transition"><Kredensial className="w-3.5 h-3.5" /></button>
                         <button onClick={() => startEdit(e)} aria-label="Ubah karyawan"
@@ -824,6 +874,45 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
           );
         })}
       </div>
+
+      {/* ===== v15 F3: ROLE & HAK AKSES (matrix editor, role.manage) ===== */}
+      {canRoleManage && (
+        <Card title="Role & Hak Akses" icon={PerisaiBuddy}
+          help="Tentukan menu apa saja yang bisa dipakai tiap role. Role dipasangkan ke karyawan di form atas; perubahan berlaku saat sesi baru login.">
+          <div className="space-y-3.5">
+            <div className="flex flex-wrap gap-1.5">
+              {Object.keys(ROLE_META).map(rk => (
+                <button key={rk} onClick={() => setPermRole(rk)}
+                  className={`px-3 py-2 rounded-xl text-[10.5px] font-extrabold border-2 transition press ${permRole === rk ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25 text-flame-700 dark:text-apricot' : 'border-line dark:border-line-dark text-ink-faint'}`}>
+                  {ROLE_META[rk].label}
+                </button>
+              ))}
+            </div>
+            {permRole === 'owner' && (
+              <p className="text-[10px] font-bold text-gold-deep dark:text-gold bg-gold-soft dark:bg-gold/10 rounded-xl px-3 py-2">Role Owner selalu memiliki seluruh akses (pemilik tenant) dan tidak bisa dikurangi.</p>
+            )}
+            {permRole !== 'owner' && (
+              <div className="grid sm:grid-cols-2 gap-2">
+                {PERMISSIONS.map(p => {
+                  const current = matrix[permRole] || [];
+                  const on = current.includes(p.key);
+                  return (
+                    <button key={p.key} onClick={() => {
+                      const next = on ? current.filter(k => k !== p.key) : [...current, p.key];
+                      saveMatrixRole(permRole, next);
+                    }}
+                      className={`flex items-center gap-2.5 p-3 rounded-2xl border-2 text-left transition press ${on ? 'border-leaf/60 bg-leaf-soft dark:bg-leaf/10' : 'border-line dark:border-line-dark bg-surface dark:bg-surface-dark'}`}>
+                      <span className={`w-5 h-5 rounded-lg flex items-center justify-center shrink-0 text-[11px] font-extrabold ${on ? 'bg-leaf text-white' : 'bg-paper dark:bg-white/5 text-ink-faint border border-line dark:border-line-dark'}`}>{on ? '✓' : ''}</span>
+                      <span className="text-[11px] font-extrabold text-ink dark:text-ink-inv leading-snug">{p.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-[10px] text-ink-faint font-semibold leading-relaxed">Perubahan tersimpan per tenant (pengaturan/roles) dan langsung dipakai menu, absensi & penggajian. Catatan: penguncian di tingkat database penuh menyusul dengan custom claims (server).</p>
+          </div>
+        </Card>
+      )}
     </div>
   );
 };
@@ -974,6 +1063,15 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
   const [copied, setCopied] = useState(false);
   const [rejectFor, setRejectFor] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
+  // v15 F4/I3: tab internal — 4 subfitur tidak lagi menumpuk di satu
+  // halaman panjang: Monitoring · Review Cuti · QR Login · Rekap.
+  const [subTab, setSubTab] = useState('monitor');
+  const SUBTABS = [
+    { id: 'monitor', label: 'Monitoring' },
+    { id: 'cuti', label: 'Review Cuti' },
+    { id: 'qr', label: 'QR Login' },
+    { id: 'rekap', label: 'Rekap' },
+  ];
 
   const isAdmin = sessionRole === 'admin';
   const today = todayKey();
@@ -992,7 +1090,9 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 
   const all = enrich(absensi.filter(scope));
   const todayRows = all.filter(a => a._date === today);
-  const staffScope = employees.filter(e => filterBranch === 'ALL' || (e.branchId || 'PUSAT') === filterBranch);
+  // v15 F4-H7: karyawan nonaktif tidak dihitung dalam monitoring
+  // (Belum Absen / Total / rekap) — hanya yang aktif.
+  const staffScope = employees.filter(e => e.status !== 'nonaktif').filter(e => filterBranch === 'ALL' || (e.branchId || 'PUSAT') === filterBranch);
 
   const stats = [
     { label: 'Hadir Hari Ini', value: new Set(todayRows.filter(a => a.type === 'in').map(a => a.employeeName + '|' + a.branchId)).size, icon: AbsenMasuk, tone: 'text-leaf-deep dark:text-leaf' },
@@ -1074,8 +1174,8 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
   };
 
   const PhotoThumb = ({ rec, size = 'w-11 h-11' }) => (
-    <button onClick={() => rec.photo && setViewRec(rec)} className={`${size} rounded-xl overflow-hidden shrink-0 border border-line dark:border-line-dark bg-paper dark:bg-white/5 flex items-center justify-center ${rec.photo ? 'cursor-zoom-in press' : 'cursor-default'}`} aria-label="Foto selfie absensi">
-      {rec.photo ? <img src={rec.photo} alt="Selfie absensi" className="w-full h-full object-cover" />
+    <button onClick={() => (rec.photo || rec.photoUrl) && setViewRec(rec)} className={`${size} rounded-xl overflow-hidden shrink-0 border border-line dark:border-line-dark bg-paper dark:bg-white/5 flex items-center justify-center ${(rec.photo || rec.photoUrl) ? 'cursor-zoom-in press' : 'cursor-default'}`} aria-label="Foto selfie absensi">
+      {(rec.photo || rec.photoUrl) ? <img src={rec.photoUrl || rec.photo} alt="Selfie absensi" className="w-full h-full object-cover" />
         : <span className="font-extrabold text-ink-faint/60 text-[10px]">{rec.employeeName?.[0] || '?'}</span>}
     </button>
   );
@@ -1102,7 +1202,18 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
         </div>
       )}
 
+      {/* v15 F4/I3: TAB INTERNAL KELOLA ABSENSI */}
+      <div className="flex gap-1 p-1 bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl overflow-x-auto no-scrollbar">
+        {SUBTABS.map(st => (
+          <button key={st.id} onClick={() => setSubTab(st.id)}
+            className={`flex-1 min-w-max px-3.5 py-2.5 rounded-xl text-[11px] font-extrabold transition press ${subTab === st.id ? 'bg-flame-600 text-white shadow-card' : 'text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv'}`}>
+            {st.label}{st.id === 'cuti' && pendingReq.length > 0 ? ` (${pendingReq.length})` : ''}
+          </button>
+        ))}
+      </div>
+
       {/* STATISTIK HARI INI */}
+      {subTab === 'monitor' && (
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {stats.map(s => (
           <div key={s.label} className="card !rounded-3xl p-4">
@@ -1112,8 +1223,10 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
           </div>
         ))}
       </div>
+      )}
 
       {/* APLIKASI KARYAWAN (entry point karyawan, terpisah dari kasir) */}
+      {subTab === 'qr' && (
       <Card title="Aplikasi Karyawan" icon={PerisaiBuddy}>
         <div className="flex flex-col sm:flex-row items-center gap-4">
           <div className="bg-white p-2.5 rounded-2xl border-2 border-dashed border-line dark:border-line-dark shrink-0">
@@ -1132,7 +1245,10 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
         </div>
       </Card>
 
+      )}
+
       {/* KEHADIRAN HARI INI */}
+      {subTab === 'monitor' && (
       <Card title={`Hari Ini · ${dayLabel(Date.now())}`} icon={Absensi}>
         {staffScope.length === 0 ? (
           <EmptyState mascot="bingung" title="Belum ada karyawan" desc="Tambahkan karyawan lewat menu Manajemen Karyawan, lalu arahkan ke cabangnya." />
@@ -1187,8 +1303,10 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
           })}
         </div>
       </Card>
+      )}
 
-      {/* PENGAJUAN CUTI/IZIN/SAKIT */}
+      {/* REVIEW PENGAJUAN (cuti) */}
+      {subTab === 'cuti' && (
       <Card title="Pengajuan Cuti, Izin & Sakit" icon={Riwayat}
         help={isAdmin ? 'Sebagai Admin Cabang, kamu meninjau pengajuan karyawan cabangmu. Keputusan akhir tetap bisa di-override Owner.' : 'Pengajuan diteruskan ke Admin Cabang dan Owner. Setujui bila memenuhi aturan cabang.'}>
         {pengajuanScope.length === 0 ? (
@@ -1225,9 +1343,9 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                   </div>
                   <div className="flex flex-wrap gap-2 mt-3">
                     {p.letter && (
-                      <a href={p.letter} target="_blank" rel="noreferrer" className="py-2.5 px-3.5 rounded-xl bg-paper dark:bg-white/5 border border-line dark:border-line-dark text-[11px] font-extrabold text-ink-soft dark:text-ink-inv/80 flex items-center gap-1.5 press">
+                      <button type="button" onClick={() => openDataUrl(p.letter, 'bukti')} className="py-2.5 px-3.5 rounded-xl bg-paper dark:bg-white/5 border border-line dark:border-line-dark text-[11px] font-extrabold text-ink-soft dark:text-ink-inv/80 flex items-center gap-1.5 press">
                         <BuktiTransfer className="w-4 h-4" /> Surat Dokter
-                      </a>
+                      </button>
                     )}
                     {(p.status === 'DIAJUKAN') && (
                       <Button variant="secondary" className="py-2.5 px-3.5 text-xs" onClick={() => reviewReq(p, 'DITINJAU')} icon={WaktuReal}>Tandai Ditinjau</Button>
@@ -1246,7 +1364,11 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
         )}
       </Card>
 
+      )}
+
       {/* REKAP SHIFT & JAM KERJA (v12) — HK, total jam, telat, dan pembagian orang per shift */}
+      {subTab === 'rekap' && (
+      <>
       <Card title="Rekap Shift & Jam Kerja" icon={WaktuReal}
         help="HK = hari kerja (jumlah hari absen masuk dalam periode). Total jam dihitung dari pasangan absen masuk → pulang; hari ini dihitung berjalan sampai jam sekarang. Target HK diatur per cabang (Aturan Absensi di Manajemen Cabang) atau khusus per karyawan di Manajemen Karyawan.">
         <div className="flex items-center gap-2 mb-3.5">
@@ -1393,13 +1515,15 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
           </div>
         )}
       </Card>
+      </>
+      )}
 
       {/* MODAL FOTO SELFIE + DETAIL */}
       <Modal open={!!viewRec} onClose={() => setViewRec(null)} title="Bukti Absensi">
         {viewRec && (
           <div className="space-y-3">
-            {viewRec.photo ? (
-              <img src={viewRec.photo} alt="Selfie absensi" className="w-full rounded-2xl border border-line dark:border-line-dark" />
+            {(viewRec.photo || viewRec.photoUrl) ? (
+              <img src={viewRec.photoUrl || viewRec.photo} alt="Selfie absensi" className="w-full rounded-2xl border border-line dark:border-line-dark" />
             ) : (
               <div className="py-8 text-center text-ink-faint text-xs font-bold">Catatan ini tanpa foto selfie.</div>
             )}
@@ -1410,6 +1534,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
               <div className="p-3 rounded-xl bg-paper dark:bg-white/[.03]"><p className="kicker mb-1">Jenis</p><p className="text-ink dark:text-ink-inv">{viewRec.type === 'in' ? 'Absen Masuk' : 'Absen Pulang'}</p></div>
               {viewRec.lat != null && <div className="p-3 rounded-xl bg-paper dark:bg-white/[.03]"><p className="kicker mb-1">Koordinat</p><p className="text-ink dark:text-ink-inv font-mono text-[10px]">{Number(viewRec.lat).toFixed(5)}, {Number(viewRec.lng).toFixed(5)}</p></div>}
               {viewRec.dist != null && <div className="p-3 rounded-xl bg-paper dark:bg-white/[.03]"><p className="kicker mb-1">Jarak ke Cabang</p><p className={`text-ink dark:text-ink-inv ${viewRec.dist > (viewRec._aturan?.radius || 500) ? 'text-gold-deep dark:text-gold' : ''}`}>{viewRec.dist} meter</p></div>}
+              {viewRec.alamat && <div className="p-3 rounded-xl bg-paper dark:bg-white/[.03] col-span-2"><p className="kicker mb-1">Alamat (otomatis)</p><p className="text-ink dark:text-ink-inv text-[10.5px] leading-snug">{viewRec.alamat}</p></div>}
             </div>
           </div>
         )}
@@ -1485,7 +1610,11 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
   const [rejectFor, setRejectFor] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
 
-  const isOwner = sessionRole !== 'admin';
+  // v15 F3/D2: wewenang payroll dari PERMISSION (bukan 'bukan admin').
+  // Admin cabang tetap ter-scope ke cabangnya; role lain yang punya
+  // payroll.manage (mis. HR/Finance) berlaku lintas cabang.
+  const myPerms = permsOf(sessionRole, getRolesMatrix(settings));
+  const isOwner = myPerms.has('payroll.manage') && sessionRole !== 'admin';
   const myBranch = sessionRole === 'admin' ? branches.find(b => b.cid === sessionBranchId) : null;
   const blocked = sessionRole === 'admin' && myBranch && !myBranch.payrollEnabled;
   const shownBranch = selBranch === 'ALL' ? null : branches.find(b => b.cid === selBranch);
@@ -1550,6 +1679,9 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
     const total = compTotal();
     if (total <= 0) return triggerAlert('Isi komponen gajinya dulu, minimal gaji pokok.', 'error');
     const pw = periodWork(payFor.cid, payFor.name, form.period);   // HK & jam kerja periode ini
+    // v15 F4-H8: cegah payroll ganda utk karyawan+periode yang sama
+    const dup = payroll.find(p => p.employeeCid === (payFor.cid || '') && p.period === form.period && p.status !== 'DITOLAK');
+    if (dup) return triggerAlert(`Payroll ${payFor.name} periode ${form.period} sudah ada (status ${dup.status}). Gunakan payroll yang ada, atau pilih periode lain.`, 'error');
     const payload = {
       branchId: payFor.branchId, branchName: payFor.branchName,
       employeeCid: payFor.cid || '', employeeName: payFor.name, empId: payFor.empId || '', role: payFor.role,
@@ -1621,7 +1753,9 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 
   const markPaid = () => {
     if (!payModal) return;
-    act(payModal, 'DIBAYAR', 'Dibayarkan oleh ' + actor, { proof: proof || payModal.proof || null, paidAt: Date.now() });
+    // v15 F4-H9: paidAt memakai waktu terpercaya (offset jam server via
+    // header) — bukan jam mentah perangkat; serverTimestamp tetap resmi.
+    act(payModal, 'DIBAYAR', 'Dibayarkan oleh ' + actor, { proof: proof || payModal.proof || null, paidAt: trustedNow() });
     setPayModal(null); setProof(null);
     triggerAlert('Pembayaran gaji tercatat dengan waktu server.', 'success');
   };
@@ -1789,8 +1923,20 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                 </div>
               );
             })()}
-            <FieldCard icon={WaktuReal} label="Periode Gaji" desc="Bulan yang dibayarkan">
-              <Select value={form.period} options={PERIODE.map(p => p + ' ' + new Date().getFullYear())} onChange={v => { setForm({ ...form, period: v }); recomputeHarian(v); }} />
+            <FieldCard icon={WaktuReal} label="Periode Gaji" desc="Bulan yang dibayarkan (13 bulan terakhir — bisa periode lampau)">
+              {/* v15 F4-H8: 13 bulan terakhir (bukan hanya tahun berjalan)
+                  — payroll periode lampau kini bisa dibuat */}
+              <Select value={form.period}
+                options={(() => {
+                  const now = new Date();
+                  const opts = [];
+                  for (let i = 0; i < 13; i++) {
+                    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                    opts.push(PERIODE[d.getMonth()] + ' ' + d.getFullYear());
+                  }
+                  return opts;
+                })()}
+                onChange={v => { setForm({ ...form, period: v }); recomputeHarian(v); }} />
             </FieldCard>
             {/* Daily worker: total upah = upah harian x hari masuk */}
             {kontrakOf(payFor).payMode === 'harian' && (() => {
@@ -1952,18 +2098,23 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
     setDokBusy(false);
   };
 
-  const saveDok = () => {
+  const saveDok = async () => {
     if (!dokForm.nama.trim()) return triggerAlert('Beri nama dokumennya dulu, ya.', 'error');
     if (!dokForm.fileData) return triggerAlert('Pilih file dokumennya dulu.', 'error');
+    // v15 F5/J3: file besar → Firebase Storage (URL hemat kuota baca);
+    // bila Storage belum siap → fallback base64 inline (perilaku lama).
+    let fileUrl = null;
+    try { fileUrl = await uploadMedia(licenseInfo.id, `dokumen/${Date.now()}_${dokForm.fileName}`, dokForm.fileData); } catch (e) { }
     addDok({
       nama: dokForm.nama.trim(), kategori: dokForm.kategori, ket: dokForm.ket.trim(),
-      fileData: dokForm.fileData, fileName: dokForm.fileName, fileType: dokForm.fileType, size: dokForm.size,
+      fileData: fileUrl ? null : dokForm.fileData, fileUrl,
+      fileName: dokForm.fileName, fileType: dokForm.fileType, size: dokForm.size,
       share: !!dokForm.share,
       uploadedBy: licenseInfo.employeeName || licenseInfo.tenant || 'Owner', uploadedAt: Date.now()
     });
-    auditLog(licenseInfo, 'DOKUMEN_TAMBAH', { nama: dokForm.nama.trim(), kategori: dokForm.kategori, dibagikan: !!dokForm.share });
+    auditLog(licenseInfo, 'DOKUMEN_TAMBAH', { nama: dokForm.nama.trim(), kategori: dokForm.kategori, dibagikan: !!dokForm.share, storage: !!fileUrl });
     resetDok();
-    triggerAlert('Dokumen tersimpan di arsip perusahaan.', 'success');
+    triggerAlert(fileUrl ? 'Dokumen tersimpan di Storage perusahaan.' : 'Dokumen tersimpan di arsip perusahaan.', 'success');
   };
 
   // ringkasan kontrak tim
@@ -2143,7 +2294,7 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
             <div key={d.cid} className="flex items-center gap-3 p-3 rounded-2xl border border-line dark:border-line-dark bg-surface dark:bg-surface-dark">
               {d.fileType === 'application/pdf'
                 ? <span className="w-10 h-10 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick flex items-center justify-center font-extrabold text-[9px] shrink-0">PDF</span>
-                : d.fileData ? <img src={d.fileData} alt={d.nama} className="w-10 h-10 rounded-xl object-cover shrink-0" /> : null}
+                : (d.fileData || d.fileUrl) ? <img src={d.fileUrl || d.fileData} alt={d.nama} className="w-10 h-10 rounded-xl object-cover shrink-0" /> : null}
               <div className="min-w-0 flex-1">
                 <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{d.nama}</p>
                 <p className="text-[9.5px] font-bold text-ink-faint">{d.kategori} · {d.size} KB · {d.uploadedBy || '-'}{d.share ? ' · dibagikan' : ''}</p>
@@ -2199,9 +2350,9 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
         {viewDok && (
           <div className="space-y-3">
             {viewDok.fileType === 'application/pdf' ? (
-              <a href={viewDok.fileData} target="_blank" rel="noreferrer" className="block w-full py-3.5 rounded-xl bg-flame-600 text-white text-center text-xs font-extrabold press">Buka PDF di Tab Baru</a>
+              <button type="button" onClick={() => viewDok.fileUrl ? window.open(viewDok.fileUrl, '_blank') : openDataUrl(viewDok.fileData, 'dokumen.pdf')} className="block w-full py-3.5 rounded-xl bg-flame-600 text-white text-center text-xs font-extrabold press">Buka Dokumen di Tab Baru</button>
             ) : (
-              <img src={viewDok.fileData} alt={viewDok.nama} className="w-full rounded-2xl border border-line dark:border-line-dark" />
+              <img src={viewDok.fileUrl || viewDok.fileData} alt={viewDok.nama} className="w-full rounded-2xl border border-line dark:border-line-dark" />
             )}
             {viewDok.ket && <p className="text-[11px] font-semibold text-ink-soft dark:text-ink-inv/70">{viewDok.ket}</p>}
           </div>

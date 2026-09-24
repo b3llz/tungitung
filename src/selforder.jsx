@@ -16,13 +16,18 @@ import {
   Toko, Riwayat, Plus, Keranjang, WaktuReal, Qris, Edit3, Check,
   CategoryIcon, Perangkat, PerisaiBuddy, BahayaBuddy
 } from './welp-icons.jsx';
-import { safeParse, formatIDR, computeOrderTotals, qrUrl, db, getDeviceId } from './core.jsx';
+import { safeParse, formatIDR, computeOrderTotals, getBizConfig, qrUrl, db, getDeviceId, ensureAuth } from './core.jsx';
 import { CartPopup } from './pos';
 import { Badge, Mascot } from './ui';
 
-const SelfOrderApp = ({ tableNo, profile, lic, token }) => {
+const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
   const [activeTab, setActiveTab] = useState('menu');
-  const [products] = useState(safeParse('product_stock_db', []));
+  // v15 F1/B2a: menu & nama toko dibaca dari FIRESTORE tenant (bukan
+  // localStorage perangkat pelanggan yang pasti kosong). Fallback lokal
+  // hanya untuk mode legacy tanpa lic.
+  const [products, setProducts] = useState(() => safeParse('product_stock_db', []));
+  const [profile, setProfile] = useState(profileProp || {});
+  const [bizCfg, setBizCfg] = useState(null);
   const [cart, setCart] = useState([]);
   const [myOrder, setMyOrder] = useState(null);
   const [showCartPopup, setShowCartPopup] = useState(false);
@@ -32,6 +37,26 @@ const SelfOrderApp = ({ tableNo, profile, lic, token }) => {
   const [notes, setNotes] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showValidationQR, setShowValidationQR] = useState(false);
+
+  // v15 F0: perangkat pelanggan punya sesi anonymous Firebase —
+  // prasyarat rules v15 (auth != null) untuk baca menu & tulis self_orders.
+  useEffect(() => { ensureAuth(); }, []);
+
+  // v15 F1/B2a: LIVE menu dari Firestore + profil toko + konfigurasi pajak
+  useEffect(() => {
+    if (!lic || !db) return;
+    const un1 = onSnapshot(collection(db, 'tenants', lic, 'produk'), snap => {
+      const rows = snap.docs.map(d => ({ ...d.data(), cid: d.id }));
+      if (rows.length) setProducts(rows);
+    }, err => console.warn('[WELP so:produk]', err.code || err.message));
+    const un2 = onSnapshot(doc(db, 'tenants', lic, 'pengaturan', 'toko_profile'), s => {
+      if (s.exists()) setProfile({ ...s.data() });
+    }, () => { });
+    const un3 = onSnapshot(doc(db, 'tenants', lic, 'pengaturan', 'bizconfig'), s => {
+      if (s.exists()) setBizCfg({ ...s.data() });
+    }, () => { });
+    return () => { un1(); un2(); un3(); };
+  }, [lic]);
 
   // ===== SESI MEJA (anti-fraud) =====
   // status: loading | valid | device-other | closed | invalid | legacy
@@ -76,7 +101,8 @@ const SelfOrderApp = ({ tableNo, profile, lic, token }) => {
     setIsLoading(true);
     await new Promise(r => setTimeout(r, 600));
 
-    const bill = computeOrderTotals(cart);
+    // v15 F1/B2a: pajak/diskon/service dibaca dari konfigurasi tenant (Firestore)
+    const bill = computeOrderTotals(cart, bizCfg || getBizConfig());
     const newOrder = {
       id: `self_${Date.now()}`, date: new Date().toISOString(),
       buyer: buyerName, paymentMethod: paymentMethod || 'Belum dipilih',
@@ -87,13 +113,30 @@ const SelfOrderApp = ({ tableNo, profile, lic, token }) => {
     // Simpan ke self_orders_db (TIDAK menyentuh active_orders_db milik Kasir/POS)
     const selfOrders = safeParse('self_orders_db', []).filter(o => o.tableNo !== tableNo);
     localStorage.setItem('self_orders_db', JSON.stringify([newOrder, ...selfOrders]));
-    // Sinkron ke kasir secara realtime (bila sesi berlisensi)
+    // Sinkron ke kasir secara realtime (bila sesi berlisensi) + simpan
+    // doc id agar status bisa di-listen (v15 F1/B2b).
     if (lic && db) {
-      try { await addDoc(collection(db, 'tenants', lic, 'self_orders'), { ...newOrder, deviceId: getDeviceId() }); } catch (e) { }
+      try {
+        const ref = await addDoc(collection(db, 'tenants', lic, 'self_orders'), { ...newOrder, deviceId: getDeviceId() });
+        setOrderId(ref.id);
+      } catch (e) { }
     }
     setMyOrder(newOrder); setCart([]); setShowCartPopup(false); setActiveTab('status');
     setIsLoading(false);
   };
+
+  // v15 F1/B2b: status pesanan LIVE dari kasir (validated → paid)
+  // — siklus pesanan pelanggan tidak lagi putus.
+  const [orderId, setOrderId] = useState(null);
+  useEffect(() => {
+    if (!lic || !db || !orderId) return;
+    const un = onSnapshot(doc(db, 'tenants', lic, 'self_orders', orderId), s => {
+      if (!s.exists()) return;
+      const remote = { ...s.data(), cid: s.id };
+      setMyOrder(prev => ({ ...(prev || {}), ...remote }));
+    }, () => { });
+    return () => un();
+  }, [lic, orderId]);
 
   const addToCart = (p) => {
     if (!canOrder) return;

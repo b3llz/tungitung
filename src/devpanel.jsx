@@ -7,7 +7,7 @@
 // gradasi flame, ikon Buddy, stat ringkas, badge status.
 // ============================================================
 import React, { useState, useEffect } from 'react';
-import { db, auth, fileToDataUrl, hexToTriplet, writeBrandMirror } from './core.jsx';
+import { db, auth, fileToDataUrl, hexToTriplet, writeBrandMirror, makeCred, anonAuthBlocked } from './core.jsx';
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
 } from 'firebase/auth';
@@ -155,12 +155,18 @@ export const DeveloperPanel = () => {
     if (durUnit === 'year') date.setFullYear(date.getFullYear() + Number(durVal));
     if (durUnit === 'day') date.setDate(date.getDate() + Number(durVal));
     try {
+      // v15 F0: kredensial owner disimpan sebagai HASH (PBKDF2-SHA256,
+      // salt acak) — password & ownerPin plaintext tidak pernah ditulis
+      // ke Firestore. CATAT kredensial ini di tempat aman: setelah
+      // tersimpan, tidak bisa dilihat lagi dari panel ini.
+      const credPass = await makeCred(password);
+      const credPin = await makeCred(ownerPin);
       await setDoc(doc(db, 'licenses', tenantId.toLowerCase()), {
-        id: tenantId.toLowerCase(), password, ownerPin, tenant: storeName, type: licType,
+        id: tenantId.toLowerCase(), credPass, credPin, tenant: storeName, type: licType,
         active: true, validUntil: date.toISOString(), createdAt: new Date().toISOString(),
         createdBy: auth.currentUser ? auth.currentUser.email : 'unknown'
       });
-      showToast('Tenant ' + storeName + ' berhasil didaftarkan!');
+      showToast('Tenant ' + storeName + ' terdaftar! Kredensial tersimpan hash — catat di tempat aman.');
       setStoreName(''); setTenantId(''); setPassword(''); setOwnerPin('');
     } catch (e) { showToast('Gagal simpan: ' + e.message); }
     setSaving(false);
@@ -240,6 +246,13 @@ export const DeveloperPanel = () => {
 
       <div className="max-w-3xl mx-auto px-4 pt-6 space-y-6">
         {accessErr && <div className="bg-brick-soft dark:bg-brick/15 border border-brick/30 text-brick-deep dark:text-brick text-[11px] font-bold p-3.5 rounded-2xl flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> {accessErr}</div>}
+
+        {/* v15 F0: peringatan rules — sesi anonymous belum tersedia */}
+        {anonAuthBlocked() && (
+          <div className="bg-gold-soft dark:bg-gold/10 border border-gold/40 text-gold-deep dark:text-gold text-[11px] font-bold p-3.5 rounded-2xl leading-relaxed">
+            <p className="flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Sesi ANONIM Firebase belum aktif. Sebelum publish rules v15: Firebase Console → Authentication → Sign-in method → aktifkan <b>Anonymous</b>. Sampai itu dilakukan, app tetap jalan dengan rules lama (kurang ketat).</p>
+          </div>
+        )}
 
         {/* stat ringkas */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -411,13 +424,15 @@ export const DeveloperPanel = () => {
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 mb-3">
+                  {/* v15 F0: kredensial tenant tersimpan hash — tidak ada lagi
+                      copy password/PIN dari panel. Status ditampilkan saja. */}
                   <div className="bg-paper dark:bg-chrome-deep/70 border border-line dark:border-chrome-edge p-2.5 rounded-xl flex justify-between items-center">
                     <span className="text-[9px] font-extrabold text-ink-faint flex items-center gap-1"><GembokBuddy className="w-3.5 h-3.5" /> PASS</span>
-                    <button onClick={() => copyText(c.password, c.id + 'p')} className="font-mono font-extrabold text-xs text-ink dark:text-ink-inv cursor-pointer flex items-center gap-1">{copiedId === c.id + 'p' ? <Check className="w-3 h-3 text-leaf" /> : <Copy className="w-3 h-3 text-ink-faint/50" />}{c.password}</button>
+                    <span className="font-mono font-extrabold text-[10px] text-leaf-deep dark:text-leaf flex items-center gap-1">{c.credPass ? <><Check className="w-3 h-3" /> ter-hash</> : (c.password ? 'legacy plaintext' : '-')}</span>
                   </div>
                   <div className="bg-brick-soft dark:bg-brick/10 p-2.5 rounded-xl flex justify-between items-center">
                     <span className="text-[9px] font-extrabold text-brick">PIN</span>
-                    <button onClick={() => copyText(c.ownerPin || '111111', c.id + 'n')} className="font-mono font-extrabold text-xs text-brick cursor-pointer flex items-center gap-1">{copiedId === c.id + 'n' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3 opacity-40" />}{c.ownerPin || '111111'}</button>
+                    <span className="font-mono font-extrabold text-[10px] text-brick flex items-center gap-1">{c.credPin ? <><Check className="w-3 h-3" /> ter-hash</> : (c.ownerPin ? 'legacy plaintext' : '-')}</span>
                   </div>
                 </div>
                 <div className="flex gap-2">

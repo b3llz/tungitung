@@ -9,7 +9,7 @@ import {
   Stok, Plus, Trash2, KameraBuddy, Pindai, PaketBuddy,
   Opname, Save, StokRiwayat, Supplier, InOut, StokMasuk, StokKeluar, CategoryIcon
 } from './welp-icons.jsx';
-import { safeParse, formatIDR, isPro } from './core.jsx';
+import { safeParse, formatIDR, isPro, dbSet, useDbSync } from './core.jsx';
 import { Button, Card, PageTitle, NumericInput, Select, Badge, EmptyState, ImageCropperModal } from './ui';
 
 /* ================= STOK BARANG ================= */
@@ -23,13 +23,14 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
   const [skuScanner, setSkuScanner] = useState(false);
   const skuVideoRef = useRef(null);
 
-  // AUTO-REFRESH saat tab dibuka
+  // AUTO-REFRESH saat tab dibuka + rebind saat ada sinkronisasi F1
   useEffect(() => {
     if (activeTab === 'stock') {
       setProducts(safeParse('product_stock_db', []));
       setRawMaterials(safeParse('raw_material_db', []));
     }
   }, [activeTab]);
+  useDbSync(() => { setProducts(safeParse('product_stock_db', [])); setRawMaterials(safeParse('raw_material_db', [])); });
 
   useEffect(() => {
     if (cropSrc || showAdd) setEditingMode(true);
@@ -72,8 +73,9 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
     return cleanup;
   }, [skuScanner]);
 
-  const saveProducts = (newP) => { setProducts(newP); localStorage.setItem('product_stock_db', JSON.stringify(newP)); };
-  const saveRaw = (newR) => { setRawMaterials(newR); localStorage.setItem('raw_material_db', JSON.stringify(newR)); };
+  // v15 F1: tulis komersial → mirror + Firestore (dbSet)
+  const saveProducts = (newP) => { setProducts(newP); dbSet(licenseInfo?.id, 'product_stock_db', newP); };
+  const saveRaw = (newR) => { setRawMaterials(newR); dbSet(licenseInfo?.id, 'raw_material_db', newR); };
 
   const addProduct = () => {
     if (!newProd.name) return triggerAlert("Nama produk wajib diisi", "error");
@@ -258,9 +260,10 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
 };
 
 /* ================= STOK OPNAME ================= */
-export const OpnameTab = ({ triggerAlert }) => {
+export const OpnameTab = ({ triggerAlert, licenseInfo }) => {
   const [products, setProducts] = useState(safeParse('product_stock_db', []));
   const [adjustments, setAdjustments] = useState({});
+  useDbSync(() => setProducts(safeParse('product_stock_db', [])));
 
   const saveOpname = () => {
     let updatedProducts = [...products];
@@ -282,8 +285,9 @@ export const OpnameTab = ({ triggerAlert }) => {
 
     if (!changed) return triggerAlert("Tidak ada perubahan stok untuk disimpan.", "error");
 
-    localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
-    localStorage.setItem('stock_history_db', JSON.stringify(logs));
+    // v15 F1: mirror + Firestore
+    dbSet(licenseInfo?.id, 'product_stock_db', updatedProducts);
+    dbSet(licenseInfo?.id, 'stock_history_db', logs);
     setProducts(updatedProducts);
     setAdjustments({});
     triggerAlert("Stok Opname Berhasil Disimpan!");
@@ -317,10 +321,11 @@ export const OpnameTab = ({ triggerAlert }) => {
 };
 
 /* ================= BARANG MASUK & KELUAR ================= */
-export const InOutTab = ({ triggerAlert }) => {
+export const InOutTab = ({ triggerAlert, licenseInfo }) => {
   const [products, setProducts] = useState(safeParse('product_stock_db', []));
   const [form, setForm] = useState({ type: 'Masuk', qty: '', note: '' });
   const [selectedProd, setSelectedProd] = useState('Pilih Produk...');
+  useDbSync(() => setProducts(safeParse('product_stock_db', [])));
 
   const prodOptions = ['Pilih Produk...', ...products.map(p => `${p.id} | ${p.name} (Stok: ${p.stock})`)];
 
@@ -345,8 +350,9 @@ export const InOutTab = ({ triggerAlert }) => {
       productName: p.name, type: form.type, qty: finalQty, note: form.note || `Barang ${form.type}`
     });
 
-    localStorage.setItem('product_stock_db', JSON.stringify(updatedProducts));
-    localStorage.setItem('stock_history_db', JSON.stringify(logs));
+    // v15 F1: mirror + Firestore
+    dbSet(licenseInfo?.id, 'product_stock_db', updatedProducts);
+    dbSet(licenseInfo?.id, 'stock_history_db', logs);
     setProducts(updatedProducts);
     setForm({ type: 'Masuk', qty: '', note: '' });
     setSelectedProd('Pilih Produk...');
@@ -388,6 +394,7 @@ export const StockHistoryTab = ({ activeTab }) => {
   useEffect(() => {
     if (activeTab === 'stockhistory') setLogs(safeParse('stock_history_db', []).slice().reverse());
   }, [activeTab]);
+  useDbSync(() => setLogs(safeParse('stock_history_db', []).slice().reverse()));
   return (
     <div className="max-w-3xl mx-auto w-full pb-24">
       <PageTitle title="Riwayat Stok" sub="Log Pergerakan Barang" />
@@ -413,16 +420,17 @@ export const StockHistoryTab = ({ activeTab }) => {
 };
 
 /* ================= SUPPLIER ================= */
-export const SupplierTab = ({ triggerAlert }) => {
+export const SupplierTab = ({ triggerAlert, licenseInfo }) => {
   const [suppliers, setSuppliers] = useState(safeParse('supplier_db', []));
   const [form, setForm] = useState({ name: '', contact: '', address: '' });
+  useDbSync(() => setSuppliers(safeParse('supplier_db', [])));
 
   const saveSupplier = () => {
     if (!form.name) return triggerAlert("Nama supplier wajib diisi!", "error");
     const newSup = { id: `sup_${Date.now()}`, ...form };
     const updated = [...suppliers, newSup];
     setSuppliers(updated);
-    localStorage.setItem('supplier_db', JSON.stringify(updated));
+    dbSet(licenseInfo?.id, 'supplier_db', updated);   // v15 F1
     setForm({ name: '', contact: '', address: '' });
     triggerAlert("Supplier Berhasil Ditambahkan!");
   };
@@ -431,7 +439,7 @@ export const SupplierTab = ({ triggerAlert }) => {
     if (confirm("Hapus supplier ini?")) {
       const updated = suppliers.filter(s => s.id !== id);
       setSuppliers(updated);
-      localStorage.setItem('supplier_db', JSON.stringify(updated));
+      dbSet(licenseInfo?.id, 'supplier_db', updated);   // v15 F1
     }
   };
 

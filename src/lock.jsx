@@ -8,9 +8,9 @@
 // (desktop, tablet, mobile) dengan ukuran jelas terbaca.
 // Logika verifikasi lisensi & PIN dipertahankan 100%.
 // ============================================================
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { doc, getDoc, collection, getDocs } from "firebase/firestore";
-import { db, safeParse, syncSession, auditLog } from './core.jsx';
+import { db, syncSession, auditLog, ensureAuth, verifyCred, upgradeCred, credIsLegacy, pinGate, pinGateMsg } from './core.jsx';
 import { BrandLockup, BrandLogo, Mascot } from './brand.jsx';
 import {
   HppCalc, Kasir, Laporan, Pindai,
@@ -63,11 +63,26 @@ export const LockScreen = ({ onUnlock }) => {
   const [tenantData, setTenantData] = useState(null);
   const [err, setErr] = useState('');
 
+  // v15 F0: rekaman cabang yang lolos password DISIMPAN DI MEMORI SAJA
+  // (tidak pernah masuk localStorage) — dipakai verifikasi PIN langkah 2.
+  const branchMem = useRef([]);
+
   const triggerAlert = (msg) => setErr(msg);
+
+  // v15 F0: gate percobaan PIN/password per perangkat (5 gagal → lock 5 menit)
+  const gateCheck = (key) => {
+    const st = pinGate.status(key);
+    if (st.locked) { triggerAlert(pinGateMsg(st)); return false; }
+    return true;
+  };
 
   const handleTenantLogin = async () => {
     setErr('');
     if (!inputId) return triggerAlert("Isi ID Toko dulu, ya!");
+
+    // v15 F0: sesi anonymous Firebase dibuka dulu — prasyarat rules v15
+    // (request.auth != null) untuk SEMUA pembacaan Firestore berikutnya.
+    await ensureAuth();
 
     /* ===== LOGIN POS STATION =====
        Perangkat kasir: ID Toko + kode station + PIN station.
@@ -75,6 +90,8 @@ export const LockScreen = ({ onUnlock }) => {
        langsung ke konteks POS cabangnya (role kasir + isStation). */
     if (mode === 'station') {
       if (!stationCode.trim() || !inputPass) return triggerAlert('Isi kode station & PIN station-nya.');
+      const gateKey = `station:${inputId.toLowerCase()}:${stationCode.trim().toLowerCase()}`;
+      if (!gateCheck(gateKey)) return;
       setLoading(true);
       try {
         const docRef = doc(db, "licenses", inputId.toLowerCase());
@@ -89,11 +106,17 @@ export const LockScreen = ({ onUnlock }) => {
           .find(s => String(s.code || '').toLowerCase() === stationCode.trim().toLowerCase());
         if (!st) { triggerAlert('Kode station tidak ditemukan. Cek di Manajemen Cabang bagian POS Station.'); setLoading(false); return; }
         if (!st.active) { triggerAlert('Station ini sedang dinonaktifkan Owner.'); setLoading(false); return; }
-        if (String(st.pin) !== inputPass.trim()) { triggerAlert('PIN station salah!'); setLoading(false); return; }
+        // v15 F0: PIN station diverifikasi hash (fallback plaintext legacy + upgrade)
+        if (!(await verifyCred(inputPass.trim(), st, 'pin', 'cred'))) {
+          const gst = pinGate.fail(gateKey);
+          triggerAlert(gst.locked ? pinGateMsg(gst) : `PIN station salah! Sisa ${5 - gst.fails} percobaan.`);
+          setLoading(false); return;
+        }
+        pinGate.reset(gateKey);
+        if (credIsLegacy(st, 'cred')) upgradeCred(['tenants', data.id, 'stations', st.cid], inputPass.trim(), 'pin', 'cred');
 
-        const { password, ownerPin, ...safeLic } = data;
         const sessionData = {
-          ...safeLic, currentUserRole: 'kasir', isStation: true,
+          ...data, currentUserRole: 'kasir', isStation: true,
           stationCode: st.code, stationCid: st.cid,
           branchId: st.branchId || 'PUSAT', branchName: st.branchName || 'Cabang',
           employeeName: null, employeeId: null
@@ -118,60 +141,83 @@ export const LockScreen = ({ onUnlock }) => {
         if (new Date() > new Date(data.validUntil)) { triggerAlert("Masa aktif habis."); setLoading(false); return; }
 
         if (mode === 'cabang') {
-          // LOGIN CABANG: password diverifikasi terhadap data Manajemen Cabang
+          // LOGIN CABANG (v15 F0): password dicocokkan ke hash cred tiap
+          // cabang (fallback plaintext legacy + auto-upgrade). Rekaman
+          // lengkap hanya di memori; versi sanitasi saja yang pernah
+          // menyentuh localStorage.
           const snap = await getDocs(collection(db, 'tenants', data.id, 'cabang'));
           const list = snap.docs.map(d => ({ cid: d.id, ...d.data() }));
-          const matches = list.filter(b => b.password === inputPass);
+          const matches = [];
+          for (const b of list) {
+            if (await verifyCred(inputPass, b, 'password', 'credPass')) matches.push(b);
+          }
           if (!matches.length) { triggerAlert("Password cabang salah / belum ada cabang terdaftar."); setLoading(false); return; }
-          setTenantData({ ...data, _branchList: matches });
+          // upgrade credential cabang legacy pertama yang cocok
+          const legacyHit = matches.find(b => credIsLegacy(b, 'credPass'));
+          if (legacyHit) upgradeCred(['tenants', data.id, 'cabang', legacyHit.cid], inputPass, 'password', 'credPass');
+          branchMem.current = matches;
+          setTenantData({ ...data, _branchList: matches.map(b => ({ cid: b.cid, name: b.name, role: b.role })) });
           setBranchId(matches[0].cid);
           setStep(2); // PIN karyawan cabang
         } else {
-          if (data.password === inputPass) {
-            setTenantData(data);
-            setStep(2); // Lanjut ke PIN Karyawan / Owner
-          } else { triggerAlert("Password salah. Coba ingat lagi!"); }
+          // LOGIN OWNER (v15 F0): password diverifikasi hash cred (fallback
+          // plaintext legacy + auto-upgrade). Rate-limit per toko+perangkat.
+          const gateKey = `owner:${inputId.toLowerCase()}`;
+          if (!(await verifyCred(inputPass, data, 'password', 'credPass'))) {
+            const gst = pinGate.fail(gateKey);
+            triggerAlert(gst.locked ? pinGateMsg(gst) : "Password salah. Coba ingat lagi!");
+            setLoading(false); return;
+          }
+          pinGate.reset(gateKey);
+          if (credIsLegacy(data, 'credPass')) upgradeCred(['licenses', data.id], inputPass, 'password', 'credPass');
+          setTenantData(data);
+          setStep(2); // Lanjut ke PIN Karyawan / Owner
         }
       } else { triggerAlert("ID Tenant tidak ditemukan!"); }
     } catch (error) { triggerAlert("Error Koneksi: " + error.message); }
     setLoading(false);
   };
 
-  const handlePinLogin = () => {
+  const handlePinLogin = async () => {
     setErr('');
-    const branch = tenantData?._branchList?.find(b => b.cid === branchId) || null;
+    const branchRec = branchMem.current.find(b => b.cid === branchId) || null;
+    const branchMeta = tenantData?._branchList?.find(b => b.cid === branchId) || null;
     let role = null;
     let employeeName = null, employeeId = null;
+    const gateKey = `pin:${tenantData?.id || inputId.toLowerCase()}:${branchId || 'pusat'}`;
+    if (!gateCheck(gateKey)) return;
 
-    if (branch) {
-      // SESI CABANG: PIN diverifikasi ke PIN cabang (Manajemen Cabang)
-      if (pin === branch.pin) role = branch.role || 'admin';
-      else {
-        // fallback: PIN karyawan PUSAT tidak berlaku di cabang
-        role = null;
+    if (branchMeta && branchRec) {
+      // SESI CABANG (v15 F0): PIN diverifikasi hash credPin cabang
+      if (await verifyCred(pin, branchRec, 'pin', 'credPin')) {
+        role = branchMeta.role || branchRec.role || 'admin';
+        if (credIsLegacy(branchRec, 'credPin')) upgradeCred(['tenants', tenantData.id, 'cabang', branchRec.cid], pin, 'pin', 'credPin');
       }
-      employeeName = branch.name ? `Staf ${branch.name}` : 'Staf Cabang';
-    }
-    // Owner pusat / karyawan lama (employee_db)
-    if (!role && !branch && tenantData && pin === tenantData.ownerPin) {
-      role = "owner";
-    } else if (!role && !branch) {
-      const foundEmp = safeParse('employee_db', []).find(emp => emp.pin === pin);
-      if (foundEmp) { role = foundEmp.role; employeeName = foundEmp.name; employeeId = foundEmp.id; }
+      employeeName = branchMeta.name ? `Staf ${branchMeta.name}` : 'Staf Cabang';
+    } else if (tenantData && !branchMeta) {
+      // OWNER PUSAT (v15 F0): ownerPin hash credPin (fallback plaintext)
+      if (await verifyCred(pin, tenantData, 'ownerPin', 'credPin')) {
+        role = "owner";
+        if (credIsLegacy(tenantData, 'credPin')) upgradeCred(['licenses', tenantData.id], pin, 'ownerPin', 'credPin');
+      }
     }
 
     if (role) {
-      const { password, ownerPin, ...safeLic } = tenantData;
+      pinGate.reset(gateKey);
+      // v15 F0: sesi disanitasi penuh — password/ownerPin/cred/_branchList
+      // kredensial TIDAK PERNAH masuk localStorage (sanitizeSession di App).
       const sessionData = {
-        ...safeLic, currentUserRole: role,
+        ...tenantData, currentUserRole: role,
         employeeName, employeeId,
-        ...(branch ? { branchId: branch.cid, branchName: branch.name, isBranch: true } : { branchId: 'PUSAT' })
+        ...(branchMeta ? { branchId: branchMeta.cid, branchName: branchMeta.name, isBranch: true } : { branchId: 'PUSAT' })
       };
       syncSession('LOGIN', sessionData);
-      auditLog(sessionData, branch ? 'LOGIN_CABANG' : (role === 'owner' ? 'LOGIN_OWNER' : 'LOGIN_KARYAWAN'), { target: sessionData.id }, { actorRole: role });
+      auditLog(sessionData, branchMeta ? 'LOGIN_CABANG' : (role === 'owner' ? 'LOGIN_OWNER' : 'LOGIN_KARYAWAN'), { target: sessionData.id }, { actorRole: role });
       onUnlock(sessionData);
     } else {
-      triggerAlert("PIN salah atau akses ditolak!");
+      const gst = pinGate.fail(gateKey);
+      triggerAlert(gst.locked ? pinGateMsg(gst) : "PIN salah atau akses ditolak!");
+      setPin('');
     }
   };
 
@@ -380,7 +426,7 @@ export const LockScreen = ({ onUnlock }) => {
 
           <div className="flex items-center justify-center gap-1.5 mt-5">
             <Lisensi className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-            <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">Lisensi terkelola · WELP v14</p>
+            <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">Lisensi terkelola · WELP v15</p>
           </div>
         </div>
 

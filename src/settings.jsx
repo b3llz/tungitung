@@ -12,14 +12,15 @@ import {
   Bayar, Edit3, UnduhBuddy, UnggahBuddy, Languages, Stok, Lisensi, BahayaBuddy,
   ModeRetail, ModeFnb, Setelan, BadgeCheck, Check, UnggahQris, WaktuReal
 } from './welp-icons.jsx';
-import { safeParse, formatIDR, getLang, qrUrl, WALLET_TYPES, decodeQrFromImage, parseEmv, makeTableToken, db } from './core.jsx';
+import { safeParse, formatIDR, getLang, qrUrl, WALLET_TYPES, decodeQrFromImage, parseEmv, qrisMeta, makeTableToken, db, dbSet, dbSetDoc, useDbSync, hydrateDb } from './core.jsx';
 import { doc as fsDoc, setDoc as fsSetDoc } from 'firebase/firestore';
-import { Button, Card, PageTitle, NumericInput, Select, Toggle, Badge, EmptyState, ImageCropperModal } from './ui';
+import { Button, Card, PageTitle, NumericInput, Select, Toggle, Badge, EmptyState, ImageCropperModal, ConfirmDialog } from './ui';
 
 /* Multi Outlet pindah ke src/team.jsx (monitoring terpusat realtime) */
 
 /* ================= ALAT TAMBAHAN (HARDWARE) ================= */
-export const HardwareTab = ({ triggerAlert }) => {
+export const HardwareTab = ({ licenseInfo, triggerAlert, activeTab }) => {
+  const isActive = activeTab === 'hardware';   // v15 F4-H6
   const [connType, setConnType] = useState('bluetooth');
   const [paperSize, setPaperSize] = useState(localStorage.getItem('printer_paper') || '58mm');
   const [printerChar, setPrinterChar] = useState(null);
@@ -139,7 +140,7 @@ export const HardwareTab = ({ triggerAlert }) => {
     const items = (scannedOrder.it || []).map(i => ({ name: i.n, qty: i.q, price: i.h, id: 'scan_' + Math.random().toString(36).slice(2) }));
     const newOrder = { id: 'ord_' + Date.now(), date: new Date().toISOString(), buyer: scannedOrder.b || ('Meja ' + scannedOrder.t), paymentMethod: scannedOrder.p || 'Tunai', items, subtotal: scannedOrder.tot, total: scannedOrder.tot, tableNo: scannedOrder.t, orderType: 'Dine-in', status: 'pending', notes: 'Validasi dari Self-Order (QR)' };
     const active = safeParse('active_orders_db', []);
-    localStorage.setItem('active_orders_db', JSON.stringify([newOrder, ...active]));
+    dbSet(licenseInfo?.id, 'active_orders_db', [newOrder, ...active]);   // v15 F1
     const rest = safeParse('self_orders_db', []).filter(o => o.tableNo !== scannedOrder.t);
     localStorage.setItem('self_orders_db', JSON.stringify(rest));
     triggerAlert('Pesanan Meja ' + scannedOrder.t + ' divalidasi & masuk ke Kasir (Pesanan).', 'success');
@@ -148,13 +149,15 @@ export const HardwareTab = ({ triggerAlert }) => {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (scanActive) return;
+      // v15 F4-H6: listener scanner USB hanya aktif saat tab Hardware terbuka
+      // — tidak lagi menangkap ketikan+Enter di halaman lain (toast palsu).
+      if (!isActive || scanActive) return;
       if (e.key === 'Enter') { if (usbBufferRef.current.length > 2) handleScanValue(usbBufferRef.current); usbBufferRef.current = ''; }
       else if (e.key && e.key.length === 1) usbBufferRef.current += e.key;
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [scanActive]);
+  }, [scanActive, isActive]);
   useEffect(() => () => stopScan(), []);
 
   const statusMap = {
@@ -271,6 +274,7 @@ export const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTa
       setProfile(safeParse('store_profile', {}));
     }
   }, [activeTab]);
+  useDbSync(() => setProfile(safeParse('store_profile', {})));   // v15 F1 rebind
 
   useEffect(() => {
     if (cropSrc) setEditingMode(true);
@@ -279,7 +283,7 @@ export const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTa
 
   const saveProfile = (newP) => {
     setProfile(newP);
-    localStorage.setItem('store_profile', JSON.stringify(newP));
+    dbSetDoc(licenseInfo?.id, 'store_profile', newP);   // v15 F1: dokumen pengaturan/toko_profile
   };
 
   return (
@@ -348,7 +352,7 @@ export const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTa
 };
 
 /* ================= METODE PEMBAYARAN ================= */
-export const PaymentTab = ({ triggerAlert, setEditingMode, activeTab }) => {
+export const PaymentTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
   const [profile, setProfile] = useState({ payment: { qris: null, ewallets: [], bank: [] } });
   const [newWallet, setNewWallet] = useState({ type: 'Gopay', number: '' });
   const [newBank, setNewBank] = useState({ bank: '', number: '' });
@@ -359,9 +363,13 @@ export const PaymentTab = ({ triggerAlert, setEditingMode, activeTab }) => {
     const p = (manualPayload || '').trim();
     const m = parseEmv(p);
     if (!m['00'] || !m['01']) return triggerAlert('Payload tidak valid — pastikan menyalin string QRIS lengkap.', 'error');
-    saveProfile({ ...profile, payment: { ...profile.payment, qrisPayload: p } });
+    // v15 F5/G2: CRC diverifikasi + metadata merchant tersimpan
+    const meta = qrisMeta(p);
+    saveProfile({ ...profile, payment: { ...profile.payment, qrisPayload: p, qrisMeta: meta } });
     setManualPayload('');
-    triggerAlert('QRIS Dinamis aktif! Nominal akan terisi otomatis saat checkout.', 'success');
+    triggerAlert(meta?.crcValid
+      ? `QRIS Dinamis aktif! CRC valid · merchant: ${meta.merchant || '-'}${meta.city ? ' · ' + meta.city : ''}.`
+      : 'QRIS Dinamis aktif, PERINGATAN: CRC payload tidak valid — pastikan menyalin payload utuh.', meta?.crcValid ? 'success' : 'error');
   };
 
   // Setelah crop: simpan gambar QRIS + coba baca payload EMVCo otomatis.
@@ -369,11 +377,15 @@ export const PaymentTab = ({ triggerAlert, setEditingMode, activeTab }) => {
     saveProfile({ ...profile, payment: { ...profile.payment, qris: img } });
     setCropSrc(null);
     try {
+      // v15 F5/G1+G3: decode di resolusi penuh dgn fallback jsQR — Safari/Firefox kini terbaca
       const payload = await decodeQrFromImage(img);
       const m = payload ? parseEmv(payload) : null;
       if (m && m['00'] && m['01']) {
-        saveProfile({ ...profile, payment: { ...profile.payment, qris: img, qrisPayload: payload } });
-        triggerAlert('QRIS tersimpan & payload dinamis terbaca — nominal otomatis AKTIF!', 'success');
+        const meta = qrisMeta(payload);   // v15 F5/G2
+        saveProfile({ ...profile, payment: { ...profile.payment, qris: img, qrisPayload: payload, qrisMeta: meta } });
+        triggerAlert(meta?.crcValid
+          ? `QRIS tersimpan & CRC valid — merchant: ${meta.merchant || '-'}${meta.city ? ' · ' + meta.city : ''}. Nominal otomatis AKTIF!`
+          : 'QRIS tersimpan & terbaca, tapi CRC tidak valid — cek ulang gambar/payload.', meta?.crcValid ? 'success' : 'error');
       } else {
         triggerAlert('QRIS tersimpan. Payload tidak terbaca otomatis — tempel manual agar nominal terisi otomatis.', 'error');
       }
@@ -393,7 +405,7 @@ export const PaymentTab = ({ triggerAlert, setEditingMode, activeTab }) => {
 
   const saveProfile = (newP) => {
     setProfile(newP);
-    localStorage.setItem('store_profile', JSON.stringify(newP));
+    dbSetDoc(licenseInfo?.id, 'store_profile', newP);   // v15 F1: dokumen pengaturan/toko_profile
   };
 
   const addWallet = () => {
@@ -514,6 +526,7 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
   const [lang, setLang] = useState(getLang());
   const [timeLeft, setTimeLeft] = useState('');
   const [showTableQR, setShowTableQR] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);   // v15 F4/K2
   const [lowStock, setLowStock] = useState(parseInt(localStorage.getItem('low_stock_threshold')) || 5);
   const [tableSessions, setTableSessions] = useState({});
   const [genBusy, setGenBusy] = useState(false);
@@ -723,13 +736,24 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
           </div>
         </div>
         <div className="px-5 pb-5 pt-4">
-          <Button onClick={() => { if (confirm("PERINGATAN: Mereset akan menghapus semua database?")) { localStorage.clear(); window.location.reload(); } }} variant="danger" icon={BahayaBuddy} className="w-full py-3">Zona Bahaya : Reset Aplikasi</Button>
+          {/* v15 F4/K2: aksi paling destruktif kini pakai ConfirmDialog +
+              ketik HAPUS — satu-satunya salinan data tidak lagi bisa
+              hilang karena satu klik ceroboh. */}
+          <Button onClick={() => setConfirmReset(true)} variant="danger" icon={BahayaBuddy} className="w-full py-3">Zona Bahaya : Reset Aplikasi</Button>
+          <p className="text-[9.5px] text-ink-faint font-semibold mt-2 leading-relaxed text-center">Menghapus seluruh data di perangkat ini (termasuk data komersial yang belum tersinkron ke server). Data yang sudah masuk Firestore tetap aman &amp; kembali setelah login.</p>
         </div>
       </Card>
 
+      <ConfirmDialog open={confirmReset} danger typeWord="HAPUS"
+        title="Reset seluruh aplikasi di perangkat ini?"
+        message="Semua database lokal (produk, transaksi, laporan, sesi) akan DIHAPUS PERMANEN dari perangkat. Data yang sudah tersinkron ke server WELP tidak ikut terhapus dan bisa diunduh lagi setelah login."
+        confirmLabel="Hapus Semua & Muat Ulang"
+        onCancel={() => setConfirmReset(false)}
+        onConfirm={() => { localStorage.clear(); window.location.reload(); }} />
+
       <div className="flex items-center justify-center gap-1.5 pt-2">
         <BadgeCheck className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-        <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">WELP v14 · Fresh Ink</p>
+        <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">WELP v15 · Fresh Ink</p>
       </div>
     </div>
   );

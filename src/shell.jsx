@@ -19,55 +19,62 @@ import {
   Cabang, Tim, Absensi, Penggajian, MonitorPusat, PerisaiBuddy
 } from './welp-icons.jsx';
 import { BrandLockup, BrandLogo, Mascot } from './brand.jsx';
-import { t, getLang } from './core.jsx';
+import { t, getLang, NAV_PERMS, roleLabelOfV15 } from './core.jsx';
 
-// item.roles === null artinya semua role boleh mengakses.
-// v10: absensi karyawan TIDAK lagi di dalam app kasir — memakai
-// halaman terpisah ?absen=1 (lihat src/absensi-app.jsx & Kelola Absensi).
+// v15 F3: NAV berbasis PERMISSION (bukan daftar role). Item tanpa
+// pemetaan permission = terbuka utk semua yang punya sesi. navAllowed
+// menerima Set permission dari permsOf(role, matrix).
 export const NAV_GROUPS = [
   { key: 'main', labelKey: 'mainCat', items: [
-    { id: 'home', labelKey: 'home', icon: Beranda, roles: null },
-    { id: 'pos', labelKey: 'cashier', icon: Kasir, roles: null },
-    { id: 'calc', labelKey: 'hpp', icon: HppCalc, roles: null },
-    { id: 'history', labelKey: 'history', icon: Riwayat, roles: null },
-    { id: 'cashout', labelKey: 'cashout', icon: KasKeluar, roles: ['kasir', 'owner'] },
-    { id: 'discount', labelKey: 'discount', icon: Diskon, roles: ['admin', 'owner'] },
+    { id: 'home', labelKey: 'home', icon: Beranda },
+    { id: 'pos', labelKey: 'cashier', icon: Kasir },
+    { id: 'calc', labelKey: 'hpp', icon: HppCalc },
+    { id: 'history', labelKey: 'history', icon: Riwayat },
+    { id: 'cashout', labelKey: 'cashout', icon: KasKeluar },
+    { id: 'discount', labelKey: 'discount', icon: Diskon },
   ]},
   { key: 'ops', labelKey: 'operational', items: [
-    { id: 'stock', labelKey: 'stock', icon: Stok, roles: null },
-    { id: 'opname', labelKey: 'opname', icon: Opname, roles: null },
-    { id: 'inout', labelKey: 'inout', icon: InOut, roles: null },
-    { id: 'stockhistory', labelKey: 'stockHistory', icon: StokRiwayat, roles: null },
-    { id: 'supplier', labelKey: 'supplier', icon: Supplier, roles: null },
+    { id: 'stock', labelKey: 'stock', icon: Stok },
+    { id: 'opname', labelKey: 'opname', icon: Opname },
+    { id: 'inout', labelKey: 'inout', icon: InOut },
+    { id: 'stockhistory', labelKey: 'stockHistory', icon: StokRiwayat },
+    { id: 'supplier', labelKey: 'supplier', icon: Supplier },
   ]},
   { key: 'biz', labelKey: 'business', items: [
-    { id: 'report', labelKey: 'report', icon: Laporan, roles: ['admin', 'owner'] },
-    { id: 'employee', labelKey: 'employee', icon: Cabang, roles: ['owner'] },
-    { id: 'karyawan', labelKey: 'karyawan', icon: Tim, roles: ['owner'] },
-    { id: 'absensi', labelKey: 'absensi', icon: Absensi, roles: ['admin', 'owner'] },
-    { id: 'payroll', labelKey: 'payroll', icon: Penggajian, roles: ['admin', 'owner'] },
-    { id: 'perusahaan', labelKey: 'perusahaan', icon: Toko, roles: ['owner'] },
-    { id: 'outlet', labelKey: 'outlet', icon: MonitorPusat, roles: ['owner'] },
-    { id: 'profile', labelKey: 'profile', icon: Toko, roles: ['owner'] },
-    { id: 'payment', labelKey: 'payment', icon: Bayar, roles: ['owner'] },
-    { id: 'hardware', labelKey: 'hardware', icon: Alat, roles: ['owner'] },
-    { id: 'settings', labelKey: 'settings', icon: Setelan, roles: ['owner'] },
+    { id: 'report', labelKey: 'report', icon: Laporan },
+    { id: 'employee', labelKey: 'employee', icon: Cabang },
+    { id: 'karyawan', labelKey: 'karyawan', icon: Tim },
+    { id: 'absensi', labelKey: 'absensi', icon: Absensi },
+    { id: 'payroll', labelKey: 'payroll', icon: Penggajian },
+    { id: 'perusahaan', labelKey: 'perusahaan', icon: Toko },
+    { id: 'outlet', labelKey: 'outlet', icon: MonitorPusat },
+  ]},
+  // v15 F4/I1: keluarga PENGATURAN dipisah dari menu operasional —
+  // identitas/metode/hardware/setelan kini punya grup sendiri.
+  { key: 'setelan', labelKey: 'settings', items: [
+    { id: 'profile', labelKey: 'profile', icon: Toko },
+    { id: 'payment', labelKey: 'payment', icon: Bayar },
+    { id: 'hardware', labelKey: 'hardware', icon: Alat },
+    { id: 'settings', labelKey: 'settings', icon: Setelan },
   ]},
 ];
-export const navAllowed = (item, role) => !item.roles || item.roles.includes(role);
+export const navAllowed = (item, role, perms) => {
+  const need = item.perm || NAV_PERMS[item.id] || null;
+  if (!need) return true;
+  if (!perms || !(perms.has)) return true;      // fallback aman bila matrix belum terbaca
+  return perms.has(need);
+};
 
 /* ---------- BADGE ROLE (highlight, bukan teks polos) ---------- */
 const RoleChip = ({ role, compact }) => (
   <span className={`inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-flame-500 to-flame-600 text-white shadow-card ${compact ? 'px-2 py-1' : 'px-2.5 py-1.5'}`}>
     <PerisaiBuddy className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
-    <span className="text-[9px] font-extrabold uppercase tracking-[0.14em] leading-none">
-      {role === 'owner' ? 'Owner' : role === 'admin' ? 'Admin' : 'Kasir'}
-    </span>
+    <span className="text-[9px] font-extrabold uppercase tracking-[0.14em] leading-none">{roleLabelOfV15(role)}</span>
   </span>
 );
 
 /* ---------- SIDEBAR DOCK (desktop lg+) ---------- */
-export const Sidebar = ({ role, active, setActive, licenseInfo, dark, toggleDark, onLogout, lowStockCount, editing }) => (
+export const Sidebar = ({ role, perms, active, setActive, licenseInfo, dark, toggleDark, onLogout, lowStockCount, editing }) => (
   <aside className={`hidden lg:block fixed inset-y-0 left-0 w-[260px] p-3 z-40 transition-all duration-300 ${editing ? 'opacity-40 blur-sm pointer-events-none' : ''}`}>
     <div className="h-full rounded-[1.5rem] flex flex-col overflow-hidden shadow-dock border relative
       bg-surface dark:bg-chrome-deep border-line dark:border-chrome-edge">
@@ -88,7 +95,7 @@ export const Sidebar = ({ role, active, setActive, licenseInfo, dark, toggleDark
       {/* nav */}
       <nav className="flex-1 overflow-y-auto custom-scrollbar px-2.5 py-3 space-y-4">
         {NAV_GROUPS.map(group => {
-          const items = group.items.filter(i => navAllowed(i, role));
+          const items = group.items.filter(i => navAllowed(i, role, perms));
           if (!items.length) return null;
           return (
             <div key={group.key}>
@@ -124,7 +131,7 @@ export const Sidebar = ({ role, active, setActive, licenseInfo, dark, toggleDark
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-ink dark:text-ink-inv/85 text-[11px] font-extrabold truncate leading-none">{licenseInfo?.tenant || 'Welp'}</p>
-            <p className="text-ink-faint dark:text-ink-inv/40 text-[9px] font-bold mt-1 truncate">{licenseInfo?.tenant ? role : 'Teman usahamu'}</p>
+            <p className="text-ink-faint dark:text-ink-inv/40 text-[9px] font-bold mt-1 truncate">{licenseInfo?.tenant ? roleLabelOfV15(role) : 'Teman usahamu'}</p>
           </div>
         </div>
         <div className="pb-2.5 space-y-0.5">
@@ -177,7 +184,7 @@ export const BottomNav = ({ active, setActive, onMenu, lowStockCount }) => {
 /* ---------- MENU SHEET (drawer mobile, RBAC sama) ----------
    Light: putih + gradasi oren di kepala drawer.
    Dark : tetap charcoal elegan. */
-export const MenuSheet = ({ open, onClose, role, active, setActive, licenseInfo, onLogout, dark, toggleDark }) => {
+export const MenuSheet = ({ open, onClose, role, perms, active, setActive, licenseInfo, onLogout, dark, toggleDark }) => {
   if (!open) return null;
   const en = getLang() === 'en';
   return (
@@ -200,7 +207,7 @@ export const MenuSheet = ({ open, onClose, role, active, setActive, licenseInfo,
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-3.5 space-y-5">
           {NAV_GROUPS.map(group => {
-            const items = group.items.filter(i => navAllowed(i, role));
+            const items = group.items.filter(i => navAllowed(i, role, perms));
             if (!items.length) return null;
             return (
               <div key={group.key}>
@@ -233,7 +240,7 @@ export const MenuSheet = ({ open, onClose, role, active, setActive, licenseInfo,
           <button onClick={onLogout} className="w-full flex items-center justify-center gap-3 p-3 rounded-xl bg-brick/15 text-brick font-extrabold hover:bg-brick/25 transition press">
             <Keluar className="w-5 h-5" /> {t('logout')}
           </button>
-          <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] pt-2">WELP v14 · Fresh Ink</p>
+          <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] pt-2">WELP v15 · Fresh Ink</p>
         </div>
       </div>
     </div>
