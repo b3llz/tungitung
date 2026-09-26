@@ -1,8 +1,15 @@
 // ============================================================
-// DEVELOPER PANEL v9.1 (WELP v15.1) — route ?dev=panel.
+// DEVELOPER PANEL v9.2 (WELP v15.2) — route ?dev=panel.
 // v15.1 PERUBAHAN:
 //   • Allowlist email developer (DEV_EMAILS) — hapus tenant hanya
 //     utk email di daftar + email terverifikasi (selaras rules v15.1).
+// v9.2 HARDENING (WELP v15.2):
+//   • Generator kredensial pakai crypto.getRandomValues (bukan
+//     Math.random yang bisa diprediksi), password 10 char.
+//   • Kebijakan kredensial registrasi: PIN wajib 6 digit, password
+//     min. 8 char, ID tenant min. 3 char tanpa spasi.
+//   • Rules v15.2: licenses list/create/update dikunci ke dev
+//     (upgrade plaintext→hash lama tetap diizinkan utk tenant legacy).
 //   • Hapus tenant: konfirmasi 2 langkah + bersih-bersih data
 //     tenants/{lic} (best-effort) setelah lisensi terhapus.
 //   • Registrasi tenant: modal KREDENSI TAMPAK SEKALI (copy) —
@@ -168,16 +175,28 @@ export const DeveloperPanel = () => {
   };
   const doLogout = () => signOut(getAuth());
 
+  // v15.2: PRNG kripto (Math.random = Mersenne-Twister, state-nya bisa
+  // dipulihkan dari output — bukan untuk materi kredensial).
   const genPass = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let p = '';
-    for (let i = 0; i < 6; i++) p += chars[Math.floor(Math.random() * chars.length)];
-    setPassword(p.slice(0, 3) + '-' + p.slice(3, 6));
+    const rnd = new Uint32Array(10);
+    crypto.getRandomValues(rnd);
+    const p = Array.from(rnd, n => chars[n % chars.length]).join('');
+    setPassword(p.slice(0, 5) + '-' + p.slice(5));
   };
-  const genPin = () => setOwnerPin(String(Math.floor(100000 + Math.random() * 900000)));
+  const genPin = () => {
+    const rnd = new Uint32Array(6);
+    crypto.getRandomValues(rnd);
+    setOwnerPin(Array.from(rnd, n => String(n % 10)).join(''));
+  };
 
   const saveTenant = async () => {
     if (!storeName || !tenantId || !password || !ownerPin) return showToast('Data belum lengkap!');
+    // v15.2: kebijakan kredensial — PIN 6 digit & password min. 8 char
+    // (PIN pendek = brute-force offline murah walau pakai PBKDF2).
+    if (!/^\d{6}$/.test(ownerPin)) return showToast('Owner PIN wajib tepat 6 digit angka (pakai tombol Acak).');
+    if (password.length < 8) return showToast('Password minimal 8 karakter (pakai tombol Acak).');
+    if (!/^[a-z0-9._-]{3,}$/i.test(tenantId)) return showToast('ID Tenant min. 3 karakter: huruf/angka/._- tanpa spasi.');
     setSaving(true);
     const date = new Date();
     if (durUnit === 'month') date.setMonth(date.getMonth() + Number(durVal));
@@ -221,7 +240,7 @@ export const DeveloperPanel = () => {
   };
 
   const delTenant = async (id) => {
-    if (!devVerified) return showToast('Hanya email developer terverifikasi yang boleh menghapus tenant (rules v15.1).');
+    if (!devVerified) return showToast('Hanya email developer terverifikasi yang boleh menghapus tenant (rules v15.2).');
     if (confirmDel !== id) {
       // langkah 1: arming — tombol berubah merah 4 detik
       setConfirmDel(id);
@@ -238,7 +257,7 @@ export const DeveloperPanel = () => {
         : 'Tenant ' + id + ' dihapus. Sebagian data riwayat gagal dibersihkan (aman diabaikan).');
     } catch (e) {
       showToast('Gagal hapus: ' + (e.code || e.message)
-        + (e.code === 'permission-denied' ? ' — publish rules v15.1 & verifikasi email dev dulu.' : ''));
+        + (e.code === 'permission-denied' ? ' — publish rules v15.2 & verifikasi email dev dulu.' : ''));
     }
     setDelBusy(false);
   };
@@ -400,7 +419,7 @@ export const DeveloperPanel = () => {
         {/* v15.1 + v9.1: email dev terdaftar tapi belum verifikasi */}
         {devListed && !devVerified && (
           <div className="bg-gold-soft dark:bg-gold/10 border border-gold/40 text-gold-deep dark:text-gold text-[11px] font-bold p-3.5 rounded-2xl leading-relaxed">
-            <p className="flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Email {user.email} ada di allowlist tapi <b>belum terverifikasi</b>. Verifikasi dulu supaya hapus tenant diizinkan rules v15.1.</p>
+            <p className="flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Email {user.email} ada di allowlist tapi <b>belum terverifikasi</b>. Verifikasi dulu supaya hapus tenant diizinkan rules v15.2.</p>
             <p className="mt-2 text-[10px] font-bold opacity-80 leading-relaxed">Link Firebase sekali pakai & kirim ulang mematikan link lama — jadi klik link di email <b>paling atas</b> (terbaru), <b>satu kali saja</b>, di tab browser biasa. Kalau link selalu tertulis "sudah digunakan", besar kemungkinan emailmu sebenarnya SUDAH terverifikasi sejak klik pertama: langsung tekan <b>Cek Status</b>.</p>
             <div className="mt-2.5 flex flex-wrap gap-2">
               <button onClick={kirimVerifikasi} disabled={busyVerif || resendCd > 0}

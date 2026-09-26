@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { getStorage, ref as sRef, uploadString, getDownloadURL } from "firebase/storage";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import jsQR from 'jsqr';
 import { Uang, Qris, Dompet } from './welp-icons.jsx';
 
@@ -63,6 +64,24 @@ try {
 }
 export { db, auth, firebaseInitError };
 
+// v15.2 · APP CHECK — attestation anti-bot (reCAPTCHA v3). Kunci situs
+// diisi via VITE_RECAPTCHA_SITE_KEY di .env. Tanpa kunci: app jalan
+// normal tanpa App Check. Dengan kunci: token attestation dikirim
+// otomatis di semua request Firebase — WAJIB aktif di build yang
+// ter-deploy SEBELUM tombol "Enforce" dinyalakan di Firebase Console
+// (lihat PANDUAN-KEAMANAN-v15.2.md).
+const RECAPTCHA_SITE_KEY = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
+if (app && RECAPTCHA_SITE_KEY) {
+  try {
+    initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(RECAPTCHA_SITE_KEY),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (e) {
+    console.warn('[WELP app-check] App Check tidak aktif:', (e && e.code) || e);
+  }
+}
+
 // ============================================================
 // v15 · F0 — KEAMANAN KREDENSIAL & SESI
 // (1) Kredensial (password owner, PIN cabang/station/karyawan,
@@ -79,7 +98,11 @@ export { db, auth, firebaseInitError };
 //     lockout 5 menit (pesan jelas ke pengguna).
 // ============================================================
 
-const PBKDF2_ITERS = 60000;
+// v15.2: 310.000 iterasi (rentang rekomendasi OWASP; dulu 60.000).
+// Kompatibel 100% dgn hash lama: nilai iters tersimpan per-kredensial
+// (makeCred) dan verifyCred memakai iters milik masing-masing record —
+// tenant lama tetap bisa login, tenant baru otomatis dapat 310k.
+const PBKDF2_ITERS = 310000;
 const bufToHex = (buf) => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 export const randomSalt = (bytes = 16) => bufToHex(crypto.getRandomValues(new Uint8Array(bytes)));
 

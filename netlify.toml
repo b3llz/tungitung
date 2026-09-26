@@ -6,3 +6,20 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# ============================================================
+# v15.2 — SECURITY HEADERS (hardening sisi jaringan)
+#  • CSP: membatasi sumber skrip/koneksi — injeksi skrip pihak ketiga
+#    diblokir browser. Allowlist = Firebase + reCAPTCHA + Google Fonts.
+#  • X-Frame-Options/frame-ancestors: anti clickjacking.
+#  • nosniff + Referrer-Policy: kebocoran info minimal.
+#  • camera=(self): fitur scan QR tetap jalan; sisanya ditutup.
+# ============================================================
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(self), microphone=(), geolocation=(), payment=(), usb=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.gstatic.com https://www.google.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.googleapis.com https://*.googleusercontent.com https://*.gstatic.com https://www.google.com; media-src 'self' blob:; connect-src 'self' blob: https://*.googleapis.com wss://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://www.google.com; frame-src https://www.google.com https://apis.google.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"

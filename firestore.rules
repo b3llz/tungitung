@@ -1,0 +1,87 @@
+rules_version = '2';
+
+// ============================================================
+// WELP FIRESTORE RULES — v15.2 (hardening anti-scanner & anti-takeover)
+// Perubahan vs v15.1:
+//   • licenses.list  → HANYA developer. Sesi anonim tidak bisa lagi
+//     MENDAFTAR seluruh lisensi (anti-enumerasi: ID tenant tak bisa
+//     dipetakan dari luar).
+//   • licenses.create → HANYA developer (anti-squatting/spam lisensi).
+//   • licenses.update → developer, ATAU satu-satunya pengecualian
+//     sempit: auto-upgrade kredensial plaintext lama → hash yang
+//     dilakukan app saat login sukses (tenant lama pra-v15). Pengecualian
+//     ini dijaga 3 lapis:
+//       (1) hanya menyentuh pasangan field credPass+password ATAU
+//           credPin+ownerPin — field lain (type/active/tenant/...) tidak
+//           tersentuh;
+//       (2) hanya bila field hash terkait MEMANG masih kosong —
+//           kredensial yang SUDAH ter-hash tidak akan pernah bisa
+//           ditimpa sesi anonim (kill-chain takeover MATI);
+//       (3) hash wajib 64-hex (SHA-256) dan salt 32-hex (anti sampah).
+//   • tenants/{lic} tetap signedIn() — pengerasan jalur ini dilakukan
+//     lewat App Check (attestation) di level platform; isolasi per-uid
+//     via custom claims = milestone Cloud Functions berikutnya.
+//   • logs tetap append-only.
+// CATATAN ROLLBACK: rules v15.1 masih ada di PANDUAN-DEPLOY/arsip.
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Developer console (?dev=panel): sesi Email/Password asli milik
+    // developer. Tambahkan email dev baru ke daftar di bawah.
+    function isDev() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['shandikazaid@gmail.com'];
+    }
+
+    // Upgrade plaintext→hash dari sesi anonim (dipanggil app saat login
+    // sukses utk tenant pra-v15). Lihat komentar header.
+    function legacyPassUpgrade() {
+      return signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['credPass', 'password'])
+        && request.resource.data.credPass.get('hash', '') is string
+        && request.resource.data.credPass.get('hash', '').matches('^[0-9a-f]{64}$')
+        && request.resource.data.credPass.get('salt', '').matches('^[0-9a-f]{32}$')
+        && resource.data.get('credPass', {}).get('hash', '') == '';
+    }
+
+    function legacyPinUpgrade() {
+      return signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['credPin', 'ownerPin'])
+        && request.resource.data.credPin.get('hash', '') is string
+        && request.resource.data.credPin.get('hash', '').matches('^[0-9a-f]{64}$')
+        && request.resource.data.credPin.get('salt', '').matches('^[0-9a-f]{32}$')
+        && resource.data.get('credPin', {}).get('hash', '') == '';
+    }
+
+    // Lisensi — dibaca app saat login & monitoring; tidak publik.
+    // Kredensial owner tersimpan hash (credPass/credPin).
+    match /licenses/{lic} {
+      allow get: if signedIn();     // app membaca 1 lisensi utk login
+      allow list: if isDev();       // anti-enumerasi: hanya panel dev
+      allow create: if isDev();     // anti-squatting: hanya panel dev
+      allow update: if isDev() || legacyPassUpgrade() || legacyPinUpgrade();
+      allow delete: if isDev();
+    }
+
+    // Heartbeat/log sesi — append-only, tidak bisa dibaca/diubah klien.
+    match /logs/{logId} {
+      allow create: if signedIn();
+      allow read, update, delete: if false;
+    }
+
+    // Seluruh data tenant (cabang, karyawan, absensi, payroll,
+    // pengajuan, stations, pengaturan, dokumen, audit_log,
+    // self_orders, meja_sessions, + koleksi komersial v15).
+    match /tenants/{lic}/{document=**} {
+      allow read, write: if signedIn();
+    }
+  }
+}
