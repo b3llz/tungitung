@@ -38,6 +38,21 @@
 }
 
 html { -webkit-tap-highlight-color: transparent; }
+
+/* ============================================================
+   ANTI-OVERFLOW INPUT NATIVE (v15.3)
+   input[type=date/time] di Chrome & Safari mobile punya lebar
+   minimum bawaan yang tidak mau menyusut di dalam grid/flex.
+   Tanpa rule ini, card "Jam Masuk" dan pilihan tanggal cuti
+   melewati batas kartu di layar kecil. min-width:0 memaksa
+   input ikut menyusut mengikuti kolomnya.
+   ============================================================ */
+input, select, textarea { min-width: 0; }
+input[type='date'], input[type='time'], input[type='datetime-local'], input[type='month'] {
+  min-width: 0;
+  max-width: 100%;
+}
+
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;

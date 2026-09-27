@@ -91,7 +91,7 @@ export default {
         '3xl': '1.25rem',
         '4xl': '1.5rem'
       },
-      spacing: { '4.5': '1.125rem' }
+      spacing: { '4.5': '1.125rem', '5.5': '1.375rem' }
     }
   },
   plugins: [animate]

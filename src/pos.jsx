@@ -16,12 +16,20 @@ import {
 } from './welp-icons.jsx';
 import {
   safeParse, formatIDR, isPro, computeOrderTotals, getBizConfig,
-  getPaymentIcon, qrUrl, buildDynamicQris, t, BRANCH_ID, db,
+  getPaymentIcon, useQr, buildDynamicQris, t, BRANCH_ID, db,
   auditLog, todayKey, normShifts, shiftsForBranch, shiftById, shiftOfMs,
   verifyCred, credIsLegacy, upgradeCred, pinGate, pinGateMsg,   // v15 F0
   dbSet, dbSetDoc   // v15 F1
 } from './core.jsx';
 import { Button, Card, Badge, EmptyState } from './ui';
+
+// v15.3: QR pembayaran di-generate lokal (data URL, tanpa layanan luar)
+// agar checkout QRIS tidak bergantung kecepatan layanan pihak ketiga.
+const QrPay = ({ text, size = 320, cls = '', alt = '' }) => {
+  const qr = useQr(text, size);
+  if (!qr) return <div className={cls + ' bg-white animate-pulse'} />;
+  return <img src={qr} className={cls} alt={alt} />;
+};
 
 /* ---------- PILIH TIER HARGA (Pro) ---------- */
 export const PremiumPriceSelector = ({ currentTier, onChange }) => {
@@ -215,7 +223,7 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
             <div className="w-9 h-9 rounded-2xl bg-flame-50 dark:bg-flame-900/20 text-flame-600 dark:text-apricot flex items-center justify-center"><Keranjang className="w-4.5 h-4.5" /></div>
             <div>
               <p className="kicker">Checkout</p>
-              <p className="font-extrabold text-ink dark:text-ink-inv text-sm leading-none mt-0.5">{cart.length} item · {formatIDR(grandTotal)}</p>
+              <p className="font-extrabold text-ink dark:text-ink-inv text-sm leading-none mt-0.5">{cart.length} item, {formatIDR(grandTotal)}</p>
             </div>
           </div>
           <button onClick={() => setShowCart(false)} className="w-9 h-9 rounded-xl bg-paper dark:bg-white/5 flex items-center justify-center text-ink-faint hover:text-brick transition"><X className="w-4 h-4" /></button>
@@ -332,7 +340,7 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
                     ? 'bg-[#F26A21] dark:bg-[#F4772E] text-white shadow-card hover:brightness-105'
                     : 'bg-[#E1E1DD] dark:bg-[#34383D] text-[#1D1D1B]/35 dark:text-[#F5F5F2]/30 cursor-not-allowed'}`}>
                   {isLoading ? <><RefreshCw className="w-5 h-5 animate-spin" /> Memproses...</> : cashEnough
-                    ? <><Selesai className="w-5 h-5" /> BAYAR · Kembalian {formatIDR(cashTendered - grandTotal)}</>
+                    ? <><Selesai className="w-5 h-5" /> BAYAR (kembalian {formatIDR(cashTendered - grandTotal)})</>
                     : <><Selesai className="w-5 h-5" /> BAYAR</>}
                 </button>
                 {!cashEnough && cashTendered > 0 && <p className="text-center text-[10px] font-bold text-[#C83B3B] dark:text-[#FF8B8B] mt-2">Nominal belum cukup. Tambah lewat keypad atau pilih Uang Pas.</p>}
@@ -411,7 +419,7 @@ const StationKasirGate = ({ licenseInfo, onClose, triggerAlert }) => {
       localStorage.setItem('app_license', JSON.stringify(saved));
       auditLog(licenseInfo, 'STATION_KASIR_LOGIN', { target: sel.cid, kasir: sel.name, shift: sh?.nama || null }, { actor: sel.name, actorRole: sel.role || 'kasir' });
       window.dispatchEvent(new Event('welp_session_update'));
-      triggerAlert(`Siap, ${sel.name}!${sh ? ` Shift ${sh.nama} (${sh.mulai}–${sh.selesai}).` : ''}`, 'success');
+      triggerAlert(`Siap, ${sel.name}!${sh ? ` Shift ${sh.nama} (${sh.mulai} s/d ${sh.selesai}).` : ''}`, 'success');
       onClose();
     } catch (e) { setErr('Gagal menyimpan sesi kasir.'); }
   };
@@ -815,18 +823,18 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
           {dyn ? (
             <>
               <div className="relative bg-white p-2 rounded-2xl border-2 border-flame-200 shadow-card">
-                <img src={qrUrl(dyn, 320)} className="w-44 h-44" alt="QRIS Dinamis" />
+                <QrPay text={dyn} size={320} cls="w-44 h-44" alt="QRIS Dinamis" />
                 <span className="absolute -top-2.5 -right-2 flex items-center gap-1 bg-flame-600 text-white text-[8px] font-extrabold px-2 py-1 rounded-full shadow-card"><QrDinamis className="w-3 h-3" /> DINAMIS</span>
               </div>
               <p className="text-base mt-2.5 text-flame-700 dark:text-apricot font-extrabold money">{formatIDR(amount)}</p>
-              <p className="text-[10px] mt-0.5 text-ink-faint font-bold">Nominal otomatis terisi — pelanggan tinggal scan</p>
+              <p className="text-[10px] mt-0.5 text-ink-faint font-bold">Nominal sudah terisi otomatis, pelanggan tinggal scan</p>
             </>
           ) : profile.payment?.qris ? (
             <>
               <img src={profile.payment.qris} className="w-48 h-48 object-contain bg-white p-2 rounded-xl border" alt="QRIS Toko" />
-              <p className="text-[11px] mt-2 text-ink-faint font-bold text-center">QRIS statis — pelanggan scan lalu isi nominal<br />{formatIDR(amount || 0)} manual</p>
+              <p className="text-[11px] mt-2 text-ink-faint font-bold text-center">QRIS statis. Pelanggan scan lalu isi nominal<br />{formatIDR(amount || 0)} secara manual</p>
             </>
-          ) : <p className="text-xs text-ink-faint font-bold">Belum ada QRIS — atur di Metode Pembayaran</p>}
+          ) : <p className="text-xs text-ink-faint font-bold">Belum ada QRIS. Atur dulu di menu Metode Pembayaran</p>}
         </div>
       );
     }
@@ -945,8 +953,8 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
           <div className="flex items-center gap-2.5 min-w-0">
             <LayarBuddy className="w-4.5 h-4.5 text-apricot shrink-0" />
             <p className="text-[11px] font-extrabold truncate">
-              {licenseInfo.stationCode || 'POS'} · {licenseInfo.branchName || 'Cabang'} · Kasir: {licenseInfo.employeeName || 'belum ada'}
-              {licenseInfo.shiftNama && <span className="text-apricot"> · Shift {licenseInfo.shiftNama}</span>}
+              {licenseInfo.stationCode || 'POS'} ({licenseInfo.branchName || 'Cabang'}), kasir {licenseInfo.employeeName || 'belum ada'}
+              {licenseInfo.shiftNama && <span className="text-apricot">, shift {licenseInfo.shiftNama}</span>}
             </p>
           </div>
           <button onClick={() => setKasirGate(true)} className="text-[10px] font-extrabold px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 transition shrink-0 press">
@@ -1112,7 +1120,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
           <div className="bg-surface dark:bg-surface-dark w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-pop relative animate-pop flex flex-col max-h-[92vh] overflow-hidden" onClick={e => e.stopPropagation()}>
             <button onClick={() => setSelectedOrder(null)} className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-paper dark:bg-white/5 flex items-center justify-center text-ink-faint hover:text-brick z-10"><X className="w-4 h-4" /></button>
             <div className="p-5 pb-3 shrink-0">
-              <p className="kicker">Detail Pesanan · #{selectedOrder.id.slice(-5)}</p>
+              <p className="kicker">Detail Pesanan #{selectedOrder.id.slice(-5)}</p>
               {selectedOrder.status === 'pending' ? (
                 <Badge tone="gold" className="mt-1.5"><WaktuReal className="w-3 h-3" /> Menunggu Pembayaran</Badge>
               ) : (

@@ -152,7 +152,7 @@ export const Barcode = ({ className, style }) => (
     </g>
     <text x="45" y="32" textAnchor="middle" fontSize="7.5" fontWeight="800"
       letterSpacing="2.5" fill="currentColor" style={{ fontFamily: 'inherit' }}>
-      WELP·POS
+      WELP POS
     </text>
   </svg>
 );

@@ -257,7 +257,7 @@ export const DeveloperPanel = () => {
         : 'Tenant ' + id + ' dihapus. Sebagian data riwayat gagal dibersihkan (aman diabaikan).');
     } catch (e) {
       showToast('Gagal hapus: ' + (e.code || e.message)
-        + (e.code === 'permission-denied' ? ' — publish rules v15.2 & verifikasi email dev dulu.' : ''));
+        + (e.code === 'permission-denied' ? '. Publish rules v15.2 dan verifikasi email dev dulu.' : ''));
     }
     setDelBusy(false);
   };
@@ -295,7 +295,7 @@ export const DeveloperPanel = () => {
       await u.getIdToken(true); // paksa token baru → claim email_verified terbarui utk rules
       bumpStatus();
       showToast(u.emailVerified
-        ? 'Status: TERVERIFIKASI ✓ — badge DEV hijau aktif.'
+        ? 'Status: TERVERIFIKASI. Badge DEV hijau aktif.'
         : 'Masih belum terverifikasi. Buka email TERBARU, klik link-nya SATU kali saja.');
     } catch (e) {
       showToast('Gagal cek status: ' + (e.code || e.message));
@@ -312,10 +312,10 @@ export const DeveloperPanel = () => {
         handleCodeInApp: false,
       });
       setResendCd(45);
-      showToast('Terkirim. Klik link di email PALING ATAS — cukup sekali. Link lama otomatis mati.');
+      showToast('Terkirim. Buka email paling atas, cukup sekali. Link lama otomatis mati.');
     } catch (e) {
       showToast('Gagal kirim: ' + (e.code || e.message)
-        + (e.code === 'too-many-requests' ? ' — terlalu sering, tunggu beberapa menit.' : ''));
+        + (e.code === 'too-many-requests' ? ', terlalu sering. Tunggu beberapa menit.' : ''));
     }
     setBusyVerif(false);
   };
@@ -332,7 +332,7 @@ export const DeveloperPanel = () => {
         if (u) { await u.reload().catch(() => {}); await u.getIdToken(true).catch(() => {}); }
         window.history.replaceState({}, '', window.location.pathname);
         bumpStatus();
-        showToast(u && u.emailVerified ? 'Email developer terverifikasi ✓' : 'Verifikasi diproses — tekan Cek Status bila badge belum hijau.');
+        showToast(u && u.emailVerified ? 'Email developer terverifikasi ✓' : 'Verifikasi diproses. Tekan Cek Status bila badge belum hijau.');
       } catch (_) { /* diam */ }
     })();
   }, [authReady]);
@@ -358,7 +358,7 @@ export const DeveloperPanel = () => {
             </div>
             <h1 className="font-display text-ink dark:text-ink-inv font-extrabold text-lg">WELP Developer Console</h1>
             <p className="text-[10px] text-ink-faint dark:text-ink-inv/40 font-bold uppercase tracking-[0.2em] mt-1">by JUSTru Group</p>
-            <p className="text-[11px] text-ink-faint dark:text-ink-inv/50 font-bold mt-2 flex items-center gap-1.5"><PerisaiBuddy className="w-4 h-4 text-flame-500" /> Area terbatas · khusus developer</p>
+            <p className="text-[11px] text-ink-faint dark:text-ink-inv/50 font-bold mt-2 flex items-center gap-1.5"><PerisaiBuddy className="w-4 h-4 text-flame-500" /> Area terbatas, khusus developer</p>
           </div>
           <div className="space-y-3">
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email developer" className="w-full bg-paper dark:bg-chrome-deep/80 border border-line dark:border-chrome-edge text-ink dark:text-ink-inv text-sm font-bold p-3.5 rounded-2xl outline-none focus:border-flame-400 transition" />
@@ -392,7 +392,7 @@ export const DeveloperPanel = () => {
             <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur text-white flex items-center justify-center"><MonitorPusat className="w-5.5 h-5.5" /></div>
             <div>
               <h1 className="font-display font-extrabold text-sm leading-none text-white flex items-center gap-2">Developer Console
-                {devListed && <span className={`text-[8.5px] px-2 py-0.5 rounded-full font-extrabold ${devVerified ? 'bg-leaf text-white' : 'bg-white/25 text-white'}`}>{devVerified ? 'DEV' : 'DEV·BELUM VERIF'}</span>}
+                {devListed && <span className={`text-[8.5px] px-2 py-0.5 rounded-full font-extrabold ${devVerified ? 'bg-leaf text-white' : 'bg-white/25 text-white'}`}>{devVerified ? 'DEV' : 'DEV'}</span>}
               </h1>
               <p className="text-[10px] text-white/70 font-bold mt-1">{user.email}</p>
             </div>
@@ -420,7 +420,7 @@ export const DeveloperPanel = () => {
         {devListed && !devVerified && (
           <div className="bg-gold-soft dark:bg-gold/10 border border-gold/40 text-gold-deep dark:text-gold text-[11px] font-bold p-3.5 rounded-2xl leading-relaxed">
             <p className="flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Email {user.email} ada di allowlist tapi <b>belum terverifikasi</b>. Verifikasi dulu supaya hapus tenant diizinkan rules v15.2.</p>
-            <p className="mt-2 text-[10px] font-bold opacity-80 leading-relaxed">Link Firebase sekali pakai & kirim ulang mematikan link lama — jadi klik link di email <b>paling atas</b> (terbaru), <b>satu kali saja</b>, di tab browser biasa. Kalau link selalu tertulis "sudah digunakan", besar kemungkinan emailmu sebenarnya SUDAH terverifikasi sejak klik pertama: langsung tekan <b>Cek Status</b>.</p>
+            <p className="mt-2 text-[10px] font-bold opacity-80 leading-relaxed">Link Firebase sekali pakai dan kirim ulang mematikan link lama. Jadi klik link di email <b>paling atas</b> (terbaru), <b>satu kali saja</b>, di tab browser biasa. Kalau link selalu tertulis "sudah digunakan", besar kemungkinan emailmu sebenarnya SUDAH terverifikasi sejak klik pertama: langsung tekan <b>Cek Status</b>.</p>
             <div className="mt-2.5 flex flex-wrap gap-2">
               <button onClick={kirimVerifikasi} disabled={busyVerif || resendCd > 0}
                 className="px-3.5 py-2 rounded-xl bg-gold/90 hover:bg-gold text-white text-[10.5px] font-extrabold press disabled:opacity-50">
@@ -509,7 +509,7 @@ export const DeveloperPanel = () => {
             <div>
               <label className="kicker block mb-1 ml-0.5">Pilih Tenant</label>
               <select value={cbTenant} onChange={(e) => setCbTenant(e.target.value)} className="field bg-surface dark:bg-surface-dark">
-                <option value="">— pilih tenant —</option>
+                <option value="">pilih tenant</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.tenant} ({c.id})</option>)}
               </select>
             </div>
@@ -600,7 +600,7 @@ export const DeveloperPanel = () => {
                     </h4>
                     <p className="text-[10px] text-ink-faint dark:text-ink-inv/50 mt-1 font-semibold flex items-center gap-1.5">
                       <Kredensial className="w-3.5 h-3.5" /> ID: <span className="font-extrabold text-flame-700 dark:text-apricot">{c.id}</span>
-                      <span className="text-ink-faint">· s/d {new Date(c.validUntil).toLocaleDateString('id-ID')} ({daysLeft(c.validUntil)} hari)</span>
+                      <span className="text-ink-faint">s/d {new Date(c.validUntil).toLocaleDateString('id-ID')} ({daysLeft(c.validUntil)} hari)</span>
                     </p>
                   </div>
                   <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-extrabold shrink-0 ${c.active ? 'text-leaf-deep dark:text-leaf bg-leaf-soft dark:bg-leaf/10' : 'text-brick bg-brick-soft dark:bg-brick/10'}`}>
@@ -632,7 +632,7 @@ export const DeveloperPanel = () => {
                   </button>
                 </div>
                 {confirmDel === c.id && (
-                  <p className="text-[10px] font-extrabold text-brick mt-2 flex items-center gap-1.5"><BahayaBuddy className="w-3.5 h-3.5" /> Tekan sekali lagi untuk hapus permanen — lisensi & data tenants/{c.id} dibersihkan.</p>
+                  <p className="text-[10px] font-extrabold text-brick mt-2 flex items-center gap-1.5"><BahayaBuddy className="w-3.5 h-3.5" /> Tekan sekali lagi untuk hapus permanen. Lisensi dan data tenants/{c.id} dibersihkan.</p>
                 )}
               </div>
             ))}
@@ -671,7 +671,7 @@ export const DeveloperPanel = () => {
                 </div>
               ))}
             </div>
-            <p className="text-[10px] text-brick font-extrabold flex items-start gap-1.5 mb-4 leading-relaxed"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Ini SATU-SATUNYA kali kredensial tampil. Setelah modal ditutup, tersimpan sebagai hash — tidak bisa dilihat lagi.</p>
+            <p className="text-[10px] text-brick font-extrabold flex items-start gap-1.5 mb-4 leading-relaxed"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Ini SATU-SATUNYA kali kredensial tampil. Setelah modal ditutup, tersimpan sebagai hash dan tidak bisa dilihat lagi.</p>
             <button onClick={() => setJustMade(null)} className="w-full py-3 rounded-2xl bg-flame-600 hover:bg-flame-500 text-white font-extrabold text-sm press shadow-card">Saya sudah catat & salin</button>
           </div>
         </div>

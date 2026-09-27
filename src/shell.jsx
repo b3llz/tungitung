@@ -86,7 +86,7 @@ export const Sidebar = ({ role, perms, active, setActive, licenseInfo, dark, tog
         </div>
         <div className="flex items-center justify-between gap-2 mt-2.5">
           <p className="text-ink-faint dark:text-ink-inv/45 text-[10px] font-bold truncate">
-            {licenseInfo?.isStation ? `${licenseInfo.stationCode || 'POS'} · Perangkat Kasir` : (licenseInfo?.tenant ? licenseInfo.tenant : 'Kasir & HPP dalam satu genggaman')}
+            {licenseInfo?.isStation ? `Perangkat Kasir ${licenseInfo.stationCode || ''}` : (licenseInfo?.tenant ? licenseInfo.tenant : 'Kasir & HPP dalam satu genggaman')}
           </p>
           <RoleChip role={role} compact />
         </div>
@@ -240,7 +240,7 @@ export const MenuSheet = ({ open, onClose, role, perms, active, setActive, licen
           <button onClick={onLogout} className="w-full flex items-center justify-center gap-3 p-3 rounded-xl bg-brick/15 text-brick font-extrabold hover:bg-brick/25 transition press">
             <Keluar className="w-5 h-5" /> {t('logout')}
           </button>
-          <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] pt-2">WELP v15.1 · Fresh Ink</p>
+          <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] pt-2">WELP v15.3</p>
         </div>
       </div>
     </div>

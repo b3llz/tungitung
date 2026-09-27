@@ -123,7 +123,7 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
                     {low && <Badge tone="red">Menipis</Badge>}
                   </div>
                   <p className="text-ink dark:text-ink-inv font-extrabold text-sm money">{formatIDR(p.price)}</p>
-                  {p.priceGrosir > 0 && <p className="text-[10px] text-ink-faint font-bold money">Grosir {formatIDR(p.priceGrosir)}{p.priceOjol > 0 ? ` · Ojol ${formatIDR(p.priceOjol)}` : ''}</p>}
+                  {p.priceGrosir > 0 && <p className="text-[10px] text-ink-faint font-bold money">Grosir {formatIDR(p.priceGrosir)}{p.priceOjol > 0 ? ` (Ojol ${formatIDR(p.priceOjol)})` : ''}</p>}
                 </div>
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
                   <div className="flex items-center gap-1 bg-paper dark:bg-white/5 p-1 rounded-xl border border-line dark:border-line-dark">
@@ -160,7 +160,7 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
                     <div className="w-9 h-9 bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold rounded-xl flex items-center justify-center font-extrabold text-xs">{idx + 1}</div>
                     <div>
                       <h4 className="font-extrabold text-ink dark:text-ink-inv text-sm">{rm.name}</h4>
-                      <p className="text-[10px] text-ink-faint font-bold uppercase mt-0.5">Stok Gudang · {baseUnit}</p>
+                      <p className="text-[10px] text-ink-faint font-bold uppercase mt-0.5">Stok Gudang ({baseUnit})</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -406,7 +406,7 @@ export const StockHistoryTab = ({ activeTab }) => {
                 <div className="w-10 h-10 bg-paper dark:bg-white/5 rounded-xl flex items-center justify-center text-ink-faint shrink-0"><StokRiwayat className="w-5 h-5" /></div>
                 <div>
                   <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{log.productName}</p>
-                  <p className="text-[10px] text-ink-faint font-bold mt-0.5">{log.note} • {new Date(log.date).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                  <p className="text-[10px] text-ink-faint font-bold mt-0.5">{log.note} , {new Date(log.date).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
               </div>
               <div className={`font-extrabold text-lg money ${log.qty > 0 ? 'text-leaf-deep dark:text-leaf' : 'text-brick'}`}>

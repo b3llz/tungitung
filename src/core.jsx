@@ -13,6 +13,7 @@ import { getAuth, signInAnonymously } from "firebase/auth";
 import { getStorage, ref as sRef, uploadString, getDownloadURL } from "firebase/storage";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import jsQR from 'jsqr';
+import QRCode from 'qrcode';
 import { Uang, Qris, Dompet } from './welp-icons.jsx';
 
 export const safeParse = (key, fallback = []) => {
@@ -469,8 +470,34 @@ export const loadExcelJS = async () => {
   });
 };
 
-// QR di-generate via QuickChart API (tanpa library qrcode tambahan)
-export const qrUrl = (text, size = 220) => 'https://quickchart.io/qr?text=' + encodeURIComponent(text) + '&size=' + size + '&margin=1&ecLevel=M';
+// v15.3: QR dibuat LOKAL via library qrcode. Dulu memakai layanan
+// pihak ketiga (quickchart.io) yang rawan lambat/mati dan membocorkan
+// isi QRIS + data struk ke server luar. Sekarang gambar QR jadi data
+// URL di perangkat sendiri, tetap jalan walau layanan luar down.
+export const qrDataUrl = async (text, size = 220) => {
+  try {
+    if (!text) return null;
+    return await QRCode.toDataURL(String(text), {
+      width: Math.max(96, Math.min(1024, size)),
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#1B1F24', light: '#FFFFFF' }
+    });
+  } catch (e) { return null; }
+};
+
+// Hook React: render <img src={qr}/> dengan QR lokal yang di-generate
+// otomatis setiap teks/ukuran berubah.
+export const useQr = (text, size = 220) => {
+  const [qr, setQr] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    if (!text) { setQr(null); return; }
+    qrDataUrl(text, size).then(u => { if (alive) setQr(u); });
+    return () => { alive = false; };
+  }, [text, size]);
+  return qr;
+};
 
 // ============================================================
 // QRIS DINAMIS (EMVCo) — parse payload QRIS statis, sisipkan tag 54
@@ -666,28 +693,46 @@ export const getLocation = (timeout = 12000) => new Promise((resolve, reject) =>
 // Nominatim/OpenStreetMap dipakai langsung (tanpa key, volume rendah:
 // hanya saat absen submit). Koordinat & akurasi ASLI tetap disimpan —
 // alamat hanya pelengkap agar monitoring owner mudah dibaca.
+// v15.3: beri batas waktu 6 detik + pembatalan (AbortController).
+// Dulu tanpa timeout: Nominatim yang lambat/terhenti membuat tombol
+// absen menggantung di status mengirim tanpa batas waktu.
 export const reverseGeocode = async (lat, lng) => {
+  const ctrl = new AbortController();
+  const killer = setTimeout(() => ctrl.abort(), 6000);
   try {
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=id`,
-      { headers: { 'Accept': 'application/json' } });
+      { headers: { 'Accept': 'application/json' }, signal: ctrl.signal });
     if (!r.ok) return null;
     const j = await r.json();
     return j?.display_name ? String(j.display_name) : null;
   } catch (e) { return null; }
+  finally { clearTimeout(killer); }
 };
 
 // v15 F5/J3 — MEDIA BESAR KE FIREBASE STORAGE (graceful).
 // Mengunggah dataURL ke tenants/{lic}/<path> dan mengembalikan URL.
 // Bila Storage belum dikonfigurasi / rules menolak → null (pemanggil
 // fallback ke base64 inline seperti sebelumnya). Batas 900KB.
-export const uploadMedia = async (licId, path, dataUrl) => {
+// v15.3: batas waktu upload + batas retry Firebase Storage.
+// Penyebab bug "status mengirim terus": retry bawaan Storage mencapai
+// 10 menit saat kamera perangkat lambat / jaringan jelek, dan foto
+// gagal upload membuat UI menggantung tanpa kabar. Sekarang maksimal
+// 25 detik, gagal = lanjut simpan foto inline seperti mekanisme lama.
+export const uploadMedia = async (licId, path, dataUrl, { timeoutMs = 25000 } = {}) => {
   try {
     if (!licId || !dataUrl || !app) return null;
     if (dataUrl.length > 900 * 1024 * 1.37) return null;   // ~900KB biner
     const st = getStorage(app);
+    try { st.maxUploadRetryTime = 12000; st.maxOperationRetryTime = 12000; } catch (_) { }
     const r = sRef(st, `tenants/${licId}/${path}`);
-    await uploadString(r, dataUrl, 'data_url');
-    return await getDownloadURL(r);
+    const job = (async () => {
+      await uploadString(r, dataUrl, 'data_url');
+      return await getDownloadURL(r);
+    })();
+    const killer = new Promise(res => setTimeout(() => res('__welp_timeout__'), timeoutMs));
+    const res = await Promise.race([job, killer]);
+    if (res === '__welp_timeout__') return null;
+    return res;
   } catch (e) {
     console.warn('[WELP storage]', e.code || e.message);
     return null;
@@ -726,26 +771,59 @@ export const fileToDataUrl = (file, maxSide = 900, quality = 0.72) => new Promis
 // BarcodeDetector (Chrome/Edge) dulu, lalu FALLBACK jsQR (bundled, tanpa
 // CDN) sehingga Safari iOS & Firefox ikut terbaca. Decode pada resolusi
 // asli (tanpa kompresi ulang) agar angka keberhasilan tinggi.
+// v15.3: decode diperkuat untuk foto QRIS dunia nyata (foto kertas,
+// pantulan, gambar kecil dari WA). Dicoba di beberapa skala + kontras
+// ditingkatkan, karena jsQR sering gagal di gambar asli sekali jalan.
 export const decodeQrFromImage = async (dataUrl) => {
   try {
     const img = new Image();
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = dataUrl; });
-    const cv = document.createElement('canvas');
-    cv.width = img.naturalWidth; cv.height = img.naturalHeight;
-    const ctx = cv.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-    // 1) BarcodeDetector bila tersedia
-    if ('BarcodeDetector' in window) {
-      try {
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    if (!iw || !ih) return null;
+
+    const grab = (w, h, contrast) => {
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, w, h);
+      const d = ctx.getImageData(0, 0, w, h);
+      if (contrast) {
+        // peregangan kontras sederhana: terang makin terang, gelap makin gelap
+        const px = d.data;
+        for (let i = 0; i < px.length; i += 4) {
+          const g = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) - 128;
+          const v = Math.max(0, Math.min(255, g * contrast + 128));
+          px[i] = px[i + 1] = px[i + 2] = v;
+        }
+      }
+      return d;
+    };
+
+    // 1) BarcodeDetector bila tersedia (Chrome/Edge/Android)
+    try {
+      if ('BarcodeDetector' in window) {
         const det = new window.BarcodeDetector({ formats: ['qr_code'] });
-        const codes = await det.detect(cv);
+        const codes = await det.detect(img);
         if (codes?.[0]?.rawValue) return codes[0].rawValue;
-      } catch (e) { /* lanjut ke jsQR */ }
+      }
+    } catch (e) { /* lanjut ke jsQR */ }
+
+    // 2) fallback jsQR: beberapa skala + penguatan kontras
+    const base = Math.max(iw, ih);
+    const scales = [1, base < 700 ? 2 : 1.5, 0.6, 1.25];
+    for (const sc of scales) {
+      for (const contrast of [0, 1.4, 2.1]) {
+        const w = Math.round(iw * sc), h = Math.round(ih * sc);
+        if (!w || !h || w * h > 12e6) continue;
+        try {
+          const d = grab(w, h, contrast);
+          const res = jsQR(d.data, w, h, { inversionAttempts: 'attemptBoth' });
+          if (res?.data) return res.data;
+        } catch (e) { /* coba kombinasi berikutnya */ }
+      }
     }
-    // 2) fallback jsQR (WASM-free, bundled)
-    const data = ctx.getImageData(0, 0, cv.width, cv.height);
-    const res = jsQR(data.data, cv.width, cv.height, { inversionAttempts: 'attemptBoth' });
-    return res?.data || null;
+    return null;
   } catch (e) { return null; }
 };
 
@@ -1031,7 +1109,7 @@ export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, ty
         ctx.font = `800 ${Math.round(13 * u)}px Arial, sans-serif`;
         ctx.fillText('WELP', bx + bs + Math.round(8 * u), by + bs * 0.32);
         const comp = String(company || '').slice(0, 26);
-        const br = branchName ? ' · ' + String(branchName).slice(0, 22) : '';
+        const br = branchName ? ' (' + String(branchName).slice(0, 22) + ')' : '';
         ctx.fillStyle = 'rgba(255,255,255,.75)';
         ctx.font = `700 ${Math.round(10 * u)}px Arial, sans-serif`;
         ctx.fillText(comp + br, bx + bs + Math.round(8 * u), by + bs * 0.78);
@@ -1063,10 +1141,10 @@ export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, ty
         ctx.textAlign = 'left';
         ctx.fillStyle = 'rgba(255,255,255,.92)';
         ctx.font = `700 ${Math.round(11 * u)}px Arial, sans-serif`;
-        ctx.fillText(`${tgl} · ${jam} WIB`, pad, cv.height - Math.round(26 * u));
+        ctx.fillText(`${tgl} ${jam} WIB`, pad, cv.height - Math.round(26 * u));
         ctx.fillStyle = 'rgba(255,255,255,.62)';
         ctx.font = `600 ${Math.round(9 * u)}px Arial, sans-serif`;
-        ctx.fillText(gps + (trusted ? '  ·  waktu terverifikasi' : ''), pad, cv.height - Math.round(10 * u));
+        ctx.fillText(gps + (trusted ? '  (waktu terverifikasi)' : ''), pad, cv.height - Math.round(10 * u));
 
         resolve(cv.toDataURL('image/jpeg', 0.72));
       } catch (e) { resolve(dataUrl); }
@@ -1095,17 +1173,17 @@ export const auditLog = (licenseInfo, action, detail = {}, extra = {}) => {
 };
 
 // --- EMPLOYEE ID OTOMATIS --------------------------------------------
-// Format PREFIX-001 (prefix dari nama cabang, PUSAT → PST).
-// Selalu unik terhadap daftar ID yang sudah ada.
+// v15.3: EMP-TAHUN-NOMOR (contoh EMP-2025-0001), unik terhadap daftar
+// ID yang sudah ada. ID karyawan lama tidak diubah.
 export const makeEmpId = (branchName, existingIds = []) => {
   const used = new Set((existingIds || []).filter(Boolean));
-  const base = (branchName && branchName !== 'PUSAT')
-    ? String(branchName).replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase()
-    : 'PST';
-  const pfx = base || 'EMP';
+  // v15.3: format gaya HR enterprise: EMP-TAHUN-NOMOR (empat digit).
+  // Dulu PST-001/3 huruf cabang terkesan amatir dan rawan bentrok
+  // antar cabang. ID lama tetap sah, hanya ID baru yang ikut format ini.
+  const pfx = `EMP-${new Date().getFullYear()}-`;
   let n = 1;
-  while (used.has(`${pfx}-${String(n).padStart(3, '0')}`) && n < 999) n++;
-  return `${pfx}-${String(n).padStart(3, '0')}`;
+  while (used.has(pfx + String(n).padStart(4, '0')) && n < 9999) n++;
+  return pfx + String(n).padStart(4, '0');
 };
 
 // --- WORKFLOW PENGGAJIAN ---------------------------------------------
@@ -1136,7 +1214,7 @@ export const CUTI_FLOW = {
   DIAJUKAN: { label: 'Diajukan', tone: 'neutral', desc: 'Menunggu ditinjau' },
   DITINJAU: { label: 'Ditinjau', tone: 'gold', desc: 'Sedang diperiksa Admin/Owner' },
   DISETUJUI: { label: 'Disetujui', tone: 'green', desc: 'Disetujui' },
-  DITOLAK: { label: 'Ditolak', tone: 'red', desc: 'Ditolak — lihat alasan' },
+  DITOLAK: { label: 'Ditolak', tone: 'red', desc: 'Ditolak, lihat alasan' },
 };
 export const daysBetween = (a, b) => {
   const t1 = new Date(a).setHours(0, 0, 0, 0), t2 = new Date(b).setHours(0, 0, 0, 0);
@@ -1174,7 +1252,7 @@ export const shiftDurMin = (s) => {
   return b > a ? b - a : (24 * 60 - a + b);
 };
 
-export const fmtShiftRange = (s) => `${s.mulai}–${s.selesai}`;
+export const fmtShiftRange = (s) => `${s.mulai} s/d ${s.selesai}`;
 
 // Apakah menit-dalam-hari tertentu berada di dalam jam shift.
 export const shiftCoversMin = (s, min) => {
@@ -1432,7 +1510,7 @@ export const useBranding = (licenseInfo) => {
 // brand, rincian penerimaan & potongan, stempel status, blok
 // approval digital, QR verifikasi, dan area tanda tangan.
 // ============================================================
-export const buildSlipHtml = ({ rec, company = 'Perusahaan', profile = {}, roleLabel = 'Karyawan' }) => {
+export const buildSlipHtml = ({ rec, company = 'Perusahaan', profile = {}, roleLabel = 'Karyawan', qr = null }) => {
   const t = trustedTime(rec);
   const brand = readBrandMirror();
   const logo = brand?.logo || null;
@@ -1441,12 +1519,17 @@ export const buildSlipHtml = ({ rec, company = 'Perusahaan', profile = {}, roleL
   const flow = PAYROLL_FLOW[st] || PAYROLL_FLOW.DIBAYAR;
   const paid = st === 'DIBAYAR' || st === 'SELESAI';
   const appr = (rec.approvals || []).find(a => a.action === 'approve');
-  const no = 'SG-' + String(rec.cid || '').slice(-8).toUpperCase();
+  // v15.3: nomor slip gaya dokumen resmi SG-TAHUNBULAN-NOMOR (contoh SG-2509-A1B2C3)
+  const BULAN = ['jan','feb','mar','apr','mei','jun','jul','agu','sep','okt','nov','des'];
+  const pl = String(rec.period || '').toLowerCase();
+  const mi = BULAN.findIndex(b => pl.includes(b));
+  const yr = (pl.match(/20\d{2}/) || [new Date().getFullYear()])[0];
+  const no = 'SG-' + String(yr).slice(2) + (mi >= 0 ? String(mi + 1).padStart(2, '0') : '00') + '-' + String(rec.cid || '').slice(-6).toUpperCase();
   const esc = (s) => String(s ?? '').replace(/</g, '&lt;');
   const brandC = brandAccentHex('#F4622E');
   const brandDeep = brandAccentDeepHex('#D84312');
   const isHarian = rec.jenisKontrak === 'harian';
-  const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+  const row = (k, v) => '<tr><td>' + k + '</td><td>' + v + '</td></tr>';
   const penerimaan =
     (isHarian && rec.upahHarian != null
       ? row(`Upah Harian (${formatIDR(rec.upahHarian)} &times; ${rec.hk || 0} hari masuk)`, formatIDR(c.pokok || 0))
@@ -1455,65 +1538,79 @@ export const buildSlipHtml = ({ rec, company = 'Perusahaan', profile = {}, roleL
     + (c.bonus ? row('Bonus', formatIDR(c.bonus)) : '')
     + (c.lembur ? row('Lembur', formatIDR(c.lembur)) : '');
   const potongan = c.potongan ? row('Potongan', '- ' + formatIDR(c.potongan)) : '';
-  const qr = qrUrl(`WELP-SLIP|${no}|${esc(company)}|${esc(rec.employeeName || '')}|${esc(rec.period || '')}|${formatIDR(rec.amount)}`, 96);
-  return '<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Slip Gaji ' + esc(rec.employeeName) + ' · ' + esc(rec.period) + '</title><style>'
-    + '*{box-sizing:border-box;margin:0;padding:0}body{font-family:Segoe UI,Arial,sans-serif;background:#EDF0F4;padding:22px;color:#1B1F24;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
-    + '.slip{max-width:480px;margin:auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 18px 50px -20px rgba(13,15,18,.35);position:relative}'
-    + '.hd{background:linear-gradient(135deg,' + brandDeep + ',' + brandC + ');color:#fff;padding:22px 24px 18px;display:flex;justify-content:space-between;align-items:center;gap:12px}'
-    + '.hd img{max-height:44px;max-width:170px;object-fit:contain;background:#fff;border-radius:9px;padding:5px}'
-    + '.brandtx{font-size:24px;font-weight:900;letter-spacing:-.5px}.brandtx span{opacity:.85}'
-    + '.slabel{text-align:right}.slabel b{display:block;font-size:15px;letter-spacing:.24em;font-weight:900}'
-    + '.slabel small{font-size:9px;opacity:.85;font-weight:700;letter-spacing:.12em;text-transform:uppercase}'
-    + '.meta{display:flex;gap:8px;flex-wrap:wrap;padding:14px 24px 0}'
-    + '.chip{font-size:9.5px;font-weight:800;letter-spacing:.06em;padding:4px 10px;border-radius:99px;background:' + brandC + '1a;color:' + brandDeep + ';text-transform:uppercase}'
-    + '.chip.ok{background:#E7F5EC;color:#23734A}.chip.warn{background:#FDF3E3;color:#9A6B15}.chip.grey{background:#EDF0F4;color:#4E5761}'
-    + '.who{padding:14px 24px 4px}.who h1{font-size:19px;letter-spacing:-.2px}.who p{font-size:11px;color:#7C8590;font-weight:700;margin-top:3px}'
-    + '.amt{margin:14px 24px;padding:16px 18px;border-radius:14px;background:linear-gradient(135deg,' + brandC + '14,' + brandC + '26);border:1px solid ' + brandC + '33;display:flex;justify-content:space-between;align-items:center}'
-    + '.amt small{display:block;font-size:9px;font-weight:800;letter-spacing:.18em;color:#7C8590;text-transform:uppercase;margin-bottom:4px}'
-    + '.amt b{font-size:25px;font-weight:900;color:' + brandDeep + ';letter-spacing:-.4px}'
-    + '.amt .qr{width:64px;height:64px;border-radius:10px;border:1px solid #E6E8ED;background:#fff}'
-    + 'table{width:100%;border-collapse:collapse;margin:6px 24px 0;width:calc(100% - 48px)}'
-    + 'td{padding:8px 0;border-bottom:1px dashed #E6E8ED;font-size:12.5px}td:first-child{color:#4E5761;font-weight:600}td:last-child{text-align:right;font-weight:800;font-family:Plus Jakarta Sans,Segoe UI,sans-serif;font-variant-numeric:tabular-nums}'
-    + '.tot td{border-bottom:none;border-top:2px solid #1B1F24;font-size:14px;font-weight:900;padding-top:10px}'
-    + '.sec{padding:10px 24px 0;font-size:9.5px;font-weight:800;letter-spacing:.2em;color:#7C8590;text-transform:uppercase}'
-    + '.info{margin:12px 24px 0;padding:11px 14px;background:#F7F8FA;border-radius:12px;font-size:10.5px;color:#4E5761;font-weight:600;line-height:1.7}'
-    + '.appr{margin:12px 24px 0;padding:11px 14px;background:#E7F5EC33;border:1px solid #23734A22;border-radius:12px;font-size:10.5px;color:#23734A;line-height:1.6;font-weight:600}'
-    + '.stamp{position:absolute;top:118px;right:18px;transform:rotate(9deg);border:2.5px solid #23734A;color:#23734A;font-size:12px;font-weight:900;letter-spacing:.22em;padding:5px 12px;border-radius:8px;opacity:.82;text-transform:uppercase}'
-    + '.ft{margin-top:22px;padding:16px 24px 22px;background:#F7F8FA;display:flex;justify-content:space-between;gap:12px;font-size:10px;color:#4E5761;font-weight:700}'
-    + '.sig{border-top:1.5px solid #1B1F24;padding-top:5px;min-width:130px;text-align:center}'
-    + '.sig .cursive{font-family:Segoe Script,Comic Sans MS,cursive;font-size:13px;color:#1B1F24}'
-    + '.made{padding:0 24px 18px;text-align:center;font-size:8.5px;color:#9AA3AE;font-weight:700;letter-spacing:.14em;text-transform:uppercase}'
+  // v15.3: QR verifikasi di-generate LOKAL (qrDataUrl) dan dikirim siap-pakai
+  const qrImg = qr || qrUrl(`WELP-SLIP|${no}|${esc(company)}|${esc(rec.employeeName || '')}|${esc(rec.period || '')}|${formatIDR(rec.amount)}`, 96);
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Slip Gaji ' + esc(rec.employeeName) + ' ' + esc(rec.period) + '</title><style>'
+    + '*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#E9ECF1;padding:24px;color:#14181D;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    + '.slip{max-width:520px;margin:auto;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 24px 60px -24px rgba(13,15,18,.4);position:relative}'
+    // watermark logo (gambar, bukan teks) di tengah halaman
+    + '.wm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:0}'
+    + '.wm img{width:62%;max-width:320px;opacity:.055;object-fit:contain}'
+    + '.slipin{position:relative;z-index:1}'
+    + '.band{height:7px;background:linear-gradient(90deg,' + brandDeep + ',' + brandC + ' 55%,' + brandC + '80)}'
+    + '.hd{padding:20px 26px 16px;display:flex;justify-content:space-between;align-items:center;gap:14px;border-bottom:1px solid #ECEEF2}'
+    + '.hd img.lg{max-height:52px;max-width:180px;object-fit:contain;background:#fff;border-radius:10px;padding:6px;border:1px solid #ECEEF2}'
+    + '.brandtx{font-size:22px;font-weight:900;letter-spacing:-.5px;color:#14181D}.brandtx span{color:' + brandC + '}'
+    + '.hdco{font-size:9.5px;color:#77808C;font-weight:700;margin-top:3px;letter-spacing:.04em}'
+    + '.slabel{text-align:right}.slabel b{display:block;font-size:14px;letter-spacing:.26em;font-weight:900;color:#14181D}'
+    + '.slabel small{display:block;font-size:8.5px;color:#77808C;font-weight:800;letter-spacing:.1em;margin-top:3px;font-variant-numeric:tabular-nums}'
+    + '.meta{display:flex;gap:7px;flex-wrap:wrap;padding:14px 26px 0}'
+    + '.chip{font-size:9px;font-weight:800;letter-spacing:.07em;padding:4px 11px;border-radius:99px;background:' + brandC + '14;color:' + brandDeep + ';text-transform:uppercase}'
+    + '.chip.ok{background:#E7F5EC;color:#23734A}.chip.warn{background:#FDF3E3;color:#9A6B15}.chip.grey{background:#EFF1F4;color:#4E5761}'
+    + '.who{padding:14px 26px 2px}.who h1{font-size:19px;letter-spacing:-.2px;font-weight:900}'
+    + '.who p{font-size:10.5px;color:#77808C;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}'
+    + '.amt{margin:14px 26px;padding:18px 20px;border-radius:16px;background:linear-gradient(135deg,#171B21,#242A33);display:flex;justify-content:space-between;align-items:center;gap:12px}'
+    + '.amt small{display:block;font-size:8.5px;font-weight:800;letter-spacing:.2em;color:#9BA4B0;text-transform:uppercase;margin-bottom:5px}'
+    + '.amt b{font-size:26px;font-weight:900;color:#fff;letter-spacing:-.4px;font-variant-numeric:tabular-nums}'
+    + '.amt .per{display:block;font-size:9.5px;color:' + 'rgba(255,255,255,.65)' + ';font-weight:700;margin-top:4px}'
+    + '.amt .qr{width:68px;height:68px;border-radius:10px;background:#fff;padding:4px;flex-shrink:0}'
+    + '.sec{padding:14px 26px 0;font-size:9px;font-weight:800;letter-spacing:.22em;color:#8A93A0;text-transform:uppercase}'
+    + 'table{width:calc(100% - 52px);border-collapse:collapse;margin:7px 26px 0}'
+    + 'td{padding:8.5px 0;border-bottom:1px solid #F0F2F5;font-size:12px}'
+    + 'td:first-child{color:#5A6470;font-weight:600}'
+    + 'td:last-child{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;color:#14181D}'
+    + '.tot td{border-bottom:none;border-top:2px solid #14181D;font-size:13.5px;font-weight:900;padding-top:11px}'
+    + '.info{margin:12px 26px 0;padding:12px 15px;background:#F7F8FA;border-radius:12px;font-size:10.5px;color:#4E5761;font-weight:600;line-height:1.75}'
+    + '.appr{margin:12px 26px 0;padding:12px 15px;background:#F2FAF5;border:1px solid #DCEEE3;border-radius:12px;font-size:10.5px;color:#23734A;line-height:1.65;font-weight:600}'
+    + '.stamp{position:absolute;top:126px;right:22px;transform:rotate(8deg);border:2.5px solid #23734A;color:#23734A;font-size:11px;font-weight:900;letter-spacing:.24em;padding:5px 13px;border-radius:8px;opacity:.75;text-transform:uppercase;z-index:2}'
+    + '.ft{margin-top:24px;padding:18px 26px 20px;background:#FAFBFC;border-top:1px solid #ECEEF2;display:flex;justify-content:space-between;gap:16px;font-size:9.5px;color:#5A6470;font-weight:700}'
+    + '.sig{border-top:1.5px solid #C9CFD8;padding-top:6px;min-width:140px;text-align:center;color:#77808C}'
+    + '.sig .cursive{font-family:"Segoe Script","Comic Sans MS",cursive;font-size:13px;color:#14181D;margin-bottom:2px}'
+    + '.made{padding:0 26px 16px;text-align:center;font-size:8.5px;color:#9AA3AE;font-weight:600;letter-spacing:.02em;line-height:1.6}'
     + '@media print{body{background:#fff;padding:0}.slip{box-shadow:none;border-radius:0}@page{margin:10mm}}</style></head><body>'
     + '<div class="slip">'
+    + (logo ? '<div class="wm"><img src="' + logo + '" alt=""/></div>' : '')
+    + '<div class="slipin">'
+    + '<div class="band"></div>'
     + (paid ? '<div class="stamp">Dibayar</div>' : '')
     + '<div class="hd">'
-    + (logo ? '<img src="' + logo + '" alt="Logo perusahaan"/>' : '<div class="brandtx">WELP<span>.</span></div>')
-    + '<div class="slabel"><b>SLIP GAJI</b><small>' + esc(company) + '</small></div></div>'
+    + (logo ? '<img class="lg" src="' + logo + '" alt="Logo perusahaan"/>' : '<div class="brandtx">WELP<span>.</span></div>')
+    + '<div class="slabel"><b>SLIP GAJI</b><small>No. ' + no + '</small></div></div>'
     + '<div class="meta">'
     + `<span class="chip ${paid ? 'ok' : 'warn'}">${flow.label}</span>`
-    + `<span class="chip grey">${no}</span>`
+    + `<span class="chip grey">${esc(rec.period || '')}</span>`
     + `<span class="chip">${esc(rec.branchName || '-')}</span>`
     + (rec.jenisKontrak ? `<span class="chip grey">${esc((JENIS_KONTRAK[rec.jenisKontrak] || {}).short || rec.jenisKontrak)}</span>` : '')
     + '</div>'
     + '<div class="who"><h1>' + esc(rec.employeeName) + '</h1><p>'
-    + esc(rec.empId || '-') + ' · ' + esc(roleLabel)
-    + (profile.alamat ? ' · ' + esc(profile.alamat) : '')
-    + (profile.telepon ? ' · ' + esc(profile.telepon) : '') + '</p></div>'
-    + '<div class="amt"><div><small>Total Diterima · ' + esc(rec.period) + '</small><b>' + formatIDR(rec.amount) + '</b></div>'
-    + '<img class="qr" src="' + qr + '" alt="QR verifikasi"/></div>'
+    + esc(rec.empId || '-') + ' &nbsp;|&nbsp; ' + esc(roleLabel)
+    + (profile.alamat ? ' &nbsp;|&nbsp; ' + esc(profile.alamat) : '')
+    + (profile.telepon ? ' &nbsp;|&nbsp; ' + esc(profile.telepon) : '') + '</p></div>'
+    + '<div class="amt"><div><small>Total Diterima</small><b>' + formatIDR(rec.amount) + '</b><span class="per">Periode ' + esc(rec.period || '') + '</span></div>'
+    + '<img class="qr" src="' + qrImg + '" alt="QR verifikasi"/></div>'
     + '<p class="sec">Rincian Penerimaan</p>'
     + '<table>' + penerimaan + (potongan || '')
     + `<tr class="tot"><td>Diterima Bersih</td><td>${formatIDR(rec.amount)}</td></tr></table>`
-    + (rec.hk != null ? '<div class="info"><b>Hari Kerja:</b> ' + rec.hk + ' HK' + (rec.hkTarget > 0 ? ' / target ' + rec.hkTarget : '')
-      + ' · <b>Total Jam:</b> ' + fmtJam(rec.jamKerja) + (rec.telat > 0 ? ' · <b>Telat:</b> ' + rec.telat + 'x' : '')
+    + (rec.hk != null ? '<div class="info"><b>Hari Kerja:</b> ' + rec.hk + ' HK' + (rec.hkTarget > 0 ? ' dari target ' + rec.hkTarget : '')
+      + ' &nbsp;|&nbsp; <b>Total Jam:</b> ' + fmtJam(rec.jamKerja) + (rec.telat > 0 ? ' &nbsp;|&nbsp; <b>Telat:</b> ' + rec.telat + 'x' : '')
       + (rec.note ? '<br/><b>Catatan:</b> ' + esc(rec.note) : '') + '</div>' : (rec.note ? '<div class="info"><b>Catatan:</b> ' + esc(rec.note) + '</div>' : ''))
     + (rec.paidAt
       ? '<div class="info"><b>Dibayarkan:</b> ' + new Date(rec.paidAt).toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' }) + '</div>'
       : '<div class="info"><b>Waktu tercatat:</b> ' + new Date(t.ms).toLocaleString('id-ID') + (t.source === 'server' ? ' (waktu server)' : '') + '</div>')
-    + (appr ? `<div class="appr">Disetujui secara digital oleh <b>${esc(appr.by)}</b> (${appr.role === 'admin' ? 'Admin Cabang' : 'Owner'}) pada ${new Date(appr.at).toLocaleString('id-ID')} · metode ${esc(appr.method || 'Akun WELP')} · nomor slip ${no}</div>` : '')
+    + (appr ? `<div class="appr">Disetujui secara digital oleh <b>${esc(appr.by)}</b> (${appr.role === 'admin' ? 'Admin Cabang' : 'Owner'}) pada ${new Date(appr.at).toLocaleString('id-ID')} | metode ${esc(appr.method || 'Akun WELP')} | nomor slip ${no}</div>` : '')
     + '<div class="ft"><div class="sig">Penerima,<br/><span class="cursive">' + esc(rec.employeeName) + '</span></div>'
     + '<div class="sig">' + esc(company) + ',<br/><span class="cursive">' + esc(appr ? appr.by : 'Owner') + '</span></div></div>'
-    + '<p class="made">' + (logo ? 'Didukung WELP' : 'Dibuat dengan WELP · We Eventually Love POS') + '</p>'
-    + '</div>'
+    + '<p class="made">Slip ini sah tanpa tanda tangan basah. Keaslian dokumen dapat diperiksa lewat QR di atas dengan nomor slip ' + no + '.</p>'
+    + '</div></div>'
     + '<script>setTimeout(function(){window.print()},450)<\/script></body></html>';
 };

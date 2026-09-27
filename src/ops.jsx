@@ -57,7 +57,7 @@ export const HistoryTab = ({ activeTab }) => {
                 </div>
                 <div>
                   <h4 className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{t2.buyer || 'Tanpa Nama'}</h4>
-                  <p className="text-[10px] text-ink-faint font-mono mt-0.5">{t2.id} • {new Date(t2.date).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                  <p className="text-[10px] text-ink-faint font-mono mt-0.5">{t2.id} pada {new Date(t2.date).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
               </div>
               <div className="text-right">
@@ -178,7 +178,7 @@ export const CashOutTab = ({ triggerAlert, licenseInfo }) => {
           <div key={e.id} className="card p-4 flex justify-between items-center">
             <div>
               <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{e.note}</p>
-              <p className="text-[10px] text-ink-faint font-bold uppercase">{e.category} • {new Date(e.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+              <p className="text-[10px] text-ink-faint font-bold uppercase">{e.category}, {new Date(e.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
             </div>
             <div className="flex items-center gap-2">
               <p className="font-extrabold text-brick money">- {formatIDR(e.amount)}</p>

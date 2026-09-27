@@ -12,7 +12,7 @@ import {
   Bayar, Edit3, UnduhBuddy, UnggahBuddy, Languages, Stok, Lisensi, BahayaBuddy,
   ModeRetail, ModeFnb, Setelan, BadgeCheck, Check, UnggahQris, WaktuReal
 } from './welp-icons.jsx';
-import { safeParse, formatIDR, getLang, qrUrl, WALLET_TYPES, decodeQrFromImage, parseEmv, qrisMeta, makeTableToken, db, dbSet, dbSetDoc, useDbSync, hydrateDb } from './core.jsx';
+import { safeParse, formatIDR, getLang, qrDataUrl, useQr, WALLET_TYPES, decodeQrFromImage, parseEmv, qrisMeta, verifyQrisCrc, makeTableToken, db, dbSet, dbSetDoc, useDbSync, hydrateDb } from './core.jsx';
 import { doc as fsDoc, setDoc as fsSetDoc } from 'firebase/firestore';
 import { Button, Card, PageTitle, NumericInput, Select, Toggle, Badge, EmptyState, ImageCropperModal, ConfirmDialog } from './ui';
 
@@ -242,7 +242,7 @@ export const HardwareTab = ({ licenseInfo, triggerAlert, activeTab }) => {
             <div className="bg-chrome-deep p-5 text-white text-center">
               <Selesai className="w-9 h-9 mx-auto mb-1 text-apricot" />
               <h3 className="font-extrabold text-lg">Pesanan Tervalidasi</h3>
-              <p className="text-xs text-ink-inv/60">Meja {scannedOrder.t} · {scannedOrder.p}</p>
+              <p className="text-xs text-ink-inv/60">Meja {scannedOrder.t}, bayar {scannedOrder.p}</p>
             </div>
             <div className="p-5 space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
               {(scannedOrder.it || []).map((i, x) => (
@@ -352,44 +352,99 @@ export const ProfileTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTa
 };
 
 /* ================= METODE PEMBAYARAN ================= */
+// v15.3: QR meja di-generate lokal (data URL) dan bisa diunduh langsung
+// sebagai PNG, tidak lagi membuka layanan QR pihak ketiga.
+const TableQrCard = ({ n, link }) => {
+  const qr = useQr(link, 512);
+  return (
+    <div className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl p-3 flex flex-col items-center shadow-card">
+      {qr ? <img alt={'QR Meja ' + n} src={qr} className="w-full aspect-square rounded-lg bg-white p-1" /> : <div className="w-full aspect-square rounded-lg bg-paper dark:bg-white/5 animate-pulse" />}
+      <p className="font-extrabold text-sm text-ink dark:text-ink-inv mt-2">Meja {n}</p>
+      {qr && <a href={qr} download={`QR-Meja-${n}.png`} className="mt-1 text-[10px] font-extrabold text-flame-700 dark:text-apricot flex items-center gap-1"><UnduhBuddy className="w-3 h-3" /> Unduh PNG</a>}
+    </div>
+  );
+};
+
 export const PaymentTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
   const [profile, setProfile] = useState({ payment: { qris: null, ewallets: [], bank: [] } });
   const [newWallet, setNewWallet] = useState({ type: 'Gopay', number: '' });
   const [newBank, setNewBank] = useState({ bank: '', number: '' });
   const [cropSrc, setCropSrc] = useState(null);
   const [manualPayload, setManualPayload] = useState('');
+  const [showPasteBox, setShowPasteBox] = useState(false);
+  const pasteRef = useRef(null);
 
-  const saveManualPayload = () => {
-    const p = (manualPayload || '').trim();
+  // v15.3: simpan payload QRIS + bersihkan spasi/baris baru yang sering
+  // ikut tersalin dari aplikasi bank (bisa merusak CRC).
+  const applyPayload = (raw, { silent = false } = {}) => {
+    const p = String(raw || '').replace(/\s+/g, '').trim();
+    if (!p) return false;
     const m = parseEmv(p);
-    if (!m['00'] || !m['01']) return triggerAlert('Payload tidak valid — pastikan menyalin string QRIS lengkap.', 'error');
-    // v15 F5/G2: CRC diverifikasi + metadata merchant tersimpan
+    if (!m['00'] || !m['01']) {
+      if (!silent) triggerAlert('Payload tidak dikenali. Salin string QRIS yang utuh, biasanya berawalan 0002.', 'error');
+      return false;
+    }
+    // CRC diverifikasi + metadata merchant tersimpan
     const meta = qrisMeta(p);
     saveProfile({ ...profile, payment: { ...profile.payment, qrisPayload: p, qrisMeta: meta } });
     setManualPayload('');
-    triggerAlert(meta?.crcValid
-      ? `QRIS Dinamis aktif! CRC valid · merchant: ${meta.merchant || '-'}${meta.city ? ' · ' + meta.city : ''}.`
-      : 'QRIS Dinamis aktif, PERINGATAN: CRC payload tidak valid — pastikan menyalin payload utuh.', meta?.crcValid ? 'success' : 'error');
+    if (!silent) {
+      const nama = meta?.merchant || '-';
+      triggerAlert(meta?.crcValid
+        ? `QRIS Dinamis aktif. Merchant: ${nama}${meta.city ? ', ' + meta.city : ''}. Saat checkout, nominal tagihan terisi sendiri.`
+        : 'QRIS Dinamis aktif, tapi CRC payload tidak cocok. Coba salin ulang string QRIS secara utuh.', meta?.crcValid ? 'success' : 'error');
+    }
+    return true;
+  };
+
+  const saveManualPayload = () => { applyPayload(manualPayload); };
+
+  // v15.3: OTOMATIS SAAT TEMPEL. String yang valid langsung tersimpan
+  // tanpa perlu menekan tombol Simpan, jadi QRIS dinamis aktif sendiri.
+  const handlePayloadPaste = (e) => {
+    const txt = (e.clipboardData || window.clipboardData)?.getData?.('text') || '';
+    if (!txt) return;
+    const p = txt.replace(/\s+/g, '');
+    if (p.length >= 40 && /^\d+$/.test(p.slice(0, 10))) {
+      e.preventDefault();
+      const ok = applyPayload(p);
+      if (!ok) setManualPayload(p.slice(0, 400));
+    }
+  };
+
+  // v15.3: deteksi otomatis saat ketik manual: cukup lengkap + CRC valid = simpan sendiri
+  const handlePayloadChange = (v) => {
+    setManualPayload(v);
+    const p = v.replace(/\s+/g, '');
+    if (p.length >= 60 && p.endsWith('6304')) {
+      try { if (verifyQrisCrc(p)) applyPayload(p, { silent: false }); } catch (_) { }
+    }
   };
 
   // Setelah crop: simpan gambar QRIS + coba baca payload EMVCo otomatis.
+  // v15.3: decode dicoba dulu dari gambar ASLI (sebelum crop) karena
+  // hasil crop kadang mengecilkan modul QR; gagal baru dari hasil crop.
   const saveQrisImage = async (img) => {
     saveProfile({ ...profile, payment: { ...profile.payment, qris: img } });
     setCropSrc(null);
+    let payload = null;
     try {
-      // v15 F5/G1+G3: decode di resolusi penuh dgn fallback jsQR — Safari/Firefox kini terbaca
-      const payload = await decodeQrFromImage(img);
-      const m = payload ? parseEmv(payload) : null;
-      if (m && m['00'] && m['01']) {
-        const meta = qrisMeta(payload);   // v15 F5/G2
-        saveProfile({ ...profile, payment: { ...profile.payment, qris: img, qrisPayload: payload, qrisMeta: meta } });
-        triggerAlert(meta?.crcValid
-          ? `QRIS tersimpan & CRC valid — merchant: ${meta.merchant || '-'}${meta.city ? ' · ' + meta.city : ''}. Nominal otomatis AKTIF!`
-          : 'QRIS tersimpan & terbaca, tapi CRC tidak valid — cek ulang gambar/payload.', meta?.crcValid ? 'success' : 'error');
-      } else {
-        triggerAlert('QRIS tersimpan. Payload tidak terbaca otomatis — tempel manual agar nominal terisi otomatis.', 'error');
-      }
-    } catch (e) { triggerAlert('QRIS tersimpan (payload tidak diperiksa).', 'success'); }
+      const asal = cropSrc || img;
+      payload = (await decodeQrFromImage(asal)) || (await decodeQrFromImage(img));
+    } catch (e) { payload = null; }
+    const m = payload ? parseEmv(payload) : null;
+    if (m && m['00'] && m['01']) {
+      const meta = qrisMeta(payload);
+      saveProfile({ ...profile, payment: { ...profile.payment, qris: img, qrisPayload: payload, qrisMeta: meta } });
+      const nama = meta?.merchant || '-';
+      triggerAlert(meta?.crcValid
+        ? `QRIS tersimpan dan CRC valid. Merchant: ${nama}${meta.city ? ', ' + meta.city : ''}. Nominal otomatis AKTIF.`
+        : 'QRIS tersimpan dan terbaca, tapi CRC tidak cocok. Disarankan tempel ulang string payload yang utuh.', meta?.crcValid ? 'success' : 'error');
+    } else {
+      setShowPasteBox(true);
+      triggerAlert('QRIS tersimpan. String payload tidak terbaca dari gambar. Tempel string QRIS di kolom yang terbuka agar nominal terisi otomatis.', 'error');
+      setTimeout(() => { try { pasteRef.current?.focus(); } catch (_) { } }, 150);
+    }
   };
 
   useEffect(() => {
@@ -439,26 +494,28 @@ export const PaymentTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTa
               <span className="w-10 h-10 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center shrink-0"><QrDinamis className="w-5.5 h-5.5" /></span>
               <div className="min-w-0">
                 <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">QRIS Dinamis</p>
-                <p className="text-[10px] text-ink-faint font-semibold leading-snug">{profile.payment?.qrisPayload ? 'Aktif — saat checkout, QR otomatis berisi nominal tagihan. Pelanggan tinggal scan.' : 'Upload foto QRIS: payload dibaca otomatis, lalu nominal terisi sendiri saat pembayaran.'}</p>
+                <p className="text-[10px] text-ink-faint font-semibold leading-snug">{profile.payment?.qrisPayload ? 'Aktif. Saat checkout, QR otomatis berisi nominal tagihan dan pelanggan tinggal scan.' : 'Upload foto QRIS: payload dibaca otomatis, lalu nominal terisi sendiri saat pembayaran.'}</p>
               </div>
             </div>
             {profile.payment?.qrisPayload ? <Badge tone="green"><Check className="w-3 h-3" /> Aktif</Badge> : <Badge tone="grey">Belum</Badge>}
           </div>
 
-          {!profile.payment?.qrisPayload && (
+          {(showPasteBox || !profile.payment?.qrisPayload) ? (
             <div className="mt-3 animate-fade-in">
-              <label className="kicker block mb-1.5 ml-0.5">Atau tempel payload QRIS (string panjang berawalan 0002...) </label>
+              <label className="kicker block mb-1.5 ml-0.5">Tempel string QRIS (berawalan 0002, diambil dari app bank)</label>
               <div className="flex gap-2">
-                <input className="field flex-1 min-w-0 font-mono text-[11px]" placeholder="00020101021126610014COM..."
-                  value={manualPayload} onChange={e => setManualPayload(e.target.value)} />
-                <button onClick={saveManualPayload} className="px-4 bg-flame-600 text-white rounded-xl hover:bg-flame-500 active:scale-95 transition press text-xs font-extrabold">Simpan</button>
+                <input ref={pasteRef} className="field flex-1 min-w-0 font-mono text-[11px]" placeholder="00020101021126610014COM..." onPaste={handlePayloadPaste}
+                  value={manualPayload} onChange={e => handlePayloadChange(e.target.value)} />
+                <button onClick={saveManualPayload} className="px-4 bg-flame-600 text-white rounded-xl hover:bg-flame-500 active:scale-95 transition press text-xs font-extrabold shrink-0">Simpan</button>
               </div>
-              <p className="text-[9.5px] text-ink-faint font-semibold mt-2 leading-relaxed">Pembacaan otomatis butuh browser dengan BarcodeDetector (Chrome/Edge). Bila tidak terbaca, buka teks payload dari bank/QRIS di console, salin & tempel di atas.</p>
+              <p className="text-[9.5px] text-ink-faint font-semibold mt-2 leading-relaxed">Cukup tempel, string valid langsung aktif sendiri. Foto QRIS tetap dicoba dibaca otomatis dari gambarnya; kalau gagal, pakai cara tempel ini.</p>
             </div>
+          ) : (
+            <button onClick={() => setShowPasteBox(true)} className="mt-3 text-[10px] font-extrabold text-flame-700 dark:text-apricot hover:underline">Ganti string payload QRIS</button>
           )}
           {profile.payment?.qrisPayload && (
-            <button onClick={() => { saveProfile({ ...profile, payment: { ...profile.payment, qrisPayload: null } }); triggerAlert('QRIS Dinamis dimatikan — kembali ke QR statis.', 'success'); }}
-              className="mt-3 text-[10px] font-extrabold text-brick hover:underline">Matikan & hapus payload</button>
+            <button onClick={() => { saveProfile({ ...profile, payment: { ...profile.payment, qrisPayload: null } }); triggerAlert('QRIS Dinamis dimatikan. Pembayaran kembali ke QR statis tanpa nominal.', 'success'); }}
+              className="mt-3 ml-3 text-[10px] font-extrabold text-brick hover:underline">Matikan & hapus payload</button>
           )}
         </div>
       </Card>
@@ -546,7 +603,7 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
       }
       setTableSessions(links);
       setShowTableQR(true);
-      triggerAlert(lic ? cnt + ' QR meja aman siap — sesi lama otomatis mati.' : 'QR dibuat lokal (login lisensi dibutuhkan untuk sesi aman).', 'success');
+      triggerAlert(lic ? cnt + ' QR meja aman siap dipakai. Sesi lama otomatis nonaktif.' : 'QR dibuat lokal (login lisensi dibutuhkan untuk sesi aman).', 'success');
     } catch (e) { triggerAlert('Gagal membuat sesi meja: ' + e.message, 'error'); }
     setGenBusy(false);
   };
@@ -664,13 +721,7 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
                         const link = licenseInfo?.id
                           ? window.location.origin + '/?meja=' + n + '&k=' + token + '&lic=' + licenseInfo.id
                           : window.location.origin + '/?meja=' + n;
-                        return (
-                          <div key={n} className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl p-3 flex flex-col items-center shadow-card">
-                            <img alt={'QR Meja ' + n} src={qrUrl(link, 220)} className="w-full aspect-square rounded-lg bg-white p-1" />
-                            <p className="font-extrabold text-sm text-ink dark:text-ink-inv mt-2">Meja {n}</p>
-                            <a href={qrUrl(link, 700)} target="_blank" rel="noopener noreferrer" className="mt-1 text-[10px] font-extrabold text-flame-700 dark:text-apricot flex items-center gap-1"><UnduhBuddy className="w-3 h-3" /> Buka / Unduh</a>
-                          </div>
-                        );
+                        return <TableQrCard key={n} n={n} link={link} />;
                       })}
                     </div>
                   )}
@@ -753,7 +804,7 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
 
       <div className="flex items-center justify-center gap-1.5 pt-2">
         <BadgeCheck className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-        <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">WELP v15.1 · Fresh Ink</p>
+        <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">WELP v15.3</p>
       </div>
     </div>
   );

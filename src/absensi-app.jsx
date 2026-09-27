@@ -129,7 +129,7 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
 
   const checkPersonal = async () => {
     setErr('');
-    if (!empIdInput.trim()) return setErr('Isi Employee ID kamu (mis. PST-001).');
+    if (!empIdInput.trim()) return setErr('Isi Employee ID kamu (contoh EMP-2025-0001).');
     if (pin2.length !== 6) return setErr('PIN pribadi harus 6 digit.');
     const rec = employees.find(e => String(e.empId || '').toLowerCase() === empIdInput.trim().toLowerCase());
     if (!rec) return setErr('Employee ID tidak ditemukan di toko ini. Cek lagi, atau minta owner.');
@@ -176,7 +176,7 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
           <p className="font-display text-xl font-extrabold text-ink dark:text-ink-inv tracking-tight">Aplikasi Karyawan</p>
           <p className="text-[11px] text-ink-faint font-bold mt-1 flex items-center justify-center gap-1.5">
             <PerisaiBuddy className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-            Absensi · Slip Gaji · Cuti · Login PIN pribadi
+            Absensi, slip gaji, cuti, dan login PIN pribadi
           </p>
         </div>
 
@@ -216,7 +216,7 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
               <div>
                 <label className="kicker block mb-1.5 ml-0.5">Employee ID</label>
                 <input value={empIdInput} onChange={e => setEmpIdInput(e.target.value.toUpperCase())}
-                  className="field-lg font-mono tracking-widest uppercase" placeholder="misal: PST-001" autoComplete="off" />
+                  className="field-lg font-mono tracking-widest uppercase" placeholder="misal: EMP-2025-0001" autoComplete="off" />
                 {empIdInput && <p className="text-[9.5px] font-bold text-ink-faint mt-1.5">Employee ID-mu tercetak di kartu karyawan / dari owner.</p>}
               </div>
               <div>
@@ -266,7 +266,7 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
         </div>
 
         <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em] mt-5 flex items-center justify-center gap-1.5">
-          <GembokBuddy className="w-3 h-3" /> WELP Karyawan · by JUSTru Group
+          <GembokBuddy className="w-3 h-3" /> WELP Karyawan by JUSTru Group
         </p>
       </div>
     </div>
@@ -287,6 +287,7 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
   const [geo, setGeo] = useState(null);
   const [geoErr, setGeoErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState('');   // v15.3: kabar progres pengiriman
 
   const grabGeo = async () => {
     setGeoErr(null);
@@ -366,12 +367,23 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
   const outOfRadius = dist != null && dist > aturan.radius;
 
   const submit = async () => {
-    if (!photo) return;
+    if (!photo || busy) return;
     setBusy(true);
-    // v15 F5/F1: absen TETAP BISA tanpa GPS (izin ditolak/sinyal buruk/
-    // desktop) — tercatat dgn flag geoStatus 'unavailable' agar owner
-    // tahu lokasi belum terverifikasi.
-    await onSubmit({ photo, geo, geoStatus: geo ? 'ok' : 'unavailable', dist, outOfRadius: !!outOfRadius, type });
+    // v15.3: setiap tahap memberi kabar di tombol, dan busy SELALU
+    // di-reset (try/finally) sehingga tombol tidak pernah mentok di
+    // status mengirim gara-gara GPS lambat atau upload foto gagal.
+    try {
+      setStage('Menyiapkan data absen...');
+      // v15 F5/F1: absen TETAP BISA tanpa GPS (izin ditolak/sinyal buruk/
+      // desktop) — tercatat dgn flag geoStatus 'unavailable' agar owner
+      // tahu lokasi belum terverifikasi.
+      await onSubmit({ photo, geo, geoStatus: geo ? 'ok' : 'unavailable', dist, outOfRadius: !!outOfRadius, type, onStage: setStage });
+    } catch (e) {
+      setStage('');
+      setBusy(false);
+      return;
+    }
+    setStage('');
     setBusy(false);
   };
 
@@ -385,7 +397,7 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
             </span>
             <div>
               <p className="font-extrabold text-[15px] text-ink dark:text-ink-inv">{type === 'in' ? 'Absen Masuk' : 'Absen Pulang'}</p>
-              <p className="text-[10px] font-bold text-ink-faint">{session.employeeName} · {branchName}</p>
+              <p className="text-[10px] font-bold text-ink-faint">{session.employeeName}, {branchName}</p>
             </div>
           </div>
           <button onClick={onClose} className="w-9 h-9 rounded-full bg-paper dark:bg-white/5 text-ink-faint flex items-center justify-center">✕</button>
@@ -449,8 +461,8 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
           {geo && (
             <p className="text-[10px] font-semibold text-ink-faint mt-1 font-mono">
               {geo.lat.toFixed(5)}, {geo.lng.toFixed(5)}
-              {dist != null && <> · {dist}m dari cabang</>}
-              {dist == null && branch?.lat == null && <> · titik cabang belum diatur owner</>}
+              {dist != null && <>, {dist}m dari cabang</>}
+              {dist == null && branch?.lat == null && <>, titik cabang belum diatur owner</>}
             </p>
           )}
           {geoErr && <p className="text-[10px] font-bold text-brick-deep dark:text-brick mt-1">{geoErr}</p>}
@@ -468,7 +480,7 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
 
         {/* v15 F5/F1: GPS bukan lagi syarat mutlak — hanya foto */}
         <Button onClick={submit} disabled={!photo || busy} className="w-full py-4 mt-4 text-sm" icon={busy ? WaktuReal : (type === 'in' ? AbsenMasuk : AbsenPulang)}>
-          {busy ? 'Mengirim...' : `Kirim Absen ${type === 'in' ? 'Masuk' : 'Pulang'}`}
+          {busy ? (stage || 'Mengirim...') : `Kirim Absen ${type === 'in' ? 'Masuk' : 'Pulang'}`}
         </Button>
         <p className="text-[9.5px] text-ink-faint font-semibold text-center mt-2.5 leading-relaxed flex items-center justify-center gap-1.5">
           <Perangkat className="w-3.5 h-3.5 shrink-0" />
@@ -531,7 +543,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
               <h1 className="font-display font-extrabold text-xl text-ink-inv tracking-tight mt-1">Halo, {firstName}</h1>
               <p className="text-[10.5px] font-bold text-ink-inv/55 mt-0.5 flex items-center gap-1.5 flex-wrap">
                 <Cabang className="w-3.5 h-3.5" /> {branchName}
-                <span className="font-mono">· {session.empId || 'ID belum diatur'}</span>
+                <span className="font-mono">ID {session.empId || 'belum diatur'}</span>
                 <span className="inline-flex items-center gap-1 text-[8.5px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-white/10 text-ink-inv/85">{roleLabelOf(session.role)}</span>
                 <span className={`inline-flex items-center gap-1 text-[8.5px] font-extrabold uppercase tracking-wider ${live ? 'text-leaf' : 'text-gold'}`}><span className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-leaf animate-pulse-dot' : 'bg-gold'}`} />{live ? 'Realtime' : 'Lokal'}</span>
               </p>
@@ -559,7 +571,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
             <span className="w-10 h-10 rounded-2xl bg-gold text-white flex items-center justify-center shrink-0 animate-pulse-dot"><KoinBuddy className="w-5 h-5" /></span>
             <div className="min-w-0 flex-1">
               <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">Gaji periode {lastPay.period} sudah dibayar!</p>
-              <p className="text-[10.5px] font-bold text-gold-deep dark:text-gold">{formatIDR(lastPay.amount)} · buka tab Gaji buat lihat slipnya</p>
+              <p className="text-[10.5px] font-bold text-gold-deep dark:text-gold">{formatIDR(lastPay.amount)}, buka tab Gaji untuk detailnya slipnya</p>
             </div>
             <SlipGaji className="w-4.5 h-4.5 text-gold-deep dark:text-gold shrink-0" />
           </button>
@@ -571,8 +583,8 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
             <span className="w-10 h-10 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center shrink-0"><WaktuReal className="w-5 h-5" /></span>
             <div className="min-w-0 flex-1">
               <p className="kicker">Shift kamu</p>
-              <p className="font-extrabold text-[14px] text-ink dark:text-ink-inv leading-tight">{myShift.nama} · {fmtShiftRange(myShift)}</p>
-              <p className="text-[9.5px] font-bold text-ink-faint mt-0.5">Durasi {fmtJam(shiftDurMin(myShift))} · dipasangkan owner</p>
+              <p className="font-extrabold text-[14px] text-ink dark:text-ink-inv leading-tight">{myShift.nama} ({fmtShiftRange(myShift)})</p>
+              <p className="text-[9.5px] font-bold text-ink-faint mt-0.5">Durasi {fmtJam(shiftDurMin(myShift))}, diatur owner</p>
             </div>
             <Badge tone={shiftOfMs([myShift], now) ? 'green' : 'neutral'}>{shiftOfMs([myShift], now) ? 'Sedang berjalan' : 'Di luar jam'}</Badge>
           </div>
@@ -661,7 +673,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
           <div className="mt-4 p-3 rounded-2xl bg-paper dark:bg-white/[.03] border border-line dark:border-line-dark">
             <p className="text-[10px] font-extrabold text-ink-soft dark:text-ink-inv/70 flex items-center gap-1.5 mb-1"><Lokasi className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" /> Aturan absensi cabang</p>
             <p className="text-[10px] text-ink-faint font-semibold leading-relaxed">
-              Masuk {aturan.jamMasuk} (toleransi {aturan.toleransi} menit) · radius {aturan.radius} meter{branch?.lat != null ? ' · titik GPS cabang aktif' : ' · titik GPS cabang belum diatur owner'}
+              Masuk {aturan.jamMasuk}, toleransi {aturan.toleransi} menit, radius {aturan.radius} meter{branch?.lat != null ? '. Titik GPS cabang aktif' : '. Titik GPS cabang belum diatur owner'}
             </p>
           </div>
         </div>
@@ -671,7 +683,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
           <button onClick={() => goTab('gaji')} className="card !rounded-3xl p-4.5 w-full text-left hover:border-flame-300 transition press flex items-center gap-3">
             <span className="w-10 h-10 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center shrink-0"><Penggajian className="w-5 h-5" /></span>
             <div className="min-w-0 flex-1">
-              <p className="kicker">Gaji terakhir · {lastPay.period}</p>
+              <p className="kicker">Gaji terakhir, {lastPay.period}</p>
               <p className="font-extrabold text-[15px] money text-ink dark:text-ink-inv leading-tight">{formatIDR(lastPay.amount)}</p>
               <p className="text-[9.5px] font-bold text-ink-faint mt-0.5">{(PAYROLL_FLOW[lastPay.status] || PAYROLL_FLOW.DIBAYAR).label}</p>
             </div>
@@ -685,7 +697,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
             <span className="w-10 h-10 rounded-2xl bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold flex items-center justify-center shrink-0"><Riwayat className="w-5 h-5" /></span>
             <div className="min-w-0 flex-1">
               <p className="kicker">Pengajuan terakhirmu</p>
-              <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{(CUTI_TYPES.find(x => x.id === myReq.type)?.label) || myReq.type} · {myReq.startDate}</p>
+              <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{(CUTI_TYPES.find(x => x.id === myReq.type)?.label) || myReq.type}, {myReq.startDate}</p>
               <p className="text-[9.5px] font-bold text-ink-faint mt-0.5">{(CUTI_FLOW[myReq.status] || CUTI_FLOW.DIAJUKAN).desc}</p>
             </div>
             <Badge tone={(CUTI_FLOW[myReq.status] || CUTI_FLOW.DIAJUKAN).tone}>{(CUTI_FLOW[myReq.status] || CUTI_FLOW.DIAJUKAN).label}</Badge>
@@ -700,7 +712,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
           </div>
         )}
 
-        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em] pt-1 pb-2">WELP v15.1 · Fresh Ink</p>
+        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em] pt-1 pb-2">WELP v15.3</p>
       </div>
     </div>
   );
@@ -756,7 +768,7 @@ const EmpAbsensi = ({ session, target = 0 }) => {
           <div className="min-w-0 flex-1">
             <p className="kicker">Total jam kerja minggu ini</p>
             <p className="text-xl font-extrabold money leading-none text-ink dark:text-ink-inv">{fmtJam(work.totalMin)}</p>
-            <p className="text-[9.5px] font-bold text-ink-faint mt-1">Dihitung dari absen masuk → pulang ({work.hk} hari tercatat){work.days.some(d => d.running) ? ' · hari ini masih berjalan' : ''}</p>
+            <p className="text-[9.5px] font-bold text-ink-faint mt-1">Dihitung dari absen masuk sampai pulang ({work.hk} hari tercatat){work.days.some(d => d.running) ? ', hari ini masih berjalan' : ''}</p>
           </div>
         </div>
       </div>
@@ -807,11 +819,11 @@ const EmpAbsensi = ({ session, target = 0 }) => {
                           ? <img src={a.photoUrl || a.photo} alt="Selfie absensi" className="w-9 h-9 rounded-xl object-cover border border-line dark:border-line-dark" />
                           : <span className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold text-[10px]">{a.employeeName?.[0]}</span>}
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11.5px] font-extrabold truncate">{a.type === 'in' ? 'Absen masuk' : 'Absen pulang'} · {fmtTime(t.ms)}</p>
+                          <p className="text-[11.5px] font-extrabold truncate">{a.type === 'in' ? 'Absen masuk' : 'Absen pulang'}, {fmtTime(t.ms)}</p>
                           <p className="text-[9.5px] font-semibold text-ink-faint">
                             {t.source === 'server' ? <span className="text-leaf-deep dark:text-leaf font-extrabold">✓ waktu server</span> : 'waktu perangkat'}
-                            {a.dist != null && ` · ${a.dist}m dari cabang`}
-                            {a.far && <span className="text-gold-deep dark:text-gold font-extrabold"> · luar radius</span>}
+                            {a.dist != null && `, ${a.dist}m dari cabang`}
+                            {a.far && <span className="text-gold-deep dark:text-gold font-extrabold">, luar radius</span>}
                           </p>
                         </div>
                         {a.type === 'in' && branch && <LateBadge ms={t.ms} aturan={aturan} />}
@@ -877,7 +889,7 @@ const EmpGaji = ({ session }) => {
                 <div className="flex justify-between items-start gap-3">
                   <div className="min-w-0">
                     <p className="font-extrabold text-[13.5px] text-ink dark:text-ink-inv">Periode {p.period}</p>
-                    <p className="text-[10px] font-bold text-ink-faint mt-0.5">{p.branchName || '-'}{p.paidAt ? ` · dibayar ${new Date(p.paidAt).toLocaleDateString('id-ID')}` : ''}</p>
+                    <p className="text-[10px] font-bold text-ink-faint mt-0.5">{p.branchName || '-'}{p.paidAt ? `, dibayar ${new Date(p.paidAt).toLocaleDateString('id-ID')}` : ''}</p>
                     <p className="font-extrabold money text-flame-700 dark:text-apricot text-lg mt-1">{formatIDR(p.amount)}</p>
                   </div>
                   <Badge tone={flow.tone}>{flow.label}</Badge>
@@ -922,7 +934,7 @@ const EmpGaji = ({ session }) => {
               <div className="flex justify-between border-t border-dashed border-line dark:border-line-dark pt-2"><span className="text-ink-faint">Status</span><span>{(PAYROLL_FLOW[view.status || 'DIBAYAR'] || PAYROLL_FLOW.DIBAYAR).label}</span></div>
               {view.paidAt && <div className="flex justify-between"><span className="text-ink-faint">Tanggal Bayar</span><span>{new Date(view.paidAt).toLocaleString('id-ID')}</span></div>}
               {(view.approvals || []).filter(a => a.action === 'approve').slice(-1).map((a, i) => (
-                <div key={i} className="flex justify-between"><span className="text-ink-faint">Disetujui</span><span>{a.by} · {new Date(a.at).toLocaleDateString('id-ID')}</span></div>
+                <div key={i} className="flex justify-between"><span className="text-ink-faint">Disetujui</span><span>{a.by}, {new Date(a.at).toLocaleDateString('id-ID')}</span></div>
               ))}
             </div>
           </div>
@@ -986,7 +998,7 @@ const EmpAjukan = ({ session, me }) => {
     updateRow(rec.cid, { cred, pin: null });
     auditLog({ id: session.lic, tenant: session.tenant, currentUserRole: session.role, branchId: session.branchId, employeeName: session.employeeName },
       'KARYAWAN_PIN_RESET', { target: rec.empId || rec.cid, oleh: session.employeeName });
-    alert(`PIN ${rec.name} baru: ${np} — catat sekarang, tampil sekali.`, 'success');
+    alert(`PIN ${rec.name} baru: ${np}. Catat sekarang, tampil sekali.`, 'success');
     setResetTarget('Pilih karyawan...');
   };
 
@@ -1084,10 +1096,11 @@ const EmpAjukan = ({ session, me }) => {
 
           <div>
             <label className="kicker block mb-1.5">Jenis Pengajuan</label>
-            <div className="grid grid-cols-4 gap-1.5">
+            {/* v15.3: 2 kolom di HP (label panjang tidak meluber), 4 kolom mulai tablet */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
               {CUTI_TYPES.map(ct => (
                 <button key={ct.id} onClick={() => setForm(f => ({ ...f, type: ct.id }))}
-                  className={`py-2.5 rounded-xl text-[10px] font-extrabold border-2 transition press ${form.type === ct.id ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25 text-flame-700 dark:text-apricot' : 'border-line dark:border-line-dark text-ink-faint'}`}>
+                  className={`py-2.5 px-1 rounded-xl text-[10px] font-extrabold border-2 transition press ${form.type === ct.id ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25 text-flame-700 dark:text-apricot' : 'border-line dark:border-line-dark text-ink-faint'}`}>
                   {ct.label}
                 </button>
               ))}
@@ -1099,14 +1112,15 @@ const EmpAjukan = ({ session, me }) => {
             )}
           </div>
 
+          {/* v15.3: sel grid diberi min-w-0 supaya input tanggal ikut menyusut di HP */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <div className="min-w-0">
               <label className="kicker block mb-1.5">Mulai</label>
-              <input type="date" className="field !px-3" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+              <input type="date" className="field !px-3 w-full" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="kicker block mb-1.5">Sampai</label>
-              <input type="date" className="field !px-3" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+              <input type="date" className="field !px-3 w-full" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
             </div>
           </div>
 
@@ -1168,7 +1182,7 @@ const EmpAjukan = ({ session, me }) => {
                       <div className="min-w-0">
                         <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv">{p.employeeName} <CutiBadgeMini type={p.type} /></p>
                         <p className="text-[10px] font-bold text-ink-faint mt-0.5">
-                          {p.startDate === p.endDate ? p.startDate : `${p.startDate} s/d ${p.endDate}`} · {p.days} hari · {p.branchName || '-'}
+                          {p.startDate === p.endDate ? p.startDate : `${p.startDate} s/d ${p.endDate}`}, {p.days} hari, {p.branchName || '-'}
                         </p>
                         {p.type === 'cuti' && (
                           <p className={`text-[9.5px] font-extrabold mt-0.5 ${sisa2 >= p.days ? 'text-leaf-deep dark:text-leaf' : 'text-gold-deep dark:text-gold'}`}>
@@ -1176,7 +1190,7 @@ const EmpAjukan = ({ session, me }) => {
                           </p>
                         )}
                         {p.reason && <p className="text-[10.5px] font-semibold text-ink-soft dark:text-ink-inv/70 mt-1 leading-snug">"{p.reason}"</p>}
-                        <p className="text-[9px] font-bold text-ink-faint mt-1 flex items-center gap-1"><WaktuReal className="w-3 h-3" /> diajukan {new Date(t.ms).toLocaleString('id-ID')}{t.source === 'server' ? ' · ✓ server' : ''}</p>
+                        <p className="text-[9px] font-bold text-ink-faint mt-1 flex items-center gap-1"><WaktuReal className="w-3 h-3" /> diajukan {new Date(t.ms).toLocaleString('id-ID')}{t.source === 'server' ? ', ✓ server' : ''}</p>
                       </div>
                       <Badge tone={(CUTI_FLOW[p.status] || CUTI_FLOW.DIAJUKAN).tone}>{(CUTI_FLOW[p.status] || CUTI_FLOW.DIAJUKAN).label}</Badge>
                     </div>
@@ -1229,7 +1243,7 @@ const EmpAjukan = ({ session, me }) => {
                   ))}
                 </select>
                 <button onClick={doResetPin} className="w-full py-2.5 rounded-xl bg-flame-600 text-white text-[11px] font-extrabold press">Buat PIN Baru (acak)</button>
-                <p className="text-[9.5px] font-bold text-ink-faint leading-relaxed">PIN baru tampil sekali — berikan langsung ke yang bersangkutan, lalu minta ia menggantinya sendiri di Profil.</p>
+                <p className="text-[9.5px] font-bold text-ink-faint leading-relaxed">PIN baru tampil sekali. Berikan langsung ke yang bersangkutan, lalu minta ia menggantinya sendiri di Profil.</p>
               </div>
             )}
           </div>
@@ -1253,13 +1267,13 @@ const EmpAjukan = ({ session, me }) => {
             <div key={p.cid} className="card p-4">
               <div className="flex justify-between items-start gap-3">
                 <div className="min-w-0">
-                  <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{ct?.label || p.type} <span className="text-[10px] font-bold text-ink-faint">· {p.days} hari</span></p>
+                  <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{ct?.label || p.type} <span className="text-[10px] font-bold text-ink-faint">({p.days} hari)</span></p>
                   <p className="text-[10.5px] font-bold text-ink-faint mt-0.5">{p.startDate === p.endDate ? p.startDate : `${p.startDate} s/d ${p.endDate}`}</p>
                   {p.reason && <p className="text-[10.5px] font-semibold text-ink-soft dark:text-ink-inv/70 mt-1 leading-snug">"{p.reason}"</p>}
                   {p.status === 'DITOLAK' && p.rejectReason && (
                     <p className="text-[10.5px] font-bold text-brick-deep dark:text-brick mt-1.5">Alasan ditolak: {p.rejectReason}</p>
                   )}
-                  <p className="text-[9.5px] font-bold text-ink-faint mt-1.5 flex items-center gap-1"><WaktuReal className="w-3 h-3" /> diajukan {new Date(t.ms).toLocaleString('id-ID')}{t.source === 'server' ? ' · ✓ server' : ''}</p>
+                  <p className="text-[9.5px] font-bold text-ink-faint mt-1.5 flex items-center gap-1"><WaktuReal className="w-3 h-3" /> diajukan {new Date(t.ms).toLocaleString('id-ID')}{t.source === 'server' ? ', ✓ server' : ''}</p>
                 </div>
                 <Badge tone={flow.tone}>{flow.label}</Badge>
               </div>
@@ -1355,7 +1369,7 @@ const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
           <p className="text-[10px] font-extrabold text-ink-faint uppercase tracking-wider pt-1.5">Surat / Bukti Pengajuan ({myLetters.length})</p>
           {myLetters.length === 0 ? <p className="text-[11px] font-bold text-ink-faint">Belum ada surat terlampir.</p> : myLetters.slice(0, 3).map(p => (
             <button key={p.cid} type="button" onClick={() => openDataUrl(p.letter, 'surat')} className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-paper dark:bg-white/[.03] hover:border-flame-300 border border-transparent transition text-left w-full">
-              <p className="text-[11px] font-extrabold text-ink dark:text-ink-inv truncate">{(CUTI_TYPES.find(x => x.id === p.type)?.label) || p.type} · {p.startDate}</p>
+              <p className="text-[11px] font-extrabold text-ink dark:text-ink-inv truncate">{(CUTI_TYPES.find(x => x.id === p.type)?.label) || p.type}, {p.startDate}</p>
               <BuktiTransfer className="w-4 h-4 text-ink-faint shrink-0" />
             </button>
           ))}
@@ -1454,7 +1468,7 @@ const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
         </button>
       </div>
 
-      <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em]">{brandCustom ? (brandNama || 'WELP') + ' Karyawan · by WELP' : 'WELP Karyawan · by JUSTru Group'}</p>
+      <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em]">{brandCustom ? (brandNama || 'WELP') + ' Karyawan' : 'WELP Karyawan by JUSTru Group'}</p>
     </div>
   );
 };
@@ -1526,19 +1540,27 @@ export const AbsensiApp = ({ preLic = '' }) => {
     return rec && rec.aktif ? (rec.logo || null) : null;
   })();
 
-  const doSubmit = async ({ photo, geo, geoStatus, dist, outOfRadius, type }) => {
+  const doSubmit = async ({ photo, geo, geoStatus, dist, outOfRadius, type, onStage }) => {
     try {
       // v15 F4-H11: telat dihitung dari waktu terpercaya (offset server)
       const li = lateInfo(trustedNow(), aturan);
       const sh = myShift || shiftOfMs(branchShifts, Date.now());   // shift tercatat di absensi
       // v15 F5/F2: alamat manusiawi dari koordinat (Nominatim) — koordinat
       // & akurasi ASLI tetap disimpan; gagal resolve = tanpa alamat.
+      // v15.3: proses kini berkabar lewat onStage supaya karyawan melihat
+      // progresnya (mencari alamat, mengunggah foto, menyimpan).
       let alamat = null;
-      if (geo && geo.lat != null) alamat = await reverseGeocode(geo.lat, geo.lng);
+      if (geo && geo.lat != null) {
+        try { if (onStage) onStage('Mencari alamat lokasi...'); alamat = await Promise.race([reverseGeocode(geo.lat, geo.lng), new Promise(res => setTimeout(() => res(null), 6500))]); } catch (_) { }
+      }
       // v15 F5/J3: foto diunggah ke Storage (URL hemat kuota baca);
       // bila Storage belum siap → fallback base64 inline seperti sebelumnya.
       let photoUrl = null;
-      if (photo) photoUrl = await uploadMedia(session.lic, `absensi/${todayKey()}/${session.employeeCid}_${Date.now()}.jpg`, photo);
+      if (photo) {
+        try { if (onStage) onStage('Mengunggah foto selfie...'); } catch (_) { }
+        photoUrl = await uploadMedia(session.lic, `absensi/${todayKey()}/${session.employeeCid}_${Date.now()}.jpg`, photo);
+      }
+      try { if (onStage) onStage('Menyimpan absen...'); } catch (_) { }
       addRow({
         employeeName: session.employeeName, employeeCid: session.employeeCid, empId: session.empId || '', role: session.role,
         branchId: session.branchId, branchName, date: todayKey(), type,
@@ -1560,6 +1582,7 @@ export const AbsensiApp = ({ preLic = '' }) => {
         : `Absen ${type === 'in' ? 'masuk' : 'pulang'} tercatat! Waktu dikunci server.`, (!geo || outOfRadius) ? 'error' : 'success');
     } catch (e) {
       alert('Gagal mengirim absensi: ' + (e.message || 'coba lagi'), 'error');
+      throw e;   // v15.3: kabarkan ke flow supaya tombol kembali normal
     }
   };
 

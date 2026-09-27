@@ -518,7 +518,7 @@ export const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => 
                         <span className={`badge ${tone.badge}`}>{tr.name}</span>
                         <span className="text-[10px] font-bold text-ink-faint">{tr.margin}%</span>
                       </div>
-                      <p className="text-[10px] text-ink-faint font-semibold">{tr.desc} · Untung <span className="text-ink dark:text-ink-inv money font-extrabold">{formatIDR(d.profit)}</span></p>
+                      <p className="text-[10px] text-ink-faint font-semibold">{tr.desc}, untung <span className="text-ink dark:text-ink-inv money font-extrabold">{formatIDR(d.profit)}</span></p>
                     </div>
                     <p className="text-lg font-extrabold text-ink dark:text-ink-inv money shrink-0 ml-2">{formatIDR(d.final)}</p>
                   </div>
@@ -624,7 +624,7 @@ export const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => 
               </div>
               <div className="flex-1 min-w-0">
                 <h4 className="font-extrabold text-ink dark:text-ink-inv text-xs truncate">{r.product?.name}</h4>
-                <p className="text-[10px] text-ink-faint money mt-0.5">{formatIDR(r.finalPrice)} • {new Date(r.id).toLocaleDateString()}</p>
+                <p className="text-[10px] text-ink-faint money mt-0.5">{formatIDR(r.finalPrice)}, {new Date(r.id).toLocaleDateString()}</p>
               </div>
               <button onClick={(e) => { e.stopPropagation(); const n = savedRecipes.filter(i => i.id !== r.id); setSavedRecipes(n); dbSet(licenseInfo?.id, 'hpp_pro_db', n); }}
                 className="text-ink-faint hover:text-brick self-center"><Trash2 className="w-3.5 h-3.5" /></button>

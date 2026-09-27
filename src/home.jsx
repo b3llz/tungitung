@@ -135,7 +135,7 @@ export const HomeTab = ({ licenseInfo, setActive, activeTab }) => {
                 </div>
                 <div className="min-w-0">
                   <h4 className="font-extrabold text-[13px] text-ink dark:text-ink-inv truncate">{t2.buyer || 'Tanpa Nama'}</h4>
-                  <p className="text-[10px] text-ink-faint font-bold mt-0.5">{new Date(t2.date).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {(t2.items || []).length} item</p>
+                  <p className="text-[10px] text-ink-faint font-bold mt-0.5">{new Date(t2.date).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, {(t2.items || []).length} item</p>
                 </div>
               </div>
               <p className="font-extrabold text-flame-700 dark:text-apricot money shrink-0">{formatIDR(t2.total)}</p>
@@ -177,7 +177,7 @@ export const HomeTab = ({ licenseInfo, setActive, activeTab }) => {
                       <p className="text-xs font-extrabold text-ink dark:text-ink-inv truncate">{p.name}</p>
                       <p className="text-[10px] text-ink-faint font-bold">{p.type || 'Produk'}</p>
                     </div>
-                    <Badge tone={(p.stock || 0) <= 0 ? 'red' : 'gold'}>{p.stock || 0} left</Badge>
+                    <Badge tone={(p.stock || 0) <= 0 ? 'red' : 'gold'}>{p.stock || 0} sisa</Badge>
                   </div>
                 ))}
               </div>

@@ -274,7 +274,7 @@ export const LockScreen = ({ onUnlock }) => {
           </div>
         </div>
 
-        <p className="relative text-ink-inv/30 text-[10px] font-bold uppercase tracking-[0.2em]">© WELP by JUSTru Group · Teman usahamu</p>
+        <p className="relative text-ink-inv/30 text-[10px] font-bold uppercase tracking-[0.2em]">© WELP by JUSTru Group</p>
       </aside>
 
       {/* ============ PANEL FORM (dengan dekor gradien) ============ */}
@@ -326,7 +326,7 @@ export const LockScreen = ({ onUnlock }) => {
                       <div>
                         <label className="kicker block mb-1.5 ml-0.5">Kode Station</label>
                         <input value={stationCode} onChange={e => setStationCode(e.target.value)}
-                          className="field-lg font-mono" placeholder="POS-001" autoComplete="off" />
+                          className="field-lg font-mono" placeholder="STN-2025-01" autoComplete="off" />
                       </div>
                       <div>
                         <label className="kicker block mb-1.5 ml-0.5">PIN Station</label>
@@ -426,7 +426,7 @@ export const LockScreen = ({ onUnlock }) => {
 
           <div className="flex items-center justify-center gap-1.5 mt-5">
             <Lisensi className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-            <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">Lisensi terkelola · WELP v15.1</p>
+            <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">Lisensi terkelola, WELP v15.3</p>
           </div>
         </div>
 

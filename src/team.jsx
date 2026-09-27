@@ -22,7 +22,7 @@ import {
   formatIDR, useTenantCol, trustedTime, trustedNow, getLocation,
   distanceMeters, todayKey, fileToDataUrl,
   getAturan, DEFAULT_ATURAN, lateInfo, lateInfoMs, fmtDurJMD,
-  dateKeyOf, dayLabel, dayLabelShort, qrUrl,
+  dateKeyOf, dayLabel, dayLabelShort, qrDataUrl,
   auditLog, makeEmpId, PAYROLL_FLOW, payrollPushHistory,
   CUTI_TYPES, CUTI_FLOW, daysBetween,
   normShifts, shiftsForBranch, shiftDurMin, fmtShiftRange, shiftOfMs,
@@ -37,7 +37,7 @@ import { Button, Card, PageTitle, Badge, EmptyState, Modal, Toggle, Select, Nume
 /* ---------- util kecil ---------- */
 const fmtTime = (ms) => new Date(ms).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 const fmtDate = (ms) => new Date(ms).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
-const fmtDateTime = (ms) => `${new Date(ms).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} · ${fmtTime(ms)}`;
+const fmtDateTime = (ms) => `${new Date(ms).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} pukul ${fmtTime(ms)}`;
 const RoleBadge = ({ role }) => (
   <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[9.5px] font-extrabold uppercase tracking-wider ${role === 'owner' ? 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold' : role === 'admin' ? 'bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot' : 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf'}`}>
     {role === 'owner' ? 'Owner' : role === 'admin' ? 'Admin Cabang' : 'Kasir'}
@@ -150,7 +150,7 @@ export const ShiftEditor = ({ shifts, onChange, maxShifts = 4 }) => {
                 className="field !py-2 !px-3 !text-[12px] font-mono w-[108px]" aria-label="Jam selesai shift" />
               {dur != null && (
                 <Badge tone="neutral"><WaktuReal className="w-3 h-3" /> {fmtJam(dur)}
-                  {(hhmmToMin(s.selesai) <= hhmmToMin(s.mulai)) && ' · lewat tengah malam'}
+                  {(hhmmToMin(s.selesai) <= hhmmToMin(s.mulai)) && ', lewat tengah malam'}
                 </Badge>
               )}
             </div>
@@ -198,7 +198,7 @@ export const PusatShiftsCard = ({ licenseInfo }) => {
             <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
               {shifts.map(s => (
                 <span key={s.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-extrabold border ${s.aktif !== false ? 'bg-flame-50 dark:bg-flame-900/30 text-flame-700 dark:text-apricot border-flame-200/70 dark:border-flame-900/60' : 'bg-paper dark:bg-white/5 text-ink-faint border-line dark:border-line-dark line-through'}`}>
-                  <WaktuReal className="w-3 h-3" /> {s.nama} {fmtShiftRange(s)} · {fmtJam(shiftDurMin(s))}
+                  <WaktuReal className="w-3 h-3" /> {s.nama} {fmtShiftRange(s)}, {fmtJam(shiftDurMin(s))}
                 </span>
               ))}
             </div>
@@ -256,7 +256,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
     if (pin.length !== 6 && !(editingId && branches.find(b => b.cid === editingId)?.pin) && !(editingId && branches.find(b => b.cid === editingId)?.credPin)) return triggerAlert('PIN 6 digit wajib diisi (dipakai login cabang)!', 'error');
     // Validasi shift: nama & jam wajib, mulai tidak boleh sama dgn selesai
     const badShift = form.shifts.find(s => !s.mulai || !s.selesai || s.mulai === s.selesai);
-    if (badShift) return triggerAlert(`Shift "${badShift.nama || 'tanpa nama'}" belum lengkap — jam mulai & selesai tidak boleh sama/kosong.`, 'error');
+    if (badShift) return triggerAlert(`Shift "${badShift.nama || 'tanpa nama'}" belum lengkap. Jam mulai dan selesai tidak boleh sama atau kosong.`, 'error');
     const oldRec = editingId ? branches.find(b => b.cid === editingId) : null;
     const credPass = form.password ? await makeCred(form.password) : null;
     const credPin = pin ? await makeCred(pin) : null;
@@ -416,18 +416,18 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
                   </div>
                   <p className="text-[11px] text-ink-faint font-semibold mt-1 flex items-center gap-1.5">
                     <Lokasi className="w-3.5 h-3.5 shrink-0" /> {b.location || 'Lokasi belum diisi'}
-                    {b.lat != null && <span className="text-leaf-deep dark:text-leaf">· GPS OK</span>}
+                    {b.lat != null && <span className="text-leaf-deep dark:text-leaf">GPS OK</span>}
                   </p>
                   <p className="text-[10px] text-ink-faint font-bold uppercase tracking-wider mt-1.5 flex items-center gap-3 flex-wrap">
                     <span className="flex items-center gap-1"><Tim className="w-3.5 h-3.5" /> {staff} karyawan</span>
-                    <span className="flex items-center gap-1 normal-case tracking-normal"><WaktuReal className="w-3.5 h-3.5" /> masuk {at.jamMasuk} · toleransi {at.toleransi} menit · radius {at.radius} meter</span>
-                    {at.hkBulan > 0 && <span className="flex items-center gap-1 normal-case tracking-normal">· target {at.hkBulan} HK/bulan</span>}
+                    <span className="flex items-center gap-1 normal-case tracking-normal"><WaktuReal className="w-3.5 h-3.5" /> masuk {at.jamMasuk}, toleransi {at.toleransi} menit, radius {at.radius} meter</span>
+                    {at.hkBulan > 0 && <span className="flex items-center gap-1 normal-case tracking-normal">target {at.hkBulan} HK/bulan</span>}
                   </p>
                   {(normShifts(b.shifts).length > 0) && (
                     <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                       {normShifts(b.shifts).map(s => (
                         <span key={s.id} className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-extrabold border ${s.aktif !== false ? 'bg-flame-50 dark:bg-flame-900/30 text-flame-700 dark:text-apricot border-flame-200/70 dark:border-flame-900/60' : 'bg-paper dark:bg-white/5 text-ink-faint border-line dark:border-line-dark line-through'}`}>
-                          <WaktuReal className="w-3 h-3" /> {s.nama} {fmtShiftRange(s)} · {fmtJam(shiftDurMin(s))}
+                          <WaktuReal className="w-3 h-3" /> {s.nama} {fmtShiftRange(s)}, {fmtJam(shiftDurMin(s))}
                         </span>
                       ))}
                     </div>
@@ -436,7 +436,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
                       Status: ter-hash (aman) atau legacy (otomatis ter-hash saat login pertama). */}
                   <div className="mt-2 flex items-center gap-2">
                     <span className="text-[10px] font-extrabold text-ink-soft dark:text-ink-inv/70 flex items-center gap-1.5 bg-paper dark:bg-white/5 border border-line dark:border-line-dark rounded-lg px-2 py-1">
-                      <GembokBuddy className="w-3.5 h-3.5 text-ink-faint" /> PIN: {b.credPin ? 'ter-hash aman' : (b.pin ? 'legacy · ter-hash saat login' : '-')}
+                      <GembokBuddy className="w-3.5 h-3.5 text-ink-faint" /> PIN: {b.credPin ? 'ter-hash aman' : (b.pin ? 'legacy, ter-hash saat login' : '-')}
                     </span>
                   </div>
                 </div>
@@ -471,11 +471,14 @@ const StationsCard = ({ licenseInfo, branches, triggerAlert }) => {
   const [newBranch, setNewBranch] = useState(branches[0]?.cid || 'PUSAT');
   const [revealId, setRevealId] = useState(null);
 
+  // v15.3: kode station gaya penomoran aset: STN-TAHUN-NOMOR
+  // (contoh STN-2025-01). Kode lama tetap valid untuk login.
   const nextCode = () => {
-    let n = 1;
     const used = new Set(stations.map(s => s.code));
-    while (used.has('POS-' + String(n).padStart(3, '0'))) n++;
-    return 'POS-' + String(n).padStart(3, '0');
+    const pfx = 'STN-' + new Date().getFullYear() + '-';
+    let n = 1;
+    while (used.has(pfx + String(n).padStart(2, '0'))) n++;
+    return pfx + String(n).padStart(2, '0');
   };
 
   const create = () => {
@@ -485,7 +488,7 @@ const StationsCard = ({ licenseInfo, branches, triggerAlert }) => {
     const pin = String(Math.floor(100000 + Math.random() * 900000));
     addRow({ code, name: code, branchId: bid, branchName: bname, pin, active: true });
     auditLog(licenseInfo, 'STATION_BUAT', { target: code, cabang: bname });
-    triggerAlert(`Station ${code} siap. PIN-nya ${pin} — catat, nanti dipakai login di monitor kasir.`, 'success');
+    triggerAlert(`Station ${code} siap. PIN-nya ${pin}, catat dan berikan ke yang memakai monitor kasir.`, 'success');
   };
 
   const branchName = (id) => id === 'PUSAT' ? 'Pusat' : (branches.find(b => b.cid === id)?.name || '-');
@@ -512,18 +515,18 @@ const StationsCard = ({ licenseInfo, branches, triggerAlert }) => {
               <span className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${s.active ? 'bg-chrome-deep text-apricot' : 'bg-paper dark:bg-white/5 text-ink-faint'}`}><LayarBuddy className="w-5 h-5" /></span>
               <div className="min-w-0 flex-1">
                 <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv flex items-center gap-2">
-                  {s.code} {s.name && s.name !== s.code && <span className="text-ink-faint font-bold text-[11px]">· {s.name}</span>}
+                  {s.code} {s.name && s.name !== s.code && <span className="text-ink-faint font-bold text-[11px]">({s.name})</span>}
                   <Badge tone={s.active ? 'green' : 'grey'}>{s.active ? 'Aktif' : 'Nonaktif'}</Badge>
                 </p>
                 <p className="text-[10px] font-bold text-ink-faint mt-0.5 flex items-center gap-2 flex-wrap">
                   <span className="flex items-center gap-1"><Cabang className="w-3 h-3" /> {s.branchName || branchName(s.branchId)}</span>
                   {/* v15 F0: PIN station ter-hash — tidak bisa dilihat, hanya diganti */}
-                  <span className="flex items-center gap-1"><GembokBuddy className="w-3 h-3" /> PIN {s.cred ? 'ter-hash aman' : (s.pin ? 'legacy · ter-hash saat login' : '-')}</span>
+                  <span className="flex items-center gap-1"><GembokBuddy className="w-3 h-3" /> PIN {s.cred ? 'ter-hash aman' : (s.pin ? 'legacy, ter-hash saat login' : '-')}</span>
                 </p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 <Toggle size="sm" on={!!s.active} onClick={() => { updateRow(s.cid, { active: !s.active }); auditLog(licenseInfo, s.active ? 'STATION_NONAKTIF' : 'STATION_AKTIF', { target: s.code }); }} />
-                <button onClick={async () => { const np = String(Math.floor(100000 + Math.random() * 900000)); const cred = await makeCred(np); updateRow(s.cid, { cred, pin: null }); triggerAlert(`PIN ${s.code} diganti: ${np} — catat & bagikan ke kasir (tersimpan hash).`, 'success'); auditLog(licenseInfo, 'STATION_PIN_GANTI', { target: s.code }); }}
+                <button onClick={async () => { const np = String(Math.floor(100000 + Math.random() * 900000)); const cred = await makeCred(np); updateRow(s.cid, { cred, pin: null }); triggerAlert(`PIN ${s.code} diganti menjadi ${np}, catat dan bagikan ke kasir (tersimpan hash).`, 'success'); auditLog(licenseInfo, 'STATION_PIN_GANTI', { target: s.code }); }}
                   aria-label="Ganti PIN station" className="p-2 rounded-xl bg-paper dark:bg-white/5 border border-line dark:border-line-dark text-ink-faint hover:text-flame-600 dark:hover:text-apricot transition"><Kredensial className="w-4 h-4" /></button>
                 <button onClick={() => { if (confirm(`Hapus station ${s.code}?`)) { removeRow(s.cid); auditLog(licenseInfo, 'STATION_HAPUS', { target: s.code }); } }}
                   className="p-2 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick hover:bg-brick hover:text-white transition"><Trash2 className="w-4 h-4" /></button>
@@ -636,7 +639,7 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
     const cred = await makeCred(np);
     updateRow(e.cid, { cred, pin: null });
     auditLog(licenseInfo, 'KARYAWAN_PIN_GANTI', { target: e.empId || e.cid, nama: e.name });
-    triggerAlert(`PIN ${e.name} diganti: ${np} — catat & bagikan ke yang bersangkutan (tersimpan hash).`, 'success');
+    triggerAlert(`PIN ${e.name} diganti menjadi ${np}. Catat dan bagikan ke yang bersangkutan, sistem menyimpan hash-nya.`, 'success');
   };
 
   const groupIds = ['PUSAT', ...branches.map(b => b.cid)];
@@ -701,15 +704,15 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
           <FieldCard icon={WaktuReal} label="Shift Kerja & Target HK" desc="Pilih shift dari cabangnya; target HK opsional khusus karyawan ini">
             {formShifts.length === 0 ? (
               <p className="text-[11px] font-bold text-ink-faint">
-                Cabang ini belum punya shift. Atur dulu di Manajemen Cabang{form.branchId === 'PUSAT' ? ' — bagian Shift Kerja Cabang Pusat' : ''}, lalu karyawan bisa dipasangkan di sini.
+                Cabang ini belum punya shift. Atur dulu di Manajemen Cabang{form.branchId === 'PUSAT' ? ', bagian Shift Kerja Cabang Pusat' : ''}, lalu karyawan bisa dipasangkan di sini.
               </p>
             ) : (
               <Select value={formShifts.some(s => s.id === form.shiftId)
-                ? `${shiftById(formShifts, form.shiftId)?.nama} · ${fmtShiftRange(shiftById(formShifts, form.shiftId))}`
+                ? `${shiftById(formShifts, form.shiftId)?.nama} (${fmtShiftRange(shiftById(formShifts, form.shiftId))})`
                 : 'Fleksibel (tanpa shift)'}
-                options={['Fleksibel (tanpa shift)', ...formShifts.map(s => `${s.nama} · ${fmtShiftRange(s)}`)]}
+                options={['Fleksibel (tanpa shift)', ...formShifts.map(s => `${s.nama} (${fmtShiftRange(s)})`)]}
                 onChange={v => {
-                  const found = formShifts.find(s => v.startsWith(s.nama + ' · '));
+                  const found = formShifts.find(s => v.startsWith(s.nama + ' ('));
                   setForm({ ...form, shiftId: found ? found.id : '' });
                 }} />
             )}
@@ -729,7 +732,7 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
                 </button>
               ))}
             </div>
-            <p className="text-[10px] font-semibold text-ink-faint mt-2">{formKontrak.desc}{form.jenisKontrak === 'harian' ? ' — totalnya dihitung sendiri dari hari masuk saat buat payroll.' : ' — dipakai sebagai gaji pokok saat buat payroll.'}</p>
+            <p className="text-[10px] font-semibold text-ink-faint mt-2">{formKontrak.desc}{form.jenisKontrak === 'harian' ? ', totalnya dihitung sendiri dari hari masuk saat buat payroll.' : ', dipakai sebagai gaji pokok saat buat payroll.'}</p>
             {form.jenisKontrak === 'harian' ? (
               <div className="mt-2.5">
                 <NumericInput label="Upah per Hari *" prefix="Rp" placeholder="Contoh: 150000"
@@ -808,7 +811,7 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
                   <span className="w-10 h-10 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center shrink-0"><Cabang className="w-5 h-5" /></span>
                   <div className="min-w-0">
                     <p className="font-extrabold text-[14px] text-ink dark:text-ink-inv truncate">{branchName(bid)}</p>
-                    <p className="text-[10.5px] font-bold text-ink-faint">{list.length} karyawan · {list.filter(e => e.status !== 'nonaktif').length} aktif</p>
+                    <p className="text-[10.5px] font-bold text-ink-faint">{list.length} karyawan, {list.filter(e => e.status !== 'nonaktif').length} aktif</p>
                   </div>
                 </div>
                 <span className="flex items-center gap-2 text-[11px] font-extrabold text-flame-700 dark:text-apricot shrink-0">
@@ -843,12 +846,12 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
                       <div className="w-10 h-10 bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center rounded-2xl font-extrabold shrink-0">{e.name?.[0]}</div>
                       <div className="min-w-0 flex-1">
                         <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv truncate">{e.name}</p>
-                        <p className="text-[9.5px] font-extrabold text-ink-faint font-mono tracking-wider">{e.empId || 'ID-'} · <span className="font-sans">{roleLabelOf(e.role)}</span></p>
+                        <p className="text-[9.5px] font-extrabold text-ink-faint font-mono tracking-wider">{e.empId || 'tanpa ID'} <span className="font-sans">{roleLabelOf(e.role)}</span></p>
                         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                           <Badge tone={e.status === 'nonaktif' ? 'grey' : 'green'}>{e.status === 'nonaktif' ? 'Nonaktif' : 'Aktif'}</Badge>
                           {eShift && <Badge tone="lime"><WaktuReal className="w-3 h-3" /> {eShift.nama} {fmtShiftRange(eShift)}</Badge>}
                           {Number(e.hkBulan) > 0 && <Badge tone="neutral">target {e.hkBulan} HK</Badge>}
-                          <Badge tone={e.jenisKontrak === 'harian' ? 'gold' : 'teal'}>{kontrakOf(e).short}{e.jenisKontrak === 'harian' && e.upahHarian ? ` · ${formatIDR(e.upahHarian)}/hari` : ''}</Badge>
+                          <Badge tone={e.jenisKontrak === 'harian' ? 'gold' : 'teal'}>{kontrakOf(e).short}{e.jenisKontrak === 'harian' && e.upahHarian ? ` (${formatIDR(e.upahHarian)}/hari)` : ''}</Badge>
                           {Number(e.hakCuti) > 0 && <Badge tone="neutral">cuti {e.hakCuti} hari</Badge>}
                           {(e.pin || e.cred) && (
                             <span className="text-[9px] font-extrabold text-ink-faint bg-paper dark:bg-white/5 border border-line dark:border-line-dark rounded-md px-1.5 py-0.5 flex items-center gap-1">
@@ -965,7 +968,7 @@ export const OutletTab = ({ licenseInfo }) => {
           <div className="flex flex-wrap gap-2">
             {stations.map(s => (
               <span key={s.cid} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10.5px] font-extrabold border ${s.active ? 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf border-leaf/25' : 'bg-paper dark:bg-white/5 text-ink-faint border-line dark:border-line-dark'}`}>
-                <LayarBuddy className="w-3.5 h-3.5" /> {s.code} · {s.branchName}
+                <LayarBuddy className="w-3.5 h-3.5" /> {s.code}, {s.branchName}
               </span>
             ))}
           </div>
@@ -1023,10 +1026,10 @@ export const OutletTab = ({ licenseInfo }) => {
                     {a.type === 'in' ? <AbsenMasuk className="w-5 h-5" /> : <AbsenPulang className="w-5 h-5" />}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[12.5px] font-extrabold text-ink dark:text-ink-inv truncate">{a.employeeName} <span className="text-ink-faint font-bold">· {a.branchName}</span></p>
-                    <p className="text-[10px] text-ink-faint font-semibold">{a.type === 'in' ? 'Absen masuk' : 'Absen pulang'} · {fmtDateTime(t.ms)}
-                      {t.source === 'server' && <span className="text-leaf-deep dark:text-leaf font-extrabold"> · ✓ server</span>}
-                      {a.dist != null && <span className={a.dist > 500 ? 'text-gold-deep dark:text-gold' : ''}> · {a.dist}m dari cabang</span>}
+                    <p className="text-[12.5px] font-extrabold text-ink dark:text-ink-inv truncate">{a.employeeName} <span className="text-ink-faint font-bold">({a.branchName})</span></p>
+                    <p className="text-[10px] text-ink-faint font-semibold">{a.type === 'in' ? 'Absen masuk' : 'Absen pulang'}, {fmtDateTime(t.ms)}
+                      {t.source === 'server' && <span className="text-leaf-deep dark:text-leaf font-extrabold">✓ server</span>}
+                      {a.dist != null && <span className={a.dist > 500 ? 'text-gold-deep dark:text-gold' : ''}>, {a.dist}m dari cabang</span>}
                     </p>
                   </div>
                 </div>
@@ -1249,7 +1252,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 
       {/* KEHADIRAN HARI INI */}
       {subTab === 'monitor' && (
-      <Card title={`Hari Ini · ${dayLabel(Date.now())}`} icon={Absensi}>
+      <Card title={`Hari Ini, ${dayLabel(Date.now())}`} icon={Absensi}>
         {staffScope.length === 0 ? (
           <EmptyState mascot="bingung" title="Belum ada karyawan" desc="Tambahkan karyawan lewat menu Manajemen Karyawan, lalu arahkan ke cabangnya." />
         ) : todayRows.length === 0 && (
@@ -1268,7 +1271,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
             return (
               <div key={bid}>
                 <p className="kicker px-0.5 mb-2 mt-1 flex items-center gap-2">{bName}
-                  <span className="text-[9px] font-extrabold normal-case tracking-normal text-ink-faint/70">masuk {at.jamMasuk} · toleransi {at.toleransi} menit · radius {at.radius} meter</span>
+                  <span className="text-[9px] font-extrabold normal-case tracking-normal text-ink-faint/70">masuk {at.jamMasuk}, toleransi {at.toleransi} menit, radius {at.radius} meter</span>
                 </p>
                 <div className="space-y-2">
                   {list.map(e => {
@@ -1288,7 +1291,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                           <div className="flex gap-3 mt-0.5 text-[10px] font-bold flex-wrap">
                             {inRec ? (
                               <span className="text-leaf-deep dark:text-leaf flex items-center gap-1"><AbsenMasuk className="w-3 h-3" /> Masuk {fmtTime(inRec._t)}{inRec._src === 'server' ? ' ✓' : ''}
-                                {inRec.dist != null && <span className="text-ink-faint"> · {inRec.dist}m</span>}
+                                {inRec.dist != null && <span className="text-ink-faint"> , {inRec.dist}m</span>}
                               </span>
                             ) : <span className="text-ink-faint">{off ? 'Sedang cuti/izin hari ini' : 'Belum absen masuk'}</span>}
                             {outRec && <span className="text-gold-deep dark:text-gold flex items-center gap-1"><AbsenPulang className="w-3 h-3" /> Pulang {fmtTime(outRec._t)}{outRec._src === 'server' ? ' ✓' : ''}</span>}
@@ -1325,7 +1328,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                     <div className="min-w-0">
                       <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{p.employeeName} <CutiBadge type={p.type} /></p>
                       <p className="text-[10.5px] font-bold text-ink-faint mt-0.5">
-                        {p.startDate === p.endDate ? p.startDate : `${p.startDate} s/d ${p.endDate}`} · {p.days} hari
+                        {p.startDate === p.endDate ? p.startDate : `${p.startDate} s/d ${p.endDate}`}, {p.days} hari
                       </p>
                       {p.type === 'cuti' && (() => {
                         const emp2 = employees.find(e => e.cid === p.employeeCid) || null;
@@ -1337,7 +1340,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                       {p.status === 'DITOLAK' && p.rejectReason && (
                         <p className="text-[10.5px] font-bold text-brick-deep dark:text-brick mt-1">Alasan tolak: {p.rejectReason}</p>
                       )}
-                      <p className="text-[9.5px] font-bold text-ink-faint mt-1.5 flex items-center gap-1"><WaktuReal className="w-3 h-3" /> diajukan {fmtDateTime(t.ms)}{t.source === 'server' ? ' · ✓ server' : ''}</p>
+                      <p className="text-[9.5px] font-bold text-ink-faint mt-1.5 flex items-center gap-1"><WaktuReal className="w-3 h-3" /> diajukan {fmtDateTime(t.ms)}{t.source === 'server' ? ', ✓ server' : ''}</p>
                     </div>
                     <Badge tone={flow.tone}>{flow.label}</Badge>
                   </div>
@@ -1394,7 +1397,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                   <div key={bid}>
                     <p className="kicker px-0.5 mb-2 flex items-center gap-2 flex-wrap">{bName}
                       {bidTarget > 0 && <span className="text-[9px] font-extrabold normal-case tracking-normal text-flame-700 dark:text-apricot">target {bidTarget} HK/bulan</span>}
-                      {shs.length === 0 && <span className="text-[9px] font-extrabold normal-case tracking-normal text-ink-faint/70">belum ada shift · semua fleksibel</span>}
+                      {shs.length === 0 && <span className="text-[9px] font-extrabold normal-case tracking-normal text-ink-faint/70">belum ada shift, semua fleksibel</span>}
                     </p>
                     {shs.length > 0 && (
                       <div className="grid sm:grid-cols-2 gap-2 mb-2.5">
@@ -1405,7 +1408,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                               <p className="font-extrabold text-[11.5px] text-ink dark:text-ink-inv flex items-center gap-1.5 flex-wrap">
                                 <WaktuReal className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" /> {s.nama}
                                 <span className="font-mono text-ink-faint">{fmtShiftRange(s)}</span>
-                                <span className="text-ink-faint">· {fmtJam(shiftDurMin(s))}</span>
+                                <span className="text-ink-faint">, {fmtJam(shiftDurMin(s))}</span>
                                 {s.aktif === false && <Badge tone="grey">Nonaktif</Badge>}
                               </p>
                               <p className="text-[10px] font-bold text-ink-soft dark:text-ink-inv/70 mt-1 leading-relaxed">
@@ -1428,7 +1431,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                           <div className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold text-xs shrink-0">{r.name[0]}</div>
                           <div className="min-w-0 flex-1">
                             <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{r.name} <span className="text-[9px] font-mono text-ink-faint">{r.empId || ''}</span></p>
-                            <p className="text-[9.5px] font-bold text-ink-faint">{r.shift ? `${r.shift.nama} · ${fmtShiftRange(r.shift)}` : 'Fleksibel'}</p>
+                            <p className="text-[9.5px] font-bold text-ink-faint">{r.shift ? `${r.shift.nama} (${fmtShiftRange(r.shift)})` : 'Fleksibel'}</p>
                           </div>
                           <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
                             {/* Target HK dibandingkan di rekap 30 hari (target per bulan) */}
@@ -1497,13 +1500,13 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                       <PhotoThumb rec={a} size="w-10 h-10" />
                       <div className="min-w-0 flex-1">
                         <p className="text-[12.5px] font-extrabold text-ink dark:text-ink-inv truncate">
-                          {a.employeeName} <span className="text-ink-faint font-bold">· {a.branchName || a.branchId}</span>
+                          {a.employeeName} <span className="text-ink-faint font-bold">({a.branchName || a.branchId})</span>
                         </p>
                         <p className="text-[10px] text-ink-faint font-semibold">
                           {a.type === 'in' ? 'Absen masuk' : 'Absen pulang'} {fmtTime(a._t)}
-                          {a._src === 'server' ? <span className="text-leaf-deep dark:text-leaf font-extrabold"> · ✓ server</span> : <span className="text-gold-deep dark:text-gold font-extrabold"> · waktu perangkat</span>}
-                          {a.dist != null && ` · ${a.dist}m`}
-                          {a._far && <span className="text-gold-deep dark:text-gold font-extrabold"> · luar radius</span>}
+                          {a._src === 'server' ? <span className="text-leaf-deep dark:text-leaf font-extrabold">✓ server</span> : <span className="text-gold-deep dark:text-gold font-extrabold">waktu perangkat</span>}
+                          {a.dist != null && `, ${a.dist}m`}
+                          {a._far && <span className="text-gold-deep dark:text-gold font-extrabold">, luar radius</span>}
                         </p>
                       </div>
                       {a.type === 'in' && <StatusBadge a={a} />}
@@ -1542,7 +1545,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 
       {/* MODAL ALASAN PENOLAKAN PENGAJUAN */}
       <Modal open={!!rejectFor} onClose={() => setRejectFor(null)} title="Tolak Pengajuan"
-        sub={rejectFor ? `${rejectFor.employeeName} · ${(CUTI_TYPES.find(x => x.id === rejectFor.type)?.label) || ''}` : ''}
+        sub={rejectFor ? `${rejectFor.employeeName} (${(CUTI_TYPES.find(x => x.id === rejectFor.type)?.label) || ''})` : ''}
         footer={
           <div className="flex gap-2">
             <Button variant="secondary" className="flex-1" onClick={() => setRejectFor(null)}>Batal</Button>
@@ -1762,11 +1765,14 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 
   /* Cetak slip gaji premium (v14): logo perusahaan, band warna brand,
      rincian komponen, stempel status, approval digital & QR verifikasi. */
-  const printSlip = (rec) => {
+  const printSlip = async (rec) => {
     const w = window.open('', '_blank', 'width=560,height=800');
     if (!w) return triggerAlert('Popup diblokir browser. Izinkan popup untuk mencetak slip.', 'error');
     const roleLabel = rec.role === 'admin' ? 'Admin Cabang' : (rec.role === 'owner' ? 'Owner' : 'Karyawan');
-    w.document.write(buildSlipHtml({ rec, company: licenseInfo?.tenant || 'Toko', profile: coProfile, roleLabel }));
+    // v15.3: QR verifikasi dibuat lokal (data URL) sebelum dokumen ditulis
+    const no = 'SG-' + String(rec.cid || '').slice(-6).toUpperCase();
+    const qr = await qrDataUrl(`WELP-SLIP|${no}|${licenseInfo?.tenant || 'Toko'}|${rec.employeeName || ''}|${rec.period || ''}|${formatIDR(rec.amount)}`, 96);
+    w.document.write(buildSlipHtml({ rec, company: licenseInfo?.tenant || 'Toko', profile: coProfile, roleLabel, qr }));
     w.document.close();
   };
 
@@ -1796,7 +1802,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
         </div>
       )}
 
-      <Card title={`Daftar Karyawan${shownBranch ? ' · ' + shownBranch.name : ''}`} icon={Penggajian}>
+      <Card title={`Daftar Karyawan${shownBranch ? ', ' + shownBranch.name : ''}`} icon={Penggajian}>
         {list.length === 0 ? (
           <EmptyState mascot="pikir" title="Belum ada karyawan di cabang ini" desc="Tambahkan karyawan dulu di menu Manajemen Karyawan, lalu buat payrollnya di sini." />
         ) : (
@@ -1811,7 +1817,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                     <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv truncate">{e.name} <span className="text-[9.5px] font-mono text-ink-faint">{e.empId || ''}</span></p>
                     {last ? (
                       <p className="text-[10px] font-bold text-leaf-deep dark:text-leaf truncate">
-                        Terakhir: {last.period} · {formatIDR(last.amount)} · {fmtDateTime(trustedTime(last).ms)}
+                        Terakhir: {last.period}, {formatIDR(last.amount)}, {fmtDateTime(trustedTime(last).ms)}
                       </p>
                     ) : <p className="text-[10px] font-bold text-ink-faint">Belum ada pembayaran tercatat</p>}
                   </div>
@@ -1844,8 +1850,8 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                 <div key={h.cid} className="p-3.5 rounded-2xl border border-line dark:border-line-dark bg-surface dark:bg-surface-dark">
                   <div className="flex justify-between items-start gap-3">
                     <div className="min-w-0">
-                      <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{h.employeeName} <span className="text-ink-faint font-bold text-[11px]">· {h.branchName}</span></p>
-                      <p className="text-[10px] text-ink-faint font-bold">{h.period}{h.note ? ' · ' + h.note : ''}</p>
+                      <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{h.employeeName} <span className="text-ink-faint font-bold text-[11px]">({h.branchName})</span></p>
+                      <p className="text-[10px] text-ink-faint font-bold">{h.period}{h.note ? ', ' + h.note : ''}</p>
                       {h.hk != null && (
                         <div className="flex gap-1.5 mt-1 flex-wrap">
                           <Badge tone="neutral">HK {h.hk} hari</Badge>
@@ -1856,7 +1862,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                       )}
                       <p className="text-[10px] font-bold mt-0.5 flex items-center gap-1 text-ink-faint">
                         <WaktuReal className="w-3 h-3" /> {new Date(t.ms).toLocaleString('id-ID')}
-                        {t.source === 'server' && <span className="text-leaf-deep dark:text-leaf">· ✓ realtime server</span>}
+                        {t.source === 'server' && <span className="text-leaf-deep dark:text-leaf">, ✓ realtime server</span>}
                       </p>
                       {st === 'DITOLAK' && h.rejectReason && <p className="text-[10px] font-bold text-brick-deep dark:text-brick mt-1">Alasan tolak: {h.rejectReason}</p>}
                       {/* timeline approval singkat */}
@@ -1864,7 +1870,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                         <div className="mt-2 space-y-1">
                           {h.history.slice(-3).map((hh, i) => (
                             <p key={i} className="text-[9.5px] font-semibold text-ink-faint">
-                              <span className="font-extrabold text-ink-soft dark:text-ink-inv/70">{hh.by}</span> ({hh.role}) → {PAYROLL_FLOW[hh.to]?.label || hh.to} · {new Date(hh.at).toLocaleString('id-ID')}{hh.note ? ` · ${hh.note}` : ''}
+                              <span className="font-extrabold text-ink-soft dark:text-ink-inv/70">{hh.by}</span> ({hh.role}) → {PAYROLL_FLOW[hh.to]?.label || hh.to} pada {new Date(hh.at).toLocaleString('id-ID')}{hh.note ? `, ${hh.note}` : ''}
                             </p>
                           ))}
                         </div>
@@ -1899,12 +1905,12 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
       {/* Modal buat / revisi payroll */}
       <Modal open={!!payFor} onClose={() => { setPayFor(null); setEditingId(null); }}
         title={editingId ? 'Revisi Payroll' : 'Buat Payroll'}
-        sub={payFor ? `${payFor.name} · ${payFor.branchName}` : ''}>
+        sub={payFor ? `${payFor.name} (${payFor.branchName})` : ''}>
         {payFor && (
           <div className="space-y-3.5">
             <div className="flex items-center gap-3 p-3 rounded-2xl bg-flame-50 dark:bg-flame-900/25">
               <div className="w-10 h-10 rounded-2xl bg-flame-600 text-white flex items-center justify-center font-extrabold">{payFor.name[0]}</div>
-              <div><p className="font-extrabold text-sm text-ink dark:text-ink-inv">{payFor.name}</p><p className="text-[10px] font-bold text-ink-faint uppercase tracking-wider">{payFor.empId || 'ID belum ada'} · {payFor.branchName} · {payFor.role === 'admin' ? 'Admin Cabang' : (payFor.role === 'owner' ? 'Owner' : 'Kasir')}</p></div>
+              <div><p className="font-extrabold text-sm text-ink dark:text-ink-inv">{payFor.name}</p><p className="text-[10px] font-bold text-ink-faint uppercase tracking-wider">{payFor.empId || 'ID belum ada'}, {payFor.branchName}, {payFor.role === 'admin' ? 'Admin Cabang' : (payFor.role === 'owner' ? 'Owner' : 'Kasir')}</p></div>
               <span className="ml-auto shrink-0"><Badge tone={kontrakOf(payFor).payMode === 'harian' ? 'gold' : 'teal'}>{kontrakOf(payFor).short}</Badge></span>
             </div>
             {/* Referensi kehadiran periode ini (dari absensi nyata) */}
@@ -1916,14 +1922,14 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                   <div className="min-w-0 flex-1">
                     <p className="kicker">Rekap absensi periode {form.period}</p>
                     <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv mt-0.5">
-                      {pw.hk} HK{pw.target > 0 ? <span className="text-ink-faint"> / target {pw.target}</span> : ''} · {fmtJam(pw.totalMin)}{pw.telat > 0 ? ` · telat ${pw.telat}x` : ' · tanpa telat'}
+                      {pw.hk} HK{pw.target > 0 ? <span className="text-ink-faint"> / target {pw.target}</span> : ''} dengan total jam {fmtJam(pw.totalMin)}{pw.telat > 0 ? `, telat ${pw.telat}x` : ''}
                     </p>
                     <p className="text-[9.5px] font-semibold text-ink-faint mt-0.5">Otomatis ikut tersimpan di payroll & slip sebagai catatan hari kerja.</p>
                   </div>
                 </div>
               );
             })()}
-            <FieldCard icon={WaktuReal} label="Periode Gaji" desc="Bulan yang dibayarkan (13 bulan terakhir — bisa periode lampau)">
+            <FieldCard icon={WaktuReal} label="Periode Gaji" desc="Bulan yang dibayarkan (13 bulan terakhir, termasuk periode lampau)">
               {/* v15 F4-H8: 13 bulan terakhir (bukan hanya tahun berjalan)
                   — payroll periode lampau kini bisa dibuat */}
               <Select value={form.period}
@@ -1989,7 +1995,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 
       {/* Modal tandai dibayar */}
       <Modal open={!!payModal} onClose={() => { setPayModal(null); setProof(null); }} title="Tandai Dibayar"
-        sub={payModal ? `${payModal.employeeName} · ${payModal.period} · ${formatIDR(payModal.amount)}` : ''}
+        sub={payModal ? `${payModal.employeeName}, periode ${payModal.period}, ${formatIDR(payModal.amount)}` : ''}
         footer={
           <Button className="w-full py-3.5" onClick={markPaid} icon={Check}>Konfirmasi Sudah Ditransfer</Button>
         }>
@@ -2017,7 +2023,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 
       {/* Modal alasan penolakan payroll */}
       <Modal open={!!rejectFor} onClose={() => setRejectFor(null)} title="Tolak Payroll"
-        sub={rejectFor ? `${rejectFor.employeeName} · ${rejectFor.period}` : ''}
+        sub={rejectFor ? `${rejectFor.employeeName}, periode ${rejectFor.period}` : ''}
         footer={
           <div className="flex gap-2">
             <Button variant="secondary" className="flex-1" onClick={() => setRejectFor(null)}>Batal</Button>
@@ -2037,7 +2043,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
           <div>
             <img src={viewProof.proof} alt="Bukti transfer" className="w-full rounded-2xl border border-line dark:border-line-dark" />
             <p className="text-center text-[11px] font-bold text-ink-faint mt-3">
-              {viewProof.employeeName} · {viewProof.period} · {formatIDR(viewProof.amount)}
+              {viewProof.employeeName}, {viewProof.period}, {formatIDR(viewProof.amount)}
             </p>
           </div>
         )}
@@ -2179,13 +2185,13 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
                 const kerja = hk.hari.includes(h.id);
                 return (
                   <span key={h.id} className={`px-3 py-1.5 rounded-xl text-[10.5px] font-extrabold border ${kerja ? 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf border-leaf/30' : 'bg-brick-soft dark:bg-brick/10 text-brick border-brick/25'}`}>
-                    {h.label} {kerja ? '· kerja' : '· off'}
+                    {h.label} {kerja ? '(kerja)' : '(off)'}
                   </span>
                 );
               })}
             </div>
             <p className="text-[10.5px] font-semibold text-ink-faint mt-2.5">
-              {hk.hari.length} hari kerja per minggu · off: {hk.off.length ? hariLabelOf(hk.off) : 'tidak ada hari off tetap'}
+              {hk.hari.length} hari kerja per minggu, off {hk.off.length ? hariLabelOf(hk.off) : 'tidak tetap'}
             </p>
             <Button variant="secondary" className="mt-3 py-3 px-4 text-xs" icon={Edit3} onClick={() => setHariSel({ hari: [...hk.hari], off: [...hk.off] })}>Atur Hari Kerja</Button>
           </>
@@ -2223,7 +2229,7 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
             <span className="w-11 h-11 rounded-2xl bg-teal2-soft dark:bg-teal2/15 text-teal2 flex items-center justify-center shrink-0"><MedaliBuddy className="w-5.5 h-5.5" /></span>
             <div className="flex-1">
               <p className="font-extrabold text-[15px] text-ink dark:text-ink-inv">{policy.hakTahunan} hari / tahun</p>
-              <p className="text-[10px] font-semibold text-ink-faint">Hak cuti bawaan untuk semua karyawan · sakit & izin tidak memotong kuota ini</p>
+              <p className="text-[10px] font-semibold text-ink-faint">Hak cuti bawaan untuk semua karyawan, sakit dan izin tidak memotong kuota memotong kuota ini</p>
             </div>
             <Button variant="secondary" className="py-2.5 px-3.5 text-xs" icon={Edit3} onClick={() => setCutiDraft(policy.hakTahunan)}>Atur</Button>
           </div>
@@ -2261,7 +2267,7 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
                 : <img src={dokForm.fileData} alt="Pratinjau dokumen" className="w-10 h-10 rounded-xl object-cover" />}
               <div className="min-w-0 flex-1">
                 <p className="text-[11.5px] font-extrabold text-ink dark:text-ink-inv truncate">{dokForm.fileName}</p>
-                <p className="text-[9.5px] font-bold text-ink-faint">{dokForm.size} KB · siap disimpan</p>
+                <p className="text-[9.5px] font-bold text-ink-faint">{dokForm.size} KB, siap disimpan</p>
               </div>
               <button onClick={() => setDokForm(f => ({ ...f, fileData: null }))} className="w-8 h-8 rounded-full bg-brick-soft dark:bg-brick/10 text-brick font-extrabold shrink-0">✕</button>
             </div>
@@ -2297,7 +2303,7 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
                 : (d.fileData || d.fileUrl) ? <img src={d.fileUrl || d.fileData} alt={d.nama} className="w-10 h-10 rounded-xl object-cover shrink-0" /> : null}
               <div className="min-w-0 flex-1">
                 <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{d.nama}</p>
-                <p className="text-[9.5px] font-bold text-ink-faint">{d.kategori} · {d.size} KB · {d.uploadedBy || '-'}{d.share ? ' · dibagikan' : ''}</p>
+                <p className="text-[9.5px] font-bold text-ink-faint">{d.kategori}, {d.size} KB, {d.uploadedBy || '-'}{d.share ? ', dibagikan' : ''}</p>
               </div>
               <div className="flex gap-1 shrink-0">
                 <button onClick={() => setViewDok(d)} className="p-2 rounded-xl bg-flame-50 dark:bg-flame-900/30 text-flame-700 dark:text-apricot press" aria-label="Lihat dokumen"><Kredensial className="w-4 h-4" /></button>
@@ -2332,7 +2338,7 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
               <div className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold text-xs shrink-0">{e.name?.[0]}</div>
               <div className="min-w-0 flex-1">
                 <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{e.name} <span className="text-[9px] font-mono text-ink-faint">{e.empId || ''}</span></p>
-                <p className="text-[9.5px] font-bold text-ink-faint">{roleLabel(e.role)} · cuti {hakCutiOf(policy, e)} hari/tahun{Number(e.hakCuti) > 0 ? ' (khusus)' : ''}</p>
+                <p className="text-[9.5px] font-bold text-ink-faint">{roleLabel(e.role)}, cuti {hakCutiOf(policy, e)} hari per tahun{Number(e.hakCuti) > 0 ? ' (khusus)' : ''}</p>
               </div>
               <div className="text-right shrink-0">
                 <Badge tone={e.jenisKontrak === 'harian' ? 'gold' : 'teal'}>{kontrakOf(e).short}</Badge>
@@ -2346,7 +2352,7 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
       </Card>
 
       {/* MODAL LIHAT DOKUMEN */}
-      <Modal open={!!viewDok} onClose={() => setViewDok(null)} title={viewDok?.nama || 'Dokumen'} sub={viewDok ? `${viewDok.kategori} · ${viewDok.size} KB` : ''}>
+      <Modal open={!!viewDok} onClose={() => setViewDok(null)} title={viewDok?.nama || 'Dokumen'} sub={viewDok ? `${viewDok.kategori}, ${viewDok.size} KB` : ''}>
         {viewDok && (
           <div className="space-y-3">
             {viewDok.fileType === 'application/pdf' ? (

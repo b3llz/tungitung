@@ -330,7 +330,7 @@ export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
         <Kpi icon={Omzet} label={`Omzet (${filter})`} value={formatIDR(stats.rev)} tone="hero" note={`${stats.count} transaksi tercatat`} />
         <Kpi icon={LabaKotor} label="Laba Kotor" value={formatIDR(profitStats.grossProfit)}
           valueClass={profitStats.grossProfit < 0 ? '!text-brick' : ''}
-          note={`Margin ${profitStats.marginPct.toFixed(1)}% · dari HPP nyata (cakupan ${profitStats.coverage}%)`} />
+          note={`Margin ${profitStats.marginPct.toFixed(1)}%, dihitung dari HPP nyata (cakupan ${profitStats.coverage}%)`} />
         <Kpi icon={Keranjang} label="Transaksi" value={stats.count} note="order selesai" />
         <Kpi icon={Laporan} label="Rata-rata / Hari" value={formatIDR(chart.avg)} note={`${chart.activeDays} hari aktif bulan ini`} />
       </div>
@@ -465,7 +465,7 @@ export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
                   <div key={p.name} className="flex justify-between items-center p-3 rounded-xl bg-paper dark:bg-white/[.03] border border-line dark:border-line-dark">
                     <div className="min-w-0">
                       <p className="font-extrabold text-xs text-ink dark:text-ink-inv truncate">{p.name}</p>
-                      <p className="text-[9px] font-bold text-ink-faint uppercase money">{p.qty} terjual · {formatIDR(p.sales)} · HPP {formatIDR(p.cogs)}</p>
+                      <p className="text-[9px] font-bold text-ink-faint uppercase money">{p.qty} terjual, {formatIDR(p.sales)}, HPP {formatIDR(p.cogs)}</p>
                     </div>
                     <Badge tone={bad ? 'red' : warn ? 'gold' : 'green'} className="shrink-0 ml-2">{p.marginPct.toFixed(0)}%</Badge>
                   </div>
@@ -486,7 +486,7 @@ export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
                   <span className={`w-2 h-2 rounded-full ${v.daysLeft <= 7 ? 'bg-brick animate-pulse-dot' : 'bg-leaf'}`}></span>
                   <div>
                     <span className="text-xs font-extrabold text-ink dark:text-ink-inv">{v.name}</span>
-                    <p className="text-[9px] text-ink-faint font-bold money">Stok {v.stock} · terjual {v.perDay.toFixed(1)}/hari</p>
+                    <p className="text-[9px] text-ink-faint font-bold money">Stok {v.stock}, terjual {v.perDay.toFixed(1)}/hari</p>
                   </div>
                 </div>
                 <Badge tone={v.daysLeft <= 7 ? 'red' : 'green'}>{v.stock <= 0 ? 'Habis' : `± ${v.daysLeft} hari lagi`}</Badge>
@@ -510,7 +510,7 @@ export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
                   </div>
                   <div>
                     <h4 className="font-extrabold text-xs text-ink dark:text-ink-inv truncate max-w-[130px]">{t2.buyer || 'Tanpa Nama'}</h4>
-                    <p className="text-[10px] text-ink-faint font-mono">{new Date(t2.date).toLocaleDateString()} • {new Date(t2.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    <p className="text-[10px] text-ink-faint font-mono">{new Date(t2.date).toLocaleDateString()}, {new Date(t2.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                   </div>
                 </div>
                 <div className="text-right">

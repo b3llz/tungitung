@@ -16,9 +16,16 @@ import {
   Toko, Riwayat, Plus, Keranjang, WaktuReal, Qris, Edit3, Check,
   CategoryIcon, Perangkat, PerisaiBuddy, BahayaBuddy
 } from './welp-icons.jsx';
-import { safeParse, formatIDR, computeOrderTotals, getBizConfig, qrUrl, db, getDeviceId, ensureAuth } from './core.jsx';
+import { safeParse, formatIDR, computeOrderTotals, getBizConfig, useQr, db, getDeviceId, ensureAuth } from './core.jsx';
 import { CartPopup } from './pos';
 import { Badge, Mascot } from './ui';
+// v15.3: QR validasi pesanan di-generate lokal (data URL).
+const OrderQr = ({ payload }) => {
+  const qr = useQr(payload, 240);
+  return qr
+    ? <img alt="QR Pesanan" src={qr} width={200} height={200} className="w-[200px] h-[200px] rounded" />
+    : <div className="w-[200px] h-[200px] rounded bg-paper dark:bg-white/5 animate-pulse" />;
+};
 
 const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
   const [activeTab, setActiveTab] = useState('menu');
@@ -158,7 +165,7 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
       'device-other': { tone: 'bg-brick-soft dark:bg-brick/10 text-brick-deep dark:text-brick', icon: Perangkat, t: 'Meja ini sedang dipakai perangkat lain. Satu QR hanya untuk satu perangkat yang memindai.' },
       closed: { tone: 'bg-gold-soft dark:bg-gold/10 text-gold-deep dark:text-gold', icon: Qris, t: 'Sesi meja sudah ditutup kasir. Minta pelayan memindai ulang QR untuk sesi baru.' },
       invalid: { tone: 'bg-brick-soft dark:bg-brick/10 text-brick-deep dark:text-brick', icon: BahayaBuddy, t: 'QR tidak valid atau sudah di-reset. Scan ulang QR terbaru yang tertempel di meja.' },
-      legacy: { tone: 'bg-gold-soft dark:bg-gold/10 text-gold-deep dark:text-gold', icon: PerisaiBuddy, t: 'Mode aman: QR ini belum memakai token sesi. Menu hanya bisa dilihat — minta QR terbaru dari kasir untuk memesan.' },
+      legacy: { tone: 'bg-gold-soft dark:bg-gold/10 text-gold-deep dark:text-gold', icon: PerisaiBuddy, t: 'Mode aman: QR ini belum memakai token sesi. Menu hanya bisa dilihat, minta QR terbaru dari kasir untuk memesan.' },
     }[session.status] || { tone: '', icon: BahayaBuddy, t: '' };
     return (
       <div className={`mx-4 mt-4 p-3.5 rounded-2xl flex items-start gap-2.5 ${map.tone}`}>
@@ -175,7 +182,7 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
         <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-flame-500/20 blur-2xl"></div>
         <div className="max-w-lg mx-auto flex justify-between items-center relative">
           <div>
-            <p className="text-apricot/80 text-[9px] font-extrabold uppercase tracking-[0.22em]">Self-Order · Meja {tableNo}</p>
+            <p className="text-apricot/80 text-[9px] font-extrabold uppercase tracking-[0.22em]">Self-Order, Meja {tableNo}</p>
             <h1 className="font-display font-extrabold text-xl text-ink-inv tracking-tight mt-0.5">{profile.name || 'Nama Toko'}</h1>
             {canOrder && <p className="text-[9px] font-extrabold text-leaf uppercase tracking-widest mt-1 flex items-center gap-1"><PerisaiBuddy className="w-3 h-3" /> Sesi Aman Aktif</p>}
           </div>
@@ -253,7 +260,7 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <h2 className="font-extrabold text-lg tracking-tight">Rincian Pesanan</h2>
-                      <p className="text-[10px] font-bold text-ink-faint uppercase tracking-wider mt-0.5">Meja {myOrder.tableNo} • {(myOrder.items || []).length} item</p>
+                      <p className="text-[10px] font-bold text-ink-faint uppercase tracking-wider mt-0.5">Meja {myOrder.tableNo}, {(myOrder.items || []).length} item</p>
                     </div>
                     <Badge tone="gold"><WaktuReal className="w-3 h-3" /> Belum Divalidasi</Badge>
                   </div>
@@ -296,10 +303,10 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
             <h3 className="font-extrabold text-lg mb-1 text-ink">Tunjukkan ke Kasir</h3>
             <p className="text-xs text-ink-faint mb-4">Kasir memindai QR ini untuk memvalidasi pesanan Anda.</p>
             <div className="bg-paper p-4 rounded-2xl border-2 border-dashed border-line dark:border-line-dark inline-block mb-4">
-              <img alt="QR Pesanan" src={qrUrl("CL-ORDER:" + JSON.stringify({ t: myOrder.tableNo, b: myOrder.buyer, p: myOrder.paymentMethod, tot: myOrder.total, it: (myOrder.items || []).map(i => ({ n: i.name, q: i.qty, h: i.price })) }), 240)} width={200} height={200} className="w-[200px] h-[200px] rounded" />
+              <OrderQr payload={"CL-ORDER:" + JSON.stringify({ t: myOrder.tableNo, b: myOrder.buyer, p: myOrder.paymentMethod, tot: myOrder.total, it: (myOrder.items || []).map(i => ({ n: i.name, q: i.qty, h: i.price })) })} />
             </div>
             <p className="font-extrabold text-2xl text-ink money mb-1">{formatIDR(myOrder.total)}</p>
-            <p className="text-[10px] text-ink-faint mb-4">Meja {myOrder.tableNo} • {myOrder.paymentMethod}</p>
+            <p className="text-[10px] text-ink-faint mb-4">Meja {myOrder.tableNo}, bayar {myOrder.paymentMethod}</p>
             <button onClick={() => setShowValidationQR(false)} className="w-full py-3 rounded-xl bg-paper text-ink-soft font-extrabold text-sm press">Tutup</button>
           </div>
         </div>, document.body)}
