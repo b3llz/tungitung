@@ -1428,7 +1428,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
                     <div className="space-y-2">
                       {rows.map(r => (
                         <div key={r.cid} className="flex items-center gap-3 p-3 rounded-2xl bg-paper dark:bg-white/[.03]">
-                          <div className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold text-xs shrink-0">{r.name[0]}</div>
+                          <div className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold text-xs shrink-0">{r.name?.[0]}</div>
                           <div className="min-w-0 flex-1">
                             <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{r.name} <span className="text-[9px] font-mono text-ink-faint">{r.empId || ''}</span></p>
                             <p className="text-[9.5px] font-bold text-ink-faint">{r.shift ? `${r.shift.nama} (${fmtShiftRange(r.shift)})` : 'Fleksibel'}</p>
@@ -1459,7 +1459,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
           <div className="space-y-2">
             {rekap.map(r => (
               <div key={r.cid} className="flex items-center gap-3 p-3 rounded-2xl bg-paper dark:bg-white/[.03]">
-                <div className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold text-xs shrink-0">{r.name[0]}</div>
+                <div className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold text-xs shrink-0">{r.name?.[0]}</div>
                 <div className="min-w-0 flex-1">
                   <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{r.name}</p>
                   <p className="text-[10px] text-ink-faint font-bold">{r.bid === 'PUSAT' ? 'Pusat' : (branches.find(b => b.cid === r.bid)?.name || '-')}</p>
@@ -1812,7 +1812,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
               const last = lastPay(e.cid);
               return (
                 <div key={e.cid} className="flex items-center gap-3 p-3 rounded-2xl border border-line dark:border-line-dark bg-surface dark:bg-surface-dark">
-                  <div className="w-10 h-10 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold shrink-0">{e.name[0]}</div>
+                  <div className="w-10 h-10 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold shrink-0">{e.name?.[0]}</div>
                   <div className="min-w-0 flex-1">
                     <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv truncate">{e.name} <span className="text-[9.5px] font-mono text-ink-faint">{e.empId || ''}</span></p>
                     {last ? (
@@ -1909,7 +1909,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
         {payFor && (
           <div className="space-y-3.5">
             <div className="flex items-center gap-3 p-3 rounded-2xl bg-flame-50 dark:bg-flame-900/25">
-              <div className="w-10 h-10 rounded-2xl bg-flame-600 text-white flex items-center justify-center font-extrabold">{payFor.name[0]}</div>
+              <div className="w-10 h-10 rounded-2xl bg-flame-600 text-white flex items-center justify-center font-extrabold">{payFor.name?.[0]}</div>
               <div><p className="font-extrabold text-sm text-ink dark:text-ink-inv">{payFor.name}</p><p className="text-[10px] font-bold text-ink-faint uppercase tracking-wider">{payFor.empId || 'ID belum ada'}, {payFor.branchName}, {payFor.role === 'admin' ? 'Admin Cabang' : (payFor.role === 'owner' ? 'Owner' : 'Kasir')}</p></div>
               <span className="ml-auto shrink-0"><Badge tone={kontrakOf(payFor).payMode === 'harian' ? 'gold' : 'teal'}>{kontrakOf(payFor).short}</Badge></span>
             </div>

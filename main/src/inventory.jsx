@@ -459,7 +459,7 @@ export const SupplierTab = ({ triggerAlert, licenseInfo }) => {
         {suppliers.map(s => (
           <div key={s.id} className="card p-4 flex justify-between items-center">
             <div className="flex gap-3 items-center">
-              <div className="w-10 h-10 bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold rounded-full flex items-center justify-center font-extrabold shrink-0">{s.name[0]}</div>
+              <div className="w-10 h-10 bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold rounded-full flex items-center justify-center font-extrabold shrink-0">{s.name?.[0]}</div>
               <div><p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{s.name}</p><p className="text-[10px] text-ink-faint font-bold">{s.contact}</p></div>
             </div>
             <button onClick={() => deleteSupplier(s.id)} className="text-ink-faint hover:text-brick p-2 hover:bg-brick-soft dark:hover:bg-brick/10 rounded-lg transition"><Trash2 className="w-4 h-4" /></button>
