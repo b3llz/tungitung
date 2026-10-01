@@ -1,0 +1,34 @@
+rules_version = '2';
+
+// FUTURE TARGET: enable after the trusted backend issues Firebase custom claims.
+// Every tenant request is bound to the authenticated user's tenant.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function appChecked() { return request.app != null; }
+    function tenantMember(lic) {
+      return signedIn() && appChecked() && request.auth.token.welpTenant == lic;
+    }
+    function hasPermission(p) {
+      return tenantMember(resource.data.tenantId) && p in request.auth.token.welpPermissions;
+    }
+
+    match /licenses/{lic} {
+      allow get: if tenantMember(lic);
+      allow list, create, delete: if false;
+      allow update: if false; // provisioning must use trusted backend
+    }
+
+    match /logs/{id} {
+      allow create: if signedIn() && appChecked();
+      allow read, update, delete: if false;
+    }
+
+    match /tenants/{lic}/{document=**} {
+      allow read: if tenantMember(lic);
+      allow create: if tenantMember(lic);
+      allow update: if tenantMember(lic);
+      allow delete: if tenantMember(lic) && request.auth.token.welpCanDelete == true;
+    }
+  }
+}

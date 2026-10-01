@@ -1,0 +1,123 @@
+rules_version = '2';
+
+// WELP Enterprise Firestore Rules v3
+// Default: DENY. Enable as the production ruleset only after Batch 3 identity
+// migration is complete for every tenant/user.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function appChecked() { return request.app != null; }
+    function hasTenant(lic) {
+      return signedIn() && appChecked() && request.auth.token.welpTenant == lic;
+    }
+    function role(r) { return hasTenant(resource.data.tenantId) && request.auth.token.welpRole == r; }
+    function permission(p) {
+      return signedIn() && appChecked() && p in request.auth.token.welpPermissions;
+    }
+    function tenantWrite(lic, p) {
+      return hasTenant(lic) && permission(p);
+    }
+    function immutableCreate(lic, p) {
+      return hasTenant(lic) && permission(p)
+        && request.resource.data.tenantId == lic;
+    }
+
+    match /licenses/{lic} {
+      allow get: if hasTenant(lic);
+      allow list, create, update, delete: if false;
+    }
+
+    match /logs/{id} {
+      allow create: if signedIn() && appChecked();
+      allow read, update, delete: if false;
+    }
+
+    // Employee / HR
+    match /tenants/{lic}/karyawan/{id} {
+      allow read: if tenantWrite(lic, 'employee.read');
+      allow create, update: if tenantWrite(lic, 'employee.write') && request.resource.data.tenantId == lic;
+      allow delete: if tenantWrite(lic, 'employee.write') && request.auth.token.welpCanDelete == true;
+    }
+
+    // Attendance is immutable from the client. Sensitive verification should
+    // eventually move to submitAttendanceEvidence() in Cloud Functions.
+    match /tenants/{lic}/absensi/{id} {
+      allow read: if tenantWrite(lic, 'attendance.read') ||
+        (hasTenant(lic) && resource.data.employeeUid == request.auth.uid);
+      allow create: if immutableCreate(lic, 'attendance.write')
+        && request.resource.data.status == 'verified'
+        && request.resource.data.evidenceVersion == 2
+        && request.resource.data.captureMode == 'welp-camera'
+        && request.resource.data.liveMotionCheck == true
+        && request.resource.data.geoStatus == 'verified'
+        && request.resource.data.far == false
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.acc is number
+        && request.resource.data.acc >= 0
+        && request.resource.data.acc <= 100
+        && request.resource.data.photoHash is string
+        && request.resource.data.photoHash.matches('^[0-9a-f]{64}$')
+        && request.resource.data.captureId is string
+        && request.resource.data.employeeCid is string
+        && request.resource.data.branchId is string
+        && request.resource.data.type in ['in', 'out']
+        && request.resource.data.serverAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Payroll: employees may only read their own records; HR/finance/authorized
+    // payroll roles can access tenant payroll.
+    match /tenants/{lic}/payroll/{id} {
+      allow read: if tenantWrite(lic, 'payroll.read') ||
+        (hasTenant(lic) && resource.data.employeeUid == request.auth.uid);
+      allow create, update: if tenantWrite(lic, 'payroll.write') && request.resource.data.tenantId == lic;
+      allow delete: if false;
+    }
+
+    // Company settings and branch management
+    match /tenants/{lic}/pengaturan/{id} {
+      allow read: if hasTenant(lic) && (permission('settings.read') || permission('company.manage'));
+      allow create, update: if hasTenant(lic) && (permission('settings.write') || permission('company.manage'))
+        && request.resource.data.tenantId == lic;
+      allow delete: if false;
+    }
+
+    match /tenants/{lic}/cabang/{id} {
+      allow read: if hasTenant(lic) && (permission('branch.manage') || permission('dashboard.read'));
+      allow create, update: if tenantWrite(lic, 'branch.manage') && request.resource.data.tenantId == lic;
+      allow delete: if tenantWrite(lic, 'branch.manage') && request.auth.token.welpCanDelete == true;
+    }
+
+    // Operational data: explicit permission gates.
+    match /tenants/{lic}/produk/{id} {
+      allow read: if tenantWrite(lic, 'inventory.read');
+      allow create, update: if tenantWrite(lic, 'inventory.write') && request.resource.data.tenantId == lic;
+      allow delete: if tenantWrite(lic, 'inventory.write') && request.auth.token.welpCanDelete == true;
+    }
+    match /tenants/{lic}/stok/{id} {
+      allow read: if tenantWrite(lic, 'inventory.read');
+      allow create, update: if tenantWrite(lic, 'inventory.adjust') && request.resource.data.tenantId == lic;
+      allow delete: if false;
+    }
+    match /tenants/{lic}/penjualan/{id} {
+      allow read: if tenantWrite(lic, 'sales.read');
+      allow create: if tenantWrite(lic, 'sales.write') && request.resource.data.tenantId == lic;
+      allow update: if tenantWrite(lic, 'sales.write') || tenantWrite(lic, 'sales.refund');
+      allow delete: if false;
+    }
+
+    // Audit log: append-only. Reads require explicit audit permission.
+    match /tenants/{lic}/audit_log/{id} {
+      allow read: if tenantWrite(lic, 'audit.read');
+      allow create: if hasTenant(lic) && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.tenantId == lic;
+      allow update, delete: if false;
+    }
+
+    // Explicitly deny all other tenant collections. No catch-all allow exists.
+    match /tenants/{lic}/{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "firestore": {
+    "rules": "firestore.enterprise.v3.rules"
+  },
+  "storage": {
+    "rules": "storage.enterprise.v3.rules"
+  },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20"
+  }
+}

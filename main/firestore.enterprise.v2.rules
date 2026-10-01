@@ -1,0 +1,84 @@
+rules_version = '2';
+
+// WELP ENTERPRISE SECURITY V2
+// Staged rule set. Activate only after all production users have migrated to
+// Firebase Auth + custom claims. Client-side role/localStorage is never trusted.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function appChecked() { return request.app != null; }
+    function tenantMember(lic) {
+      return signedIn() && appChecked()
+        && request.auth.token.welpDisabled != true
+        && request.auth.token.welpTenant == lic;
+    }
+    function roleIs(role) {
+      return signedIn() && request.auth.token.welpRole == role;
+    }
+    function hasPermission(permission) {
+      return signedIn()
+        && permission in request.auth.token.welpPermissions;
+    }
+    function sameTenant(lic) { return tenantMember(lic); }
+    function branchAllowed(branchId) {
+      return request.auth.token.welpBranch == null
+        || request.auth.token.welpBranch == branchId;
+    }
+    function creatingForTenant(lic) {
+      return sameTenant(lic) && request.resource.data.get('tenantId', lic) == lic;
+    }
+    function updatingForTenant(lic) {
+      return sameTenant(lic) && resource.data.get('tenantId', lic) == lic
+        && request.resource.data.get('tenantId', lic) == lic;
+    }
+
+    match /licenses/{lic} {
+      allow get: if tenantMember(lic) && hasPermission('company.manage');
+      allow list, create, update, delete: if false;
+    }
+
+    match /logs/{id} {
+      allow create: if signedIn() && appChecked();
+      allow read, update, delete: if false;
+    }
+
+    match /tenants/{lic}/audit_log/{id} {
+      allow create: if tenantMember(lic);
+      allow read: if tenantMember(lic) && hasPermission('audit.read');
+      allow update, delete: if false;
+    }
+
+    match /tenants/{lic}/absensi/{id} {
+      allow read: if tenantMember(lic) && hasPermission('attendance.read');
+      allow create: if tenantMember(lic) && hasPermission('attendance.write')
+        && request.resource.data.get('tenantId', lic) == lic
+        && request.resource.data.status == 'verified'
+        && request.resource.data.evidenceVersion == 2
+        && request.resource.data.captureMode == 'welp-camera'
+        && request.resource.data.serverAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Sensitive domains: explicit permission + tenant binding.
+    match /tenants/{lic}/payroll/{id} {
+      allow read: if tenantMember(lic) && hasPermission('payroll.read');
+      allow create: if tenantMember(lic) && hasPermission('payroll.write') && creatingForTenant(lic);
+      allow update: if tenantMember(lic) && hasPermission('payroll.write') && updatingForTenant(lic);
+      allow delete: if false;
+    }
+
+    match /tenants/{lic}/employees/{id} {
+      allow read: if tenantMember(lic) && hasPermission('employee.read');
+      allow create: if tenantMember(lic) && hasPermission('employee.write') && creatingForTenant(lic);
+      allow update: if tenantMember(lic) && hasPermission('employee.write') && updatingForTenant(lic);
+      allow delete: if tenantMember(lic) && hasPermission('employee.write') && request.auth.token.welpCanDelete == true;
+    }
+
+    // Default tenant data: still permissioned, never a signed-in catch-all.
+    match /tenants/{lic}/{document=**} {
+      allow read: if tenantMember(lic) && hasPermission('dashboard.read');
+      allow create, update: if tenantMember(lic) && hasPermission('settings.write');
+      allow delete: if false;
+    }
+  }
+}
