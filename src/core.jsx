@@ -9,9 +9,10 @@ import {
   onSnapshot, serverTimestamp, updateDoc, deleteField,
   getDocs, writeBatch
 } from "firebase/firestore";
-import { getAuth, signInAnonymously } from "firebase/auth";
+import { getAuth, signInAnonymously, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { getStorage, ref as sRef, uploadString, getDownloadURL } from "firebase/storage";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import jsQR from 'jsqr';
 import QRCode from 'qrcode';
 import { Uang, Qris, Dompet } from './welp-icons.jsx';
@@ -38,39 +39,36 @@ export const sanitizeSession = (data) => {
 };
 
 // --- KONFIGURASI FIREBASE (SESUAIKAN DENGAN MILIKMU) ---
-// apiKey: utamakan dari .env (VITE_FIREBASE_API_KEY). Fallback ter-bake di
-// bawah hanya jaring pengaman agar build TANPA .env tidak menghasilkan
-// dist mati (key web Firebase memang terekspos client — batasi lewat
-// Firestore/Storage Rules + authorized domain, bukan dengan menyembunyikannya).
+// Firebase Web API key dibaca dari environment saat build.
+// Jangan menyimpan .env produksi di repository atau ZIP distribusi.
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyDqMpyCBFg1m5pA0Bn8U-VxEN_M2B-4A5Q',
-  authDomain: "costlab-f221c.firebaseapp.com",
-  projectId: "costlab-f221c",
-  storageBucket: "costlab-f221c.firebasestorage.app",
-  messagingSenderId: "64337345213",
-  appId: "1:64337345213:web:389610b43797f0e55a15d4"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "costlab-f221c.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "costlab-f221c",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "costlab-f221c.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "64337345213",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:64337345213:web:389610b43797f0e55a15d4"
 };
 
 // Robustness: kalau env key tidak ada, jangan crash seluruh app —
 // fitur lisensi/login menampilkan pesan koneksi yang jelas.
-let app = null, db = null, auth = null;
+let app = null, db = null, auth = null, functions = null;
 let firebaseInitError = null;
 try {
   app = initializeApp(firebaseConfig);
   db = getFirestore(app);
   auth = getAuth(app);
+  functions = getFunctions(app, "asia-southeast2");
 } catch (e) {
   firebaseInitError = e;
   console.error("Firebase init gagal (fitur lisensi/login tidak tersedia):", e);
 }
-export { db, auth, firebaseInitError };
+export { db, auth, functions, firebaseInitError };
 
-// v15.2 · APP CHECK — attestation anti-bot (reCAPTCHA v3). Kunci situs
-// diisi via VITE_RECAPTCHA_SITE_KEY di .env. Tanpa kunci: app jalan
-// normal tanpa App Check. Dengan kunci: token attestation dikirim
-// otomatis di semua request Firebase — WAJIB aktif di build yang
-// ter-deploy SEBELUM tombol "Enforce" dinyalakan di Firebase Console
-// (lihat PANDUAN-KEAMANAN-v15.2.md).
+// v18 · APP CHECK — production build expects App Check to be configured.
+// Firestore/Storage rules now require request.app, so a production build
+// without a valid App Check site key will fail closed instead of silently
+// falling back to unauthenticated-compatible access.
 const RECAPTCHA_SITE_KEY = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
 if (app && RECAPTCHA_SITE_KEY) {
   try {
@@ -79,8 +77,10 @@ if (app && RECAPTCHA_SITE_KEY) {
       isTokenAutoRefreshEnabled: true,
     });
   } catch (e) {
-    console.warn('[WELP app-check] App Check tidak aktif:', (e && e.code) || e);
+    console.error('[WELP app-check] App Check gagal diinisialisasi:', (e && e.code) || e);
   }
+} else if (app) {
+  console.error('[WELP app-check] Site key belum dikonfigurasi. Production rules akan menolak request tanpa App Check.');
 }
 
 // ============================================================
@@ -165,6 +165,50 @@ export const upgradeCred = async (pathSegments, input, legacyField, credField = 
 // --- AUTH GATE (anonymous) -------------------------------------------
 let _anonOk = null;   // null = belum dicoba
 export const anonAuthBlocked = () => _anonOk === false;
+export const callWelpProvisioner = async (payload) => {
+  if (!functions) throw new Error('WELP backend belum tersedia.');
+  const callable = httpsCallable(functions, 'setWelpUserClaims');
+  const result = await callable(payload);
+  return result.data;
+};
+
+export const signInWelpAccount = async (email, password) => {
+  if (!auth) throw new Error('Firebase Auth belum tersedia.');
+  return signInWithEmailAndPassword(auth, String(email || '').trim(), String(password || ''));
+};
+
+export const signOutWelpAccount = async () => {
+  if (auth?.currentUser && !auth.currentUser.isAnonymous) await signOut(auth);
+};
+
+export const callWelpVerificationLink = async (email) => {
+  if (!functions) throw new Error('WELP backend belum tersedia.');
+  const callable = httpsCallable(functions, 'generateWelpVerificationLink');
+  const result = await callable({ email: String(email || '').trim().toLowerCase(), continueUrl: window.location.origin + window.location.pathname });
+  return result.data;
+};
+
+export const callWelpSession = async () => {
+  if (!functions) throw new Error('WELP backend belum tersedia.');
+  const callable = httpsCallable(functions, 'getWelpSession');
+  const result = await callable({});
+  return result.data;
+};
+
+export const callWelpCreateIdentity = async (payload) => {
+  if (!functions) throw new Error('WELP backend belum tersedia.');
+  const callable = httpsCallable(functions, 'createWelpIdentity');
+  const result = await callable(payload);
+  return result.data;
+};
+
+export const callWelpRevokeClaims = async (uid) => {
+  if (!functions) throw new Error('WELP backend belum tersedia.');
+  const callable = httpsCallable(functions, 'revokeWelpUserClaims');
+  const result = await callable({ uid });
+  return result.data;
+};
+
 export const ensureAuth = async () => {
   if (!auth) return false;
   if (auth.currentUser) return true;
@@ -392,11 +436,14 @@ export const TRANSLATIONS = {
   id: {
     home: 'Beranda',
     cashier: 'Kasir (POS)', hpp: 'Kalkulator HPP', history: 'Riwayat Transaksi', cashout: 'Manajemen Kas Keluar',
-    discount: 'Diskon, Pajak & Biaya', mainCat: 'Kategori Utama', operational: 'Operasional', business: 'Manajemen Bisnis',
+    discount: 'Diskon, Pajak & Biaya', mainCat: 'Pusat Kendali', operational: 'Inventaris & Pembelian', business: 'Manajemen Bisnis',
+    kasirGrp: 'Kasir & Pelanggan', peopleGrp: 'SDM & Penggajian', orgGrp: 'Organisasi & Keuangan',
     stock: 'Stok Barang', opname: 'Stok Opname', inout: 'Barang Masuk & Keluar', stockHistory: 'Riwayat Stok & Expired',
-    supplier: 'Database Supplier', report: 'Laporan & Analisa', employee: 'Manajemen Cabang', outlet: 'Multi Outlet',
+    supplier: 'Database Supplier', report: 'Laporan & Analisa', employee: 'Manajemen Cabang', outlet: 'POS Monitoring',
     karyawan: 'Manajemen Karyawan', absensi: 'Kelola Absensi', payroll: 'Manajemen Penggajian', absenKu: 'Absensi Saya',
     perusahaan: 'Manajemen Perusahaan',
+    area: 'Area Saya', customers: 'Customer (CRM)', organization: 'Organisasi & Region', roles: 'Role & Permission',
+    approval: 'Pusat Persetujuan', audit: 'Audit Log',
     profile: 'Identitas Toko (Profil)', payment: 'Metode Pembayaran', hardware: 'Alat Tambahan (Hardware)', settings: 'Pengaturan Utama',
     logout: 'Keluar (Logout)', menu: 'Menu', staffNav: 'Navigasi Karyawan', access: 'Akses',
     shop: 'Kasir', orders: 'Pesanan', tables: 'Meja', products: 'Daftar Produk', search: 'Ketik SKU / Nama Produk...',
@@ -406,11 +453,14 @@ export const TRANSLATIONS = {
   en: {
     home: 'Home',
     cashier: 'Cashier (POS)', hpp: 'COGS Calculator', history: 'Transaction History', cashout: 'Cash-Out Management',
-    discount: 'Discount, Tax & Fees', mainCat: 'Main Category', operational: 'Operations', business: 'Business Management',
+    discount: 'Discount, Tax & Fees', mainCat: 'Command Center', operational: 'Inventory & Purchasing', business: 'Business Management',
+    kasirGrp: 'Sales & Customers', peopleGrp: 'People & Payroll', orgGrp: 'Organization & Finance',
     stock: 'Inventory', opname: 'Stock Opname', inout: 'Stock In & Out', stockHistory: 'Stock & Expiry History',
-    supplier: 'Supplier Database', report: 'Reports & Analytics', employee: 'Branch Management', outlet: 'Multi Outlet',
+    supplier: 'Supplier Database', report: 'Reports & Analytics', employee: 'Branch Management', outlet: 'POS Monitoring',
     karyawan: 'Staff Management', absensi: 'Attendance Control', payroll: 'Payroll Management', absenKu: 'My Attendance',
     perusahaan: 'Company Management',
+    area: 'My Area', customers: 'Customers (CRM)', organization: 'Organization & Regions', roles: 'Roles & Permissions',
+    approval: 'Approval Center', audit: 'Audit Log',
     profile: 'Store Identity (Profile)', payment: 'Payment Methods', hardware: 'Hardware Devices', settings: 'Main Settings',
     logout: 'Logout', menu: 'Menu', staffNav: 'Staff Navigation', access: 'Access',
     shop: 'Cashier', orders: 'Orders', tables: 'Tables', products: 'Product List', search: 'Type SKU / Product name...',
@@ -454,15 +504,20 @@ export const loadXLSX = async () => {
   try {
     const script = document.createElement('script');
     script.src = "https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js";
+    script.referrerPolicy = 'no-referrer';
     document.head.appendChild(script);
-    return new Promise((resolve) => { script.onload = () => resolve(window.XLSX); });
-  } catch (e) { throw new Error("Gagal load library Excel"); }
+    return new Promise((resolve, reject) => {
+      script.onload = () => resolve(window.XLSX);
+      script.onerror = () => reject(new Error('Gagal load library Excel'));
+    });
+  } catch (e) { throw new Error('Gagal load library Excel'); }
 };
 
 export const loadExcelJS = async () => {
   if (window.ExcelJS) return window.ExcelJS;
   const script = document.createElement('script');
   script.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+  script.referrerPolicy = 'no-referrer';
   document.head.appendChild(script);
   return new Promise((resolve, reject) => {
     script.onload = () => resolve(window.ExcelJS);
@@ -698,13 +753,36 @@ export const getLocation = (timeout = 12000) => new Promise((resolve, reject) =>
 // absen menggantung di status mengirim tanpa batas waktu.
 export const reverseGeocode = async (lat, lng) => {
   const ctrl = new AbortController();
-  const killer = setTimeout(() => ctrl.abort(), 6000);
+  const killer = setTimeout(() => ctrl.abort(), 5500);
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=id`,
-      { headers: { 'Accept': 'application/json' }, signal: ctrl.signal });
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=18&addressdetails=1&accept-language=id`;
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' }, signal: ctrl.signal });
     if (!r.ok) return null;
     const j = await r.json();
-    return j?.display_name ? String(j.display_name) : null;
+    const a = j?.address || {};
+    const pick = (...keys) => keys.map(k => a[k]).find(v => v && String(v).trim()) || '';
+    const jalan = pick('road', 'pedestrian', 'footway', 'residential', 'path', 'street');
+    const nomor = pick('house_number');
+    const kelurahan = pick('village', 'suburb', 'neighbourhood', 'quarter', 'hamlet');
+    const kecamatan = pick('city_district', 'district', 'municipality', 'county');
+    const kota = pick('city', 'town', 'municipality', 'county', 'village');
+    const provinsi = pick('state', 'region', 'province');
+    const kodepos = pick('postcode');
+    const parts = [
+      jalan && nomor ? `${jalan} No. ${nomor}` : jalan,
+      kelurahan,
+      kecamatan ? `Kec. ${kecamatan}` : '',
+      kota ? `Kota/Kab. ${kota}` : '',
+      provinsi,
+      kodepos
+    ].filter(Boolean);
+    return {
+      displayName: parts.join(', ') || String(j?.display_name || ''),
+      jalan: jalan || null, nomor: nomor || null, kelurahan: kelurahan || null,
+      kecamatan: kecamatan || null, kota: kota || null, provinsi: provinsi || null,
+      kodepos: kodepos || null, lat: Number(lat), lng: Number(lng),
+      rawDisplayName: j?.display_name ? String(j.display_name) : null
+    };
   } catch (e) { return null; }
   finally { clearTimeout(killer); }
 };
@@ -924,8 +1002,18 @@ export const ROLE_META = {
   inventory:  { label: 'Inventory',  atasan: false },
   kasir:      { label: 'Kasir',      atasan: false },
 };
-export const roleLabelOfV15 = (r) => (ROLE_META[r] || ROLE_META.kasir).label;
-export const isAtasanRole = (r) => !!(ROLE_META[r] || ROLE_META.kasir).atasan;
+// v20: label role mendukung custom role bila daftar setting diberikan.
+export const roleLabelOfV15 = (r, settingsRows) => {
+  if (settingsRows) {
+    const lbl = rbacRoleLabel(r, settingsRows);
+    if (lbl && lbl !== 'Karyawan') return lbl;
+  }
+  return (ROLE_META[r] || rbacRoleMeta(r) || ROLE_META.kasir).label;
+};
+export const isAtasanRole = (r, settingsRows) => {
+  if (settingsRows) return rbacIsAtasan(r, settingsRows);
+  return !!(ROLE_META[r] || rbacRoleMeta(r) || ROLE_META.kasir).atasan;
+};
 
 const P = PERMISSIONS.map(p => p.key);
 export const ROLE_PRESETS = {
@@ -940,44 +1028,43 @@ export const ROLE_PRESETS = {
   kasir:      ['dashboard.view','pos.use'],
 };
 
+// ============================================================
+// v20 BRIDGE — API lama (matrix flat) didelegasikan ke WELP CORE
+// (welp-core/rbac.js). Matrix yang dikembalikan kini SUDAH termasuk
+// custom role buatan Owner; key legacy di-expand otomatis saat
+// permsOf() dipanggil sehingga guard granular tetap berjalan.
+// ============================================================
+import {
+  allRoleDefs as rbacAllRoleDefs, getRbacConfig as rbacGetConfig,
+  expandPerms as rbacExpand, ROLE_META_V20 as RBAC_META_V20,
+  roleLabelOf as rbacRoleLabel, isAtasanRole as rbacIsAtasan,
+  NAV_PERMS_V20,
+} from './welp-core/rbac.js';
+
+const rbacRoleMeta = (r) => RBAC_META_V20[r] || null;
+
 // Preset lama dgn field 'roles' di NAV (array role string) tetap
 // dipertahankan sbg fallback ketika tenant belum mengatur matrix.
 export const getRolesMatrix = (settingsRows) => {
   const rec = (settingsRows || []).find(s => s.key === 'roles');
   const base = (rec && rec.matrix && typeof rec.matrix === 'object') ? rec.matrix : {};
-  return { ...ROLE_PRESETS, ...base };
+  const custom = Array.isArray(rec?.customRoles) ? rec.customRoles : [];
+  const defs = rbacAllRoleDefs({ legacyMatrix: base, customRoles: custom });
+  const out = {};
+  Object.values(defs).forEach(d => { out[d.key] = d.permissions; });
+  return out;
 };
 export const permsOf = (role, matrix) => {
-  const m = matrix || ROLE_PRESETS;
-  return new Set(m[role] || m.kasir || []);
+  // GUARD v20: arg ke-2 bisa bukan array/object (mis. index dari
+  // Array.map(permsOf)) — perlakukan sbg matrix kosong, jangan crash.
+  const m = (matrix && typeof matrix === 'object' && !Array.isArray(matrix)) ? matrix : ROLE_PRESETS;
+  return rbacExpand(m[role] || m.kasir || m.employee || []);
 };
 export const canDo = (perms, key) => !!(perms && perms.has && perms.has(key));
 
-// Peta menu → permission (untuk shell/nav). null = semua boleh.
-export const NAV_PERMS = {
-  home: 'dashboard.view',
-  pos: 'pos.use',
-  calc: 'product.manage',
-  history: 'report.financial',
-  cashout: 'report.financial',
-  discount: 'pos.use',
-  stock: 'inventory.manage',
-  opname: 'inventory.manage',
-  inout: 'purchasing.manage',
-  stockhistory: 'inventory.manage',
-  supplier: 'purchasing.manage',
-  report: 'report.financial',
-  employee: 'branch.manage',
-  karyawan: 'employee.manage',
-  absensi: 'attendance.manage',
-  payroll: 'payroll.manage',
-  perusahaan: 'settings.manage',
-  outlet: 'branch.manage',
-  profile: 'settings.manage',
-  payment: 'settings.manage',
-  hardware: 'settings.manage',
-  settings: 'settings.manage',
-};
+// Peta menu → permission granular v20 (untuk shell/nav baru).
+// Kompatibel: Set permission berisi key legacy + granular sekaligus.
+export const NAV_PERMS = NAV_PERMS_V20;
 
 // Kategori keterlambatan relatif jam masuk + toleransi.
 // return { telatMin, status: 'tepat'|'telat' }
@@ -1048,7 +1135,7 @@ export const trustedSourceLabel = () => (_timeOffset != null ? 'server' : 'peran
 // Foto absensi diberi stempel dari data sistem (bukan input manual):
 // logo & nama WELP, nama perusahaan + cabang, tanggal & jam (waktu
 // terpercaya), koordinat GPS bila tersedia, nama karyawan & jenis absen.
-export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, type, atMs, geo, trusted, logo }) => {
+export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, employeeId, type, atMs, geo, trusted, logo, address }) => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onerror = () => resolve(dataUrl);          // gagal render → foto polos tetap dipakai
@@ -1125,11 +1212,14 @@ export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, ty
         ctx.fillStyle = '#FFFFFF';
         ctx.fillText(chip, chx + Math.round(7 * u), chy + chh / 2 + 1);
 
-        // karyawan (kanan, di bawah chip)
+        // karyawan + Employee ID (kanan, di bawah chip)
         ctx.textAlign = 'right';
         ctx.fillStyle = '#FFFFFF';
         ctx.font = `800 ${Math.round(11.5 * u)}px Arial, sans-serif`;
         ctx.fillText(String(employeeName || '').slice(0, 24), W - pad, chy + chh + Math.round(14 * u));
+        ctx.fillStyle = 'rgba(255,255,255,.72)';
+        ctx.font = `700 ${Math.round(9 * u)}px Arial, sans-serif`;
+        ctx.fillText(`ID ${String(employeeId || '-').slice(0, 22)}`, W - pad, chy + chh + Math.round(26 * u));
 
         // baris data: tanggal · jam · GPS
         const d = new Date(atMs || Date.now());
@@ -1142,9 +1232,14 @@ export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, ty
         ctx.fillStyle = 'rgba(255,255,255,.92)';
         ctx.font = `700 ${Math.round(11 * u)}px Arial, sans-serif`;
         ctx.fillText(`${tgl} ${jam} WIB`, pad, cv.height - Math.round(26 * u));
-        ctx.fillStyle = 'rgba(255,255,255,.62)';
-        ctx.font = `600 ${Math.round(9 * u)}px Arial, sans-serif`;
-        ctx.fillText(gps + (trusted ? '  (waktu terverifikasi)' : ''), pad, cv.height - Math.round(10 * u));
+        ctx.fillStyle = 'rgba(255,255,255,.76)';
+        ctx.font = `600 ${Math.round(8.6 * u)}px Arial, sans-serif`;
+        const addr = address?.displayName || address || '';
+        const addrText = addr ? String(addr).slice(0, 92) : 'Alamat lokasi sedang diproses...';
+        ctx.fillText(addrText, pad, cv.height - Math.round(10 * u));
+        ctx.fillStyle = 'rgba(255,255,255,.52)';
+        ctx.font = `600 ${Math.round(7.6 * u)}px Arial, sans-serif`;
+        ctx.fillText(gps + (trusted ? '  (waktu terverifikasi)' : ''), pad, cv.height - Math.round(1.5 * u));
 
         resolve(cv.toDataURL('image/jpeg', 0.72));
       } catch (e) { resolve(dataUrl); }
@@ -1510,7 +1605,7 @@ export const useBranding = (licenseInfo) => {
 // brand, rincian penerimaan & potongan, stempel status, blok
 // approval digital, QR verifikasi, dan area tanda tangan.
 // ============================================================
-export const buildSlipHtml = ({ rec, company = 'Perusahaan', profile = {}, roleLabel = 'Karyawan', qr = null }) => {
+export const buildSlipHtml = async ({ rec, company = 'Perusahaan', profile = {}, roleLabel = 'Karyawan', qr = null }) => {
   const t = trustedTime(rec);
   const brand = readBrandMirror();
   const logo = brand?.logo || null;
@@ -1539,7 +1634,11 @@ export const buildSlipHtml = ({ rec, company = 'Perusahaan', profile = {}, roleL
     + (c.lembur ? row('Lembur', formatIDR(c.lembur)) : '');
   const potongan = c.potongan ? row('Potongan', '- ' + formatIDR(c.potongan)) : '';
   // v15.3: QR verifikasi di-generate LOKAL (qrDataUrl) dan dikirim siap-pakai
-  const qrImg = qr || qrUrl(`WELP-SLIP|${no}|${esc(company)}|${esc(rec.employeeName || '')}|${esc(rec.period || '')}|${formatIDR(rec.amount)}`, 96);
+  // v20 FIX: qrUrl tidak pernah ada (ReferenceError runtime yang
+  // mematikan cetak slip). QR kini di-generate lokal via qrDataUrl
+  // (async) — buildSlipHtml menjadi async dan seluruh pemanggil
+  // wajib men-await hasilnya sebelum document.write.
+  const qrImg = qr || await qrDataUrl(`WELP-SLIP|${no}`, 96);
   return '<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Slip Gaji ' + esc(rec.employeeName) + ' ' + esc(rec.period) + '</title><style>'
     + '*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#E9ECF1;padding:24px;color:#14181D;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
     + '.slip{max-width:520px;margin:auto;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 24px 60px -24px rgba(13,15,18,.4);position:relative}'

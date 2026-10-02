@@ -26,7 +26,7 @@
 //   • actionCodeSettings.url → balik ke panel, bukan halaman kosong.
 // ============================================================
 import React, { useState, useEffect, useReducer } from 'react';
-import { db, auth, fileToDataUrl, hexToTriplet, writeBrandMirror, makeCred, anonAuthBlocked } from './core.jsx';
+import { db, auth, fileToDataUrl, hexToTriplet, writeBrandMirror, makeCred, anonAuthBlocked, callWelpCreateIdentity, callWelpVerificationLink } from './core.jsx';
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, sendEmailVerification, applyActionCode
 } from 'firebase/auth';
@@ -62,6 +62,7 @@ export const DeveloperPanel = () => {
   const [tenantId, setTenantId] = useState('');
   const [password, setPassword] = useState('');
   const [ownerPin, setOwnerPin] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
   const [licType, setLicType] = useState('BASIC');
   const [durVal, setDurVal] = useState(1);
   const [durUnit, setDurUnit] = useState('month');
@@ -191,11 +192,12 @@ export const DeveloperPanel = () => {
   };
 
   const saveTenant = async () => {
-    if (!storeName || !tenantId || !password || !ownerPin) return showToast('Data belum lengkap!');
+    if (!storeName || !tenantId || !password || !ownerPin || !ownerEmail) return showToast('Nama toko, email owner, password, PIN, dan ID tenant wajib diisi!');
     // v15.2: kebijakan kredensial — PIN 6 digit & password min. 8 char
     // (PIN pendek = brute-force offline murah walau pakai PBKDF2).
     if (!/^\d{6}$/.test(ownerPin)) return showToast('Owner PIN wajib tepat 6 digit angka (pakai tombol Acak).');
     if (password.length < 8) return showToast('Password minimal 8 karakter (pakai tombol Acak).');
+    if (!/^\S+@\S+\.\S+$/.test(ownerEmail.trim())) return showToast('Email owner tidak valid.');
     if (!/^[a-z0-9._-]{3,}$/i.test(tenantId)) return showToast('ID Tenant min. 3 karakter: huruf/angka/._- tanpa spasi.');
     setSaving(true);
     const date = new Date();
@@ -209,15 +211,24 @@ export const DeveloperPanel = () => {
       // tersimpan, tidak bisa dilihat lagi dari panel ini.
       const credPass = await makeCred(password);
       const credPin = await makeCred(ownerPin);
+      const ownerPermissions = [
+        'dashboard.read','sales.read','sales.write','sales.refund','inventory.read','inventory.write','inventory.adjust',
+        'employee.read','employee.write','attendance.read','attendance.write','payroll.read','payroll.write','payroll.approve',
+        'finance.read','finance.write','reports.read','settings.read','settings.write','audit.read','company.manage','branch.manage'
+      ];
       await setDoc(doc(db, 'licenses', tenantId.toLowerCase()), {
         id: tenantId.toLowerCase(), credPass, credPin, tenant: storeName, type: licType,
         active: true, validUntil: date.toISOString(), createdAt: new Date().toISOString(),
+        ownerEmail: ownerEmail.trim().toLowerCase(), authVersion: 2,
         createdBy: auth.currentUser ? auth.currentUser.email : 'unknown'
       });
+      // Enterprise identity: Firebase Auth + server-side custom claims.
+      const identity = await callWelpCreateIdentity({ email: ownerEmail.trim().toLowerCase(), password, tenant: tenantId.toLowerCase(), role: 'owner', permissions: ownerPermissions });
+      const verification = await callWelpVerificationLink(ownerEmail.trim().toLowerCase());
       // v15.1: kredensial ditampilkan SEKALI di modal — salin/catat dulu
       // sebelum menutup. Setelah ini tersimpan hash, tidak bisa dilihat lagi.
-      setJustMade({ id: tenantId.toLowerCase(), tenant: storeName, pass: password, pin: ownerPin });
-      setStoreName(''); setTenantId(''); setPassword(''); setOwnerPin('');
+      setJustMade({ id: tenantId.toLowerCase(), tenant: storeName, email: ownerEmail.trim().toLowerCase(), pass: password, pin: ownerPin, verificationLink: verification?.verificationLink || '', uid: identity?.uid || '' });
+      setStoreName(''); setTenantId(''); setPassword(''); setOwnerPin(''); setOwnerEmail('');
     } catch (e) { showToast('Gagal simpan: ' + e.message); }
     setSaving(false);
   };
@@ -462,6 +473,11 @@ export const DeveloperPanel = () => {
               <label className="kicker block mb-1 ml-0.5">ID Tenant (username login)</label>
               <input value={tenantId} onChange={(e) => setTenantId(e.target.value)} className="field lowercase" />
             </div>
+            <div>
+              <label className="kicker block mb-1 ml-0.5">Email Owner</label>
+              <input value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} type="email" placeholder="owner@perusahaan.com" className="field" autoComplete="email" />
+              <p className="text-[10px] text-ink-faint mt-1.5 font-bold">Dipakai sebagai identitas login WELP. Email wajib diverifikasi sebelum akun dapat masuk.</p>
+            </div>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className="kicker block mb-1 ml-0.5">Password</label>
@@ -656,6 +672,7 @@ export const DeveloperPanel = () => {
             </div>
             <div className="space-y-2.5 mb-4">
               {[
+                { label: 'Email Owner', val: justMade.email, key: 'email' },
                 { label: 'ID Tenant', val: justMade.id, key: 'id' },
                 { label: 'Password', val: justMade.pass, key: 'pass' },
                 { label: 'Owner PIN', val: justMade.pin, key: 'pin' }
@@ -672,6 +689,11 @@ export const DeveloperPanel = () => {
               ))}
             </div>
             <p className="text-[10px] text-brick font-extrabold flex items-start gap-1.5 mb-4 leading-relaxed"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Ini SATU-SATUNYA kali kredensial tampil. Setelah modal ditutup, tersimpan sebagai hash dan tidak bisa dilihat lagi.</p>
+            {justMade.verificationLink && <div className="mb-4 p-3 rounded-2xl bg-gold-soft dark:bg-gold/10 border border-gold/30">
+              <p className="kicker mb-1">Link verifikasi owner</p>
+              <p className="text-[10px] font-bold text-ink-faint break-all line-clamp-3">Kirim link ini ke email owner, lalu owner harus menyelesaikan verifikasi sebelum login.</p>
+              <button onClick={() => copyText(justMade.verificationLink, 'jm-verif')} className="mt-2 w-full py-2 rounded-xl bg-gold text-white text-[10px] font-extrabold press">{copiedId === 'jm-verif' ? 'Tersalin' : 'Salin link verifikasi'}</button>
+            </div>}
             <button onClick={() => setJustMade(null)} className="w-full py-3 rounded-2xl bg-flame-600 hover:bg-flame-500 text-white font-extrabold text-sm press shadow-card">Saya sudah catat & salin</button>
           </div>
         </div>

@@ -1,0 +1,253 @@
+rules_version = '2';
+
+// ============================================================
+// WELP Enterprise Firestore Rules v4 (WELP Core v20)
+// ------------------------------------------------------------
+// Model otorisasi:
+//   1. TENANT ISOLATION  — request.auth.token.welpTenant == lic
+//   2. PERMISSION GATE   — granular v20 di token.welpPermissions
+//                          (key legacy v18 tetap diterima)
+//   3. SCOPE ORGANISASI  — token.welpScope: org|region|branch|self
+//                          + token.welpRegions[] / welpBranches[]
+//   4. APP CHECK         — request.app != null (fail closed)
+//   5. IMMUTABLE DATA    — absensi & audit_log append-only;
+//                          payroll tidak bisa dihapus klien.
+//
+// CATATAN DEPLOY:
+//   Rules ini aman dipakai SETELAH seluruh user dimigrasi ke
+//   Akun WELP (Firebase Auth + claims). Selama masa transisi,
+//   pertahankan firestore.rules (compatibility) yang aktif.
+//   Semua koleksi tenant yang dipakai aplikasi sudah terdaftar
+//   eksplisit di sini — tidak ada catch-all allow.
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function appChecked() { return request.app != null; }
+    function hasTenant(lic) {
+      return signedIn() && appChecked() && request.auth.token.welpTenant == lic;
+    }
+    function permission(p) {
+      return signedIn() && appChecked()
+        && (p in request.auth.token.welpPermissions);
+    }
+    // legacy alias: dashboard.view ~ dashboard.read dsb. sudah di-include
+    // di whitelist claims v20, sehingga permission() cukup.
+    function tenantWrite(lic, p) {
+      return hasTenant(lic) && permission(p);
+    }
+    function tenantRead(lic, p) {
+      return hasTenant(lic) && permission(p);
+    }
+    function immutableCreate(lic, p) {
+      return hasTenant(lic) && permission(p)
+        && request.resource.data.tenantId == lic;
+    }
+
+    // Scope: apakah doc berada dalam cakupan wilayah user?
+    // (opsional jika doc menyertakan branchId; docs tanpa branchId
+    //  dibiarkan pada permission gate — scope UI memfilter tampilan.)
+    function branchInClaimScope(lic) {
+      return hasTenant(lic)
+        && (!('branchId' in request.resource.data)
+            || request.resource.data.branchId == null
+            || request.resource.data.branchId in request.auth.token.welpBranches
+            || request.auth.token.welpScope == 'org');
+    }
+
+    // ---------- Lisensi & log ----------
+    match /licenses/{lic} {
+      allow get: if hasTenant(lic);
+      allow list, create, update, delete: if false;
+    }
+
+    match /logs/{id} {
+      allow create: if signedIn() && appChecked();
+      allow read, update, delete: if false;
+    }
+
+    // ---------- Identitas karyawan ----------
+    match /tenants/{lic}/karyawan/{id} {
+      allow read: if tenantRead(lic, 'employee.read') || tenantRead(lic, 'employee.view')
+        // karyawan boleh membaca record miliknya (Employee Area)
+        || (hasTenant(lic) && (resource.data.uid == request.auth.uid
+            || (resource.data.email != null && resource.data.email == request.auth.token.email)));
+      allow create, update: if (tenantWrite(lic, 'employee.write') || tenantWrite(lic, 'employee.manage'))
+        && request.resource.data.tenantId == lic;
+      allow delete: if (tenantWrite(lic, 'employee.write') || tenantWrite(lic, 'employee.manage'))
+        && request.auth.token.welpCanDelete == true;
+    }
+
+    // ---------- Absensi (immutable, evidence hardened) ----------
+    match /tenants/{lic}/absensi/{id} {
+      allow read: if tenantRead(lic, 'attendance.read') || tenantRead(lic, 'attendance.view') ||
+        (hasTenant(lic) && resource.data.employeeUid == request.auth.uid);
+      allow create: if immutableCreate(lic, 'attendance.write')
+        && request.resource.data.status == 'verified'
+        && request.resource.data.evidenceVersion == 2
+        && request.resource.data.captureMode == 'welp-camera'
+        && request.resource.data.liveMotionCheck == true
+        && request.resource.data.geoStatus == 'verified'
+        && request.resource.data.far == false
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.acc is number
+        && request.resource.data.acc >= 0
+        && request.resource.data.acc <= 100
+        && request.resource.data.photoHash is string
+        && request.resource.data.photoHash.matches('^[0-9a-f]{64}$')
+        && request.resource.data.captureId is string
+        && request.resource.data.employeeCid is string
+        && request.resource.data.branchId is string
+        && request.resource.data.type in ['in', 'out']
+        && request.resource.data.serverAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // ---------- Payroll ----------
+    match /tenants/{lic}/payroll/{id} {
+      allow read: if tenantRead(lic, 'payroll.read') || tenantRead(lic, 'payroll.view') ||
+        (hasTenant(lic) && resource.data.employeeUid == request.auth.uid);
+      allow create, update: if (tenantWrite(lic, 'payroll.write') || tenantWrite(lic, 'payroll.manage'))
+        && request.resource.data.tenantId == lic;
+      allow delete: if false;
+    }
+
+    // ---------- Pengajuan cuti/izin ----------
+    match /tenants/{lic}/pengajuan/{id} {
+      allow read: if tenantRead(lic, 'attendance.read') || tenantRead(lic, 'attendance.view') ||
+        (hasTenant(lic) && resource.data.employeeCid != null);
+      allow create: if hasTenant(lic) && branchInClaimScope(lic)
+        && request.resource.data.status == 'DIAJUKAN';
+      allow update: if tenantWrite(lic, 'attendance.manage') || tenantWrite(lic, 'attendance.approve');
+      allow delete: if false;
+    }
+
+    // ---------- Pengaturan (doc 'roles', 'branding', dll) ----------
+    match /tenants/{lic}/pengaturan/{id} {
+      allow read: if hasTenant(lic) && (permission('settings.read') || permission('settings.view') || permission('company.manage'));
+      allow create, update: if hasTenant(lic) && (permission('settings.write') || permission('settings.manage') || permission('company.manage') || permission('roles.manage'))
+        && request.resource.data.tenantId == lic;
+      allow delete: if false;
+    }
+
+    // ---------- Organisasi: region & cabang ----------
+    match /tenants/{lic}/regions/{id} {
+      allow read: if hasTenant(lic);
+      allow create, update: if tenantWrite(lic, 'org.manage')
+        && request.resource.data.tenantId == lic;
+      allow delete: if tenantWrite(lic, 'org.manage') && request.auth.token.welpCanDelete == true;
+    }
+
+    match /tenants/{lic}/cabang/{id} {
+      allow read: if hasTenant(lic) && (permission('branch.manage') || permission('branch.view') || permission('dashboard.view') || permission('dashboard.read'));
+      allow create, update: if tenantWrite(lic, 'branch.manage')
+        && request.resource.data.tenantId == lic;
+      allow delete: if tenantWrite(lic, 'branch.manage') && request.auth.token.welpCanDelete == true;
+    }
+
+    // ---------- Stations ----------
+    match /tenants/{lic}/stations/{id} {
+      allow read: if hasTenant(lic);
+      allow create, update: if tenantWrite(lic, 'branch.manage')
+        && request.resource.data.tenantId == lic;
+      allow delete: if tenantWrite(lic, 'branch.manage') && request.auth.token.welpCanDelete == true;
+    }
+
+    // ---------- Operasional: produk, bahan, resep, stok ----------
+    match /tenants/{lic}/produk/{id} {
+      allow read: if tenantRead(lic, 'inventory.read') || tenantRead(lic, 'product.view');
+      allow create, update: if tenantWrite(lic, 'inventory.write') || tenantWrite(lic, 'product.manage');
+      allow delete: if (tenantWrite(lic, 'inventory.write') || tenantWrite(lic, 'product.manage'))
+        && request.auth.token.welpCanDelete == true;
+    }
+    match /tenants/{lic}/bahan/{id} {
+      allow read: if tenantRead(lic, 'inventory.read') || tenantRead(lic, 'product.view');
+      allow create, update: if tenantWrite(lic, 'inventory.write') || tenantWrite(lic, 'product.manage');
+      allow delete: if tenantWrite(lic, 'inventory.write') && request.auth.token.welpCanDelete == true;
+    }
+    match /tenants/{lic}/resep/{id} {
+      allow read: if tenantRead(lic, 'inventory.read') || tenantRead(lic, 'product.view');
+      allow create, update: if tenantWrite(lic, 'product.manage') || tenantWrite(lic, 'inventory.write');
+      allow delete: if tenantWrite(lic, 'product.manage') && request.auth.token.welpCanDelete == true;
+    }
+    match /tenants/{lic}/stok/{id} {
+      allow read: if tenantRead(lic, 'inventory.read') || tenantRead(lic, 'inventory.view');
+      allow create, update: if tenantWrite(lic, 'inventory.adjust');
+      allow delete: if false;
+    }
+    match /tenants/{lic}/riwayat_stok/{id} {
+      allow read: if tenantRead(lic, 'inventory.read') || tenantRead(lic, 'inventory.view');
+      allow create: if tenantWrite(lic, 'inventory.adjust');
+      allow update, delete: if false;
+    }
+
+    // ---------- Penjualan & self order ----------
+    match /tenants/{lic}/penjualan/{id} {
+      allow read: if tenantRead(lic, 'sales.read') || tenantRead(lic, 'report.view');
+      allow create: if tenantWrite(lic, 'sales.write');
+      allow update: if tenantWrite(lic, 'sales.write') || tenantWrite(lic, 'sales.refund') || tenantWrite(lic, 'refund.perform');
+      allow delete: if false;
+    }
+    match /tenants/{lic}/self_orders/{id} {
+      allow read, create, update: if hasTenant(lic);
+      allow delete: if tenantWrite(lic, 'sales.refund');
+    }
+
+    // ---------- Keuangan ----------
+    match /tenants/{lic}/kas_keluar/{id} {
+      allow read: if tenantRead(lic, 'finance.read') || tenantRead(lic, 'finance.view') || tenantRead(lic, 'reports.read');
+      allow create, update: if tenantWrite(lic, 'finance.write') || tenantWrite(lic, 'finance.manage');
+      allow delete: if (tenantWrite(lic, 'finance.write') || tenantWrite(lic, 'finance.manage'))
+        && request.auth.token.welpCanDelete == true;
+    }
+
+    // ---------- Supplier ----------
+    match /tenants/{lic}/supplier/{id} {
+      allow read: if hasTenant(lic);
+      allow create, update: if tenantWrite(lic, 'purchasing.manage');
+      allow delete: if tenantWrite(lic, 'purchasing.manage') && request.auth.token.welpCanDelete == true;
+    }
+
+    // ---------- CRM ----------
+    match /tenants/{lic}/customers/{id} {
+      allow read: if tenantRead(lic, 'crm.view') || tenantRead(lic, 'pos.use');
+      allow create, update: if tenantWrite(lic, 'crm.create') || tenantWrite(lic, 'crm.edit') || tenantWrite(lic, 'crm.manage');
+      allow delete: if tenantWrite(lic, 'crm.delete') || (tenantWrite(lic, 'crm.manage') && request.auth.token.welpCanDelete == true);
+    }
+
+    // ---------- Pengumuman (Employee Area) ----------
+    match /tenants/{lic}/pengumuman/{id} {
+      allow read: if hasTenant(lic);
+      allow create, update: if tenantWrite(lic, 'settings.manage') || tenantWrite(lic, 'employee.manage');
+      allow delete: if tenantWrite(lic, 'employee.manage') && request.auth.token.welpCanDelete == true;
+    }
+
+    // ---------- Dokumen perusahaan ----------
+    match /tenants/{lic}/dokumen/{id} {
+      allow read: if hasTenant(lic);
+      allow create, update: if tenantWrite(lic, 'settings.manage') || tenantWrite(lic, 'employee.manage');
+      allow delete: if tenantWrite(lic, 'employee.manage') && request.auth.token.welpCanDelete == true;
+    }
+
+    // ---------- Audit log (append-only) ----------
+    match /tenants/{lic}/audit_log/{id} {
+      allow read: if tenantRead(lic, 'audit.read') || tenantRead(lic, 'audit.view');
+      allow create: if hasTenant(lic)
+        && request.resource.data.tenantId == lic;
+      allow update, delete: if false;
+    }
+
+    // Orders (keranjang aktif antar device)
+    match /tenants/{lic}/orders/{id} {
+      allow read, write: if hasTenant(lic);
+    }
+
+    // ---------- Explicitly deny all other tenant collections ----------
+    match /tenants/{lic}/{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

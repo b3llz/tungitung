@@ -122,6 +122,20 @@ h1, h2, h3 { font-family: 'Baloo 2', 'Nunito', sans-serif; letter-spacing: -0.01
   }
 }
 
+
+/* ---- INTERACTION / ACCESSIBILITY -------------------------------- */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid rgb(var(--fl-400) / .42);
+  outline-offset: 2px;
+}
+button:disabled { cursor: not-allowed; }
+::selection { background: rgb(var(--fl-200) / .65); color: #14181D; }
+
+@media (max-width: 639px) {
+  .field { min-height: 44px; }
+  button { -webkit-tap-highlight-color: transparent; }
+}
+
 /* ---- ANIMASI --------------------------------------------------- */
 @keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
 @keyframes slide-up { from { opacity:0; transform: translateY(18px) } to { opacity:1; transform: translateY(0) } }
@@ -151,6 +165,15 @@ h1, h2, h3 { font-family: 'Baloo 2', 'Nunito', sans-serif; letter-spacing: -0.01
 }
 .spinner-dark { border-color: rgba(27,31,36,.15); border-top-color: #B23508; }
 
+/* Premium receipt primitives */
+.receipt-code { height: 24px; display:flex; align-items:flex-end; justify-content:center; gap:2px; overflow:hidden; }
+.receipt-code i { display:block; width:2px; background:#14181D; border-radius:1px; }
+@media print {
+  .receipt-paper { width: 100%; max-width: 80mm; margin: 0 auto; padding: 5mm !important; font-size: 10px !important; }
+  .receipt-paper img { max-width: 34mm; }
+  .receipt-code { break-inside: avoid; }
+}
+
 /* ---- PRINT (struk kasir) --------------------------------------- */
 @media print {
   @page { margin: 0; size: auto; }
@@ -178,4 +201,40 @@ h1, h2, h3 { font-family: 'Baloo 2', 'Nunito', sans-serif; letter-spacing: -0.01
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ---- PRODUCT UX PRIMITIVES v7 --------------------------------- */
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+
+.touch-target { min-width: 44px; min-height: 44px; }
+.toast-stack {
+  position: fixed; z-index: 10000; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast-stack > * { pointer-events: auto; }
+.toast {
+  width: min(100%, 420px); margin: 0 auto; border: 1px solid rgb(27 31 36 / .10);
+  border-radius: 16px; padding: 12px 14px; background: rgb(255 255 255 / .96);
+  box-shadow: 0 18px 45px -24px rgb(0 0 0 / .45); backdrop-filter: blur(16px);
+}
+.dark .toast { background: rgb(28 32 39 / .96); border-color: rgb(255 255 255 / .10); }
+.skeleton {
+  position: relative; overflow: hidden; background: rgb(127 137 149 / .13); border-radius: 12px;
+}
+.skeleton::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / .38), transparent);
+  animation: skeleton-shimmer 1.35s infinite;
+}
+.empty-state { min-height: 180px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px; }
+@keyframes skeleton-shimmer { to { transform: translateX(100%); } }
+
+@media print {
+  .receipt-paper { break-inside: avoid; }
+  .receipt-paper * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none !important; }
 }

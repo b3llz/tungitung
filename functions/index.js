@@ -8,15 +8,57 @@ setGlobalOptions({ region: 'asia-southeast2', maxInstances: 20 });
 const db = admin.firestore();
 const auth = admin.auth();
 
-const ROLES = new Set(['owner', 'director', 'manager', 'supervisor', 'hr', 'finance', 'cashier', 'employee']);
+// ============================================================
+// WELP CORE BACKEND v20
+// ------------------------------------------------------------
+// v20 PERUBAHAN:
+//  1. ROLE CUSTOM — whitelist ROLES lama dihapus; role kini key
+//     bebas [a-z0-9_-]{2,32} buatan Owner (Area Manager, HRD,
+//     Accounting, Auditor, dst). Yang tetap dikunci: PERMISSIONS
+//     whitelist (superset granular v20).
+//  2. SCOPE ORGANISASI — claims baru: welpRegions[], welpBranches[],
+//     welpDepartment, welpScope ('org'|'region'|'branch'|'self')
+//     → dipakai Firestore Rules & getWelpSession untuk scope
+//     Pusat → Region → Cabang.
+//  3. updateWelpUserAssignment — callable agar Owner/Direktur
+//     mengganti assignment user (role/region/cabang/department)
+//     TANPA menyentuh password & TANPA membuat ulang cabang;
+//     penuh audit trail. Inilah alur "Area Manager resign/pindah
+//     wilayah → pusat cukup mengganti assignment".
+// ============================================================
+
 const PERMISSIONS = new Set([
+  // legacy v18 keys (kompatibilitas claims lama)
   'dashboard.read', 'sales.read', 'sales.write', 'sales.refund',
   'inventory.read', 'inventory.write', 'inventory.adjust',
   'employee.read', 'employee.write', 'attendance.read', 'attendance.write',
   'payroll.read', 'payroll.write', 'payroll.approve',
   'finance.read', 'finance.write', 'reports.read', 'settings.read', 'settings.write',
-  'audit.read', 'company.manage', 'branch.manage'
+  'audit.read', 'company.manage', 'branch.manage',
+  // v20 granular keys (serverPermKeys di welp-core/rbac.js)
+  'employee.self',
+  'dashboard.view',
+  'pos.view', 'pos.use',
+  'product.view', 'product.create', 'product.edit', 'product.delete', 'product.manage', 'product.export',
+  'inventory.view', 'inventory.create', 'inventory.edit', 'inventory.delete', 'inventory.adjust', 'inventory.manage', 'inventory.export',
+  'purchasing.view', 'purchasing.create', 'purchasing.edit', 'purchasing.delete', 'purchasing.manage', 'purchasing.export',
+  'crm.view', 'crm.create', 'crm.edit', 'crm.delete', 'crm.manage', 'crm.export',
+  'finance.view', 'finance.create', 'finance.edit', 'finance.delete', 'finance.manage', 'finance.export',
+  'report.view', 'report.export',
+  'attendance.view', 'attendance.manage', 'attendance.approve', 'attendance.export', 'attendance.write',
+  'payroll.view', 'payroll.create', 'payroll.edit', 'payroll.delete', 'payroll.approve', 'payroll.manage', 'payroll.export',
+  'employee.view', 'employee.create', 'employee.edit', 'employee.delete', 'employee.manage', 'employee.export',
+  'branch.view', 'branch.create', 'branch.edit', 'branch.delete', 'branch.manage',
+  'org.view', 'org.create', 'org.edit', 'org.delete', 'org.manage',
+  'approval.view', 'approval.approve',
+  'audit.view', 'audit.export',
+  'roles.view', 'roles.manage',
+  'settings.view', 'settings.manage',
+  'refund.perform',
 ]);
+
+const ROLE_KEY_RE = /^[a-z0-9_-]{2,32}$/;
+const SCOPE_TYPES = new Set(['org', 'region', 'branch', 'self']);
 
 function requireAuth(request) {
   if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Login diperlukan.');
@@ -24,7 +66,12 @@ function requireAuth(request) {
 }
 
 function cleanPermissions(list) {
-  return Array.isArray(list) ? [...new Set(list.filter(p => PERMISSIONS.has(p)))].slice(0, 80) : [];
+  return Array.isArray(list) ? [...new Set(list.filter(p => PERMISSIONS.has(p)))].slice(0, 120) : [];
+}
+
+function cleanIdList(list, max = 60) {
+  if (!Array.isArray(list)) return [];
+  return [...new Set(list.map(x => String(x || '').trim()).filter(x => x && x.length <= 120))].slice(0, max);
 }
 
 function requireProvisioner(authContext) {
@@ -43,6 +90,33 @@ function requireProvisioner(authContext) {
   }
 }
 
+// Bangun claims lengkap (v20) dari input tervalidasi.
+function claimsFor({ tenant, role, branch = null, permissions = [], regions = [], branches = [], department = null, scope = 'org' }) {
+  const scopeType = SCOPE_TYPES.has(scope) ? scope : 'org';
+  return {
+    welpTenant: tenant,
+    welpRole: role,
+    welpBranch: branch || null,
+    welpRegions: cleanIdList(regions),
+    welpBranches: cleanIdList(branches),
+    welpDepartment: department ? String(department).slice(0, 60) : null,
+    welpScope: scopeType,
+    welpPermissions: cleanPermissions(permissions),
+    welpCanDelete: ['owner', 'direktur', 'director'].includes(role),
+    welpClaimsVersion: 3,
+    welpDisabled: false
+  };
+}
+
+async function writeAudit(tenant, payload) {
+  try {
+    await db.collection('tenants').doc(tenant).collection('audit_log').add({
+      ...payload,
+      serverAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (e) { /* audit best-effort */ }
+}
+
 exports.setWelpUserClaims = onCall(async (request) => {
   const caller = requireAuth(request);
   requireProvisioner(caller);
@@ -53,8 +127,11 @@ exports.setWelpUserClaims = onCall(async (request) => {
   const branch = data.branch == null ? null : String(data.branch).trim();
   const permissions = cleanPermissions(data.permissions);
 
-  if (!uid || !tenant || !ROLES.has(role)) {
-    throw new HttpsError('invalid-argument', 'uid, tenant, dan role wajib valid.');
+  if (!uid || !tenant) {
+    throw new HttpsError('invalid-argument', 'uid dan tenant wajib diisi.');
+  }
+  if (!ROLE_KEY_RE.test(role)) {
+    throw new HttpsError('invalid-argument', 'Role key tidak valid (2-32 karakter, huruf kecil/angka/_/-).');
   }
   if (tenant.length > 120 || !/^[A-Za-z0-9_-]+$/.test(tenant)) {
     throw new HttpsError('invalid-argument', 'Tenant ID tidak valid.');
@@ -65,44 +142,32 @@ exports.setWelpUserClaims = onCall(async (request) => {
     throw new HttpsError('failed-precondition', 'Akun target harus memiliki email terverifikasi.');
   }
 
-  const claims = {
-    welpTenant: tenant,
-    welpRole: role,
-    welpBranch: branch || null,
-    welpPermissions: permissions,
-    welpCanDelete: ['owner', 'director'].includes(role),
-    welpClaimsVersion: 1
-  };
+  const claims = claimsFor({
+    tenant, role, branch, permissions,
+    regions: data.regions, branches: data.branches,
+    department: data.department || null,
+    scope: data.scope || (Array.isArray(data.regions) && data.regions.length ? 'region' : 'org'),
+  });
   await auth.setCustomUserClaims(uid, claims);
 
-  await db.collection('tenants').doc(tenant).collection('audit_log').add({
+  await writeAudit(tenant, {
     action: 'AUTH_CLAIMS_UPDATED',
     targetUid: uid,
     targetEmail: target.email,
     role,
     branch,
+    regions: claims.welpRegions,
+    branches: claims.welpBranches,
+    scope: claims.welpScope,
     permissionCount: permissions.length,
     actorUid: caller.uid,
     actorEmail: caller.token.email || null,
-    serverAt: admin.firestore.FieldValue.serverTimestamp()
   });
 
-  return { ok: true, uid, tenant, role, branch, permissionCount: permissions.length };
+  return { ok: true, uid, tenant, role, branch, scope: claims.welpScope, permissionCount: permissions.length };
 });
 
 
-
-function claimsFor({ tenant, role, branch = null, permissions = [] }) {
-  return {
-    welpTenant: tenant,
-    welpRole: role,
-    welpBranch: branch || null,
-    welpPermissions: cleanPermissions(permissions),
-    welpCanDelete: ['owner', 'director'].includes(role),
-    welpClaimsVersion: 2,
-    welpDisabled: false
-  };
-}
 
 exports.createWelpIdentity = onCall(async (request) => {
   const caller = requireAuth(request);
@@ -117,7 +182,8 @@ exports.createWelpIdentity = onCall(async (request) => {
 
   if (!email || !/^\S+@\S+\.\S+$/.test(email)) throw new HttpsError('invalid-argument', 'Email akun tidak valid.');
   if (password.length < 8) throw new HttpsError('invalid-argument', 'Password akun minimal 8 karakter.');
-  if (!tenant || !ROLES.has(role)) throw new HttpsError('invalid-argument', 'Tenant dan role wajib valid.');
+  if (!tenant) throw new HttpsError('invalid-argument', 'Tenant wajib diisi.');
+  if (!ROLE_KEY_RE.test(role)) throw new HttpsError('invalid-argument', 'Role key tidak valid (2-32 karakter, huruf kecil/angka/_/-).');
 
   let user;
   try {
@@ -129,15 +195,20 @@ exports.createWelpIdentity = onCall(async (request) => {
     user = await auth.createUser({ email, password, emailVerified: false });
   }
 
-  const claims = claimsFor({ tenant, role, branch, permissions });
+  const claims = claimsFor({
+    tenant, role, branch, permissions,
+    regions: data.regions, branches: data.branches,
+    department: data.department || null,
+    scope: data.scope || (Array.isArray(data.regions) && data.regions.length ? 'region' : 'org'),
+  });
   await auth.updateUser(user.uid, { password });
   await auth.setCustomUserClaims(user.uid, claims);
-  await db.collection('tenants').doc(tenant).collection('audit_log').add({
+  await writeAudit(tenant, {
     action: 'AUTH_IDENTITY_PROVISIONED', targetUid: user.uid, targetEmail: email,
-    role, branch, permissionCount: permissions.length, actorUid: caller.uid,
-    serverAt: admin.firestore.FieldValue.serverTimestamp()
+    role, branch, regions: claims.welpRegions, branches: claims.welpBranches,
+    scope: claims.welpScope, permissionCount: permissions.length, actorUid: caller.uid,
   });
-  return { ok: true, uid: user.uid, email, ...claims };
+  return { ok: true, uid: user.uid, email, role, scope: claims.welpScope, ...{} };
 });
 
 
@@ -159,7 +230,7 @@ exports.getWelpSession = onCall(async (request) => {
   const token = caller.token || {};
   const tenant = String(token.welpTenant || '').trim();
   const role = String(token.welpRole || '').trim().toLowerCase();
-  if (!tenant || !ROLES.has(role) || token.welpDisabled === true) {
+  if (!tenant || !ROLE_KEY_RE.test(role) || token.welpDisabled === true) {
     throw new HttpsError('permission-denied', 'Akun WELP belum memiliki akses aktif.');
   }
   if (token.email_verified !== true) {
@@ -172,6 +243,13 @@ exports.getWelpSession = onCall(async (request) => {
   if (lic.validUntil && Date.now() > Date.parse(String(lic.validUntil))) {
     throw new HttpsError('permission-denied', 'Masa aktif tenant telah berakhir.');
   }
+  // v20: scope organisasi ikut dikirim — frontend (welp-core/rbac.js)
+  // memakai ini untuk menu, guard, dan filter data sesuai jenjang
+  // Pusat → Region → Cabang.
+  const regions = Array.isArray(token.welpRegions) ? token.welpRegions : [];
+  const branches = Array.isArray(token.welpBranches) ? token.welpBranches : [];
+  const scope = SCOPE_TYPES.has(token.welpScope) ? token.welpScope
+    : (role === 'employee' ? 'self' : 'org');
   return {
     uid: caller.uid,
     email: token.email || null,
@@ -184,6 +262,8 @@ exports.getWelpSession = onCall(async (request) => {
     currentUserRole: role,
     branchId: token.welpBranch || 'PUSAT',
     branchName: token.welpBranch || 'Pusat',
+    department: token.welpDepartment || null,
+    scope: { type: scope, regionIds: regions, branchIds: branches },
     welpPermissions: Array.isArray(token.welpPermissions) ? token.welpPermissions : [],
     authVersion: 2
   };
@@ -197,6 +277,92 @@ exports.revokeWelpUserClaims = onCall(async (request) => {
   const target = await auth.getUser(uid);
   await auth.setCustomUserClaims(uid, { welpClaimsVersion: 1, welpDisabled: true });
   return { ok: true, uid: target.uid, revoked: true };
+});
+
+// ============================================================
+// v20 — UPDATE ASSIGNMENT (reassignment alami antar wilayah)
+// ------------------------------------------------------------
+// Pemanggil WAJIB sesama tenant + owner/direktur, ATAU provisioner
+// resmi. Password target TIDAK disentuh sama sekali — hanya claims
+// assignment (role/region/cabang/department/permissions).
+// ============================================================
+exports.updateWelpUserAssignment = onCall(async (request) => {
+  const caller = requireAuth(request);
+  const token = caller.token || {};
+  const data = request.data || {};
+
+  const uid = String(data.uid || '').trim();
+  const tenant = String(data.tenant || token.welpTenant || '').trim();
+  if (!uid || !tenant) throw new HttpsError('invalid-argument', 'uid dan tenant wajib diisi.');
+
+  // Otorisasi pemanggil: sesama tenant & owner/direktur, atau provisioner.
+  const isProvisioner = token.welpCanProvision === true;
+  const isTenantBoss = token.welpTenant === tenant
+    && ['owner', 'direktur', 'director'].includes(String(token.welpRole || '').toLowerCase())
+    && token.welpDisabled !== true
+    && Array.isArray(token.welpPermissions) && token.welpPermissions.includes('roles.manage');
+  if (!isProvisioner && !isTenantBoss) {
+    throw new HttpsError('permission-denied', 'Hanya Owner/Direktur tenant yang dapat mengubah assignment.');
+  }
+
+  const role = String(data.role || '').trim().toLowerCase();
+  if (role && !ROLE_KEY_RE.test(role)) {
+    throw new HttpsError('invalid-argument', 'Role key tidak valid.');
+  }
+
+  const target = await auth.getUser(uid);
+  const targetToken = target.customClaims || {};
+  if (targetToken.welpTenant !== tenant) {
+    throw new HttpsError('permission-denied', 'Target bukan anggota tenant ini.');
+  }
+
+  const nextRole = role || String(targetToken.welpRole || 'employee');
+  const nextBranch = data.branch === undefined
+    ? (targetToken.welpBranch ?? null)
+    : (data.branch == null ? null : String(data.branch).trim());
+  const nextPermissions = data.permissions === undefined
+    ? (Array.isArray(targetToken.welpPermissions) ? targetToken.welpPermissions : [])
+    : cleanPermissions(data.permissions);
+  const nextRegions = data.regions === undefined
+    ? (Array.isArray(targetToken.welpRegions) ? targetToken.welpRegions : [])
+    : cleanIdList(data.regions);
+  const nextBranches = data.branches === undefined
+    ? (Array.isArray(targetToken.welpBranches) ? targetToken.welpBranches : [])
+    : cleanIdList(data.branches);
+  const nextDepartment = data.department === undefined
+    ? (targetToken.welpDepartment || null)
+    : (data.department ? String(data.department).slice(0, 60) : null);
+  const nextScope = data.scope || (nextRegions.length ? 'region'
+    : (nextBranches.length && !['owner', 'direktur', 'director', 'hr', 'finance', 'accounting', 'auditor'].includes(nextRole) ? 'branch' : 'org'));
+
+  const claims = claimsFor({
+    tenant, role: nextRole, branch: nextBranch, permissions: nextPermissions,
+    regions: nextRegions, branches: nextBranches, department: nextDepartment, scope: nextScope,
+  });
+  // Pertahankan status disabled target bila ada.
+  if (targetToken.welpDisabled === true) claims.welpDisabled = true;
+
+  await auth.setCustomUserClaims(uid, claims);
+  await writeAudit(tenant, {
+    action: 'AUTH_ASSIGNMENT_UPDATED',
+    targetUid: uid,
+    targetEmail: target.email || null,
+    role: nextRole,
+    branch: nextBranch,
+    regions: claims.welpRegions,
+    branches: claims.welpBranches,
+    department: claims.welpDepartment,
+    scope: claims.welpScope,
+    permissionCount: claims.welpPermissions.length,
+    actorUid: caller.uid,
+    actorEmail: token.email || null,
+  });
+
+  return {
+    ok: true, uid, role: nextRole, scope: claims.welpScope,
+    regions: claims.welpRegions, branches: claims.welpBranches,
+    permissionCount: claims.welpPermissions.length
+  };
 });
 
 
@@ -281,5 +447,5 @@ exports.submitAttendanceEvidence = onCall(async (request) => {
 
 exports.health = onRequest((req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.status(200).json({ ok: true, service: 'welp-functions', version: 'batch-7', time: new Date().toISOString() });
+  res.status(200).json({ ok: true, service: 'welp-functions', version: 'v20-core', time: new Date().toISOString() });
 });

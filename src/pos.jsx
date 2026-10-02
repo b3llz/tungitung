@@ -94,55 +94,71 @@ export const CountdownTimer = ({ deadline }) => {
 export const ReceiptModal = ({ order, profile, onClose }) => {
   if (!order) return null;
   const subtotal = order.subtotal ?? order.items.reduce((a, b) => a + b.price * b.qty, 0);
+  const code = String(order.id || 'WELP0000').slice(-8).toUpperCase() || 'WELP0000';
+  const method = order.paymentMethod || '-';
+  const isCash = method === 'Cash';
   return createPortal(
     <div className="fixed inset-0 z-[80] bg-chrome-deep/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-      <div className="bg-white w-full max-w-xs rounded-2xl shadow-pop overflow-hidden animate-pop" onClick={e => e.stopPropagation()}>
-        <div id="receipt-print" className="p-5 text-slate-900 font-mono text-[11px] leading-relaxed">
-          <div className="text-center mb-3">
-            {profile?.logo && <img src={profile.logo} className="w-12 h-12 object-contain mx-auto mb-2" />}
-            <h2 className="font-black text-base uppercase tracking-wide">{profile?.name || 'TOKO ANDA'}</h2>
-            {profile?.address && <p className="text-[10px]">{profile.address}</p>}
-            {/* FIX: baca wa dulu (Profil menyimpan di `wa`), fallback phone */}
-            {(profile?.wa || profile?.phone) && <p className="text-[10px]">{profile.wa || profile.phone}</p>}
+      <div className="bg-white w-full max-w-[390px] rounded-[1.5rem] shadow-pop overflow-hidden animate-pop" onClick={e => e.stopPropagation()}>
+        <div id="receipt-print" className="receipt-paper p-5 sm:p-6 text-slate-900 text-[11px] leading-relaxed">
+          <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-200">
+            <div className="min-w-0">
+              {profile?.logo ? <img src={profile.logo} className="w-11 h-11 object-contain rounded-xl border border-slate-200 mb-2" alt="Logo" /> : <div className="w-11 h-11 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm mb-2">W</div>}
+              <h2 className="font-black text-[15px] tracking-tight truncate">{profile?.name || 'TOKO ANDA'}</h2>
+              {profile?.address && <p className="text-[9px] text-slate-500 mt-0.5 max-w-[220px] leading-snug">{profile.address}</p>}
+              {(profile?.wa || profile?.phone) && <p className="text-[9px] text-slate-500">{profile.wa || profile.phone}</p>}
+            </div>
+            <div className="text-right shrink-0">
+              <span className="inline-flex px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-[8px] font-black uppercase tracking-[.14em]">Lunas</span>
+              <p className="font-mono font-black text-[10px] mt-2">#{code}</p>
+              <p className="text-[8.5px] text-slate-500 mt-0.5">{new Date(order.date).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+            </div>
           </div>
-          <div className="border-t border-b border-dashed border-slate-400 py-1 text-[10px] flex justify-between">
-            <span>{new Date(order.date).toLocaleString('id-ID')}</span>
-            <span>#{order.id.slice(-5)}</span>
+
+          <div className="grid grid-cols-2 gap-2 py-3 border-b border-dashed border-slate-300">
+            <div><p className="text-[7.5px] uppercase tracking-[.16em] font-black text-slate-400">Pelanggan</p><p className="font-bold text-[10px] truncate">{order.buyer || 'Umum'}</p></div>
+            <div className="text-right"><p className="text-[7.5px] uppercase tracking-[.16em] font-black text-slate-400">Pesanan</p><p className="font-bold text-[10px]">{order.orderType || 'Take away'}{order.tableNo ? ` · Meja ${order.tableNo}` : ''}</p></div>
           </div>
-          <div className="py-1 text-[10px]">
-            <p>Pelanggan: {order.buyer || '-'}</p>
-            {order.tableNo && <p>Meja: {order.tableNo}</p>}
-            {order.orderType && <p>Tipe: {order.orderType}</p>}
-          </div>
-          <div className="border-t border-dashed border-slate-400 py-2 space-y-1">
+
+          <div className="py-3 space-y-2">
             {order.items.map((i, x) => (
-              <div key={x}>
-                <div className="flex justify-between"><span className="font-bold">{i.name}</span></div>
-                <div className="flex justify-between"><span>&nbsp;&nbsp;{i.qty} x {formatIDR(i.price)}</span><span>{formatIDR(i.price * i.qty)}</span></div>
+              <div key={x} className="grid grid-cols-[1fr_auto] gap-3">
+                <div className="min-w-0"><p className="font-bold text-[10.5px] leading-snug break-words">{i.name}</p><p className="text-[9px] text-slate-500 mt-0.5">{i.qty} × {formatIDR(i.price)}</p></div>
+                <p className="font-bold text-[10.5px] text-right">{formatIDR(i.price * i.qty)}</p>
               </div>
             ))}
           </div>
-          <div className="border-t border-dashed border-slate-400 py-2 space-y-0.5">
+
+          <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-1.5">
             <div className="flex justify-between"><span>Subtotal</span><span>{formatIDR(subtotal)}</span></div>
             {order.discountAmt > 0 && <div className="flex justify-between"><span>Diskon{order.discPercent ? ` (${order.discPercent}%)` : ''}</span><span>- {formatIDR(order.discountAmt)}</span></div>}
             {order.taxAmt > 0 && <div className="flex justify-between"><span>Pajak{order.taxPercent ? ` (${order.taxPercent}%)` : ''}</span><span>{formatIDR(order.taxAmt)}</span></div>}
             {order.serviceAmt > 0 && <div className="flex justify-between"><span>Servis{order.servicePercent ? ` (${order.servicePercent}%)` : ''}</span><span>{formatIDR(order.serviceAmt)}</span></div>}
-            <div className="flex justify-between font-black text-xs border-t border-slate-400 mt-1 pt-1"><span>TOTAL</span><span>{formatIDR(order.total)}</span></div>
-            <div className="flex justify-between"><span>Bayar ({order.paymentMethod || '-'})</span><span>{formatIDR(order.cashTendered || order.total)}</span></div>
-            {order.change > 0 && <div className="flex justify-between"><span>Kembali</span><span>{formatIDR(order.change)}</span></div>}
+            <div className="flex justify-between items-end pt-2 mt-1 border-t border-slate-200"><span className="font-black uppercase tracking-[.12em] text-[8px]">Total</span><span className="font-black text-[17px] tracking-tight">{formatIDR(order.total)}</span></div>
           </div>
-          <p className="text-center mt-3 text-[10px]">Terima kasih sudah belanja!</p>
+
+          <div className="flex items-center justify-between py-3 border-b border-dashed border-slate-300">
+            <div><p className="text-[7.5px] uppercase tracking-[.16em] font-black text-slate-400">Pembayaran</p><p className="font-black text-[11px] mt-0.5">{method}</p></div>
+            {isCash && <div className="text-right text-[9px]"><p>Bayar {formatIDR(order.cashTendered || order.total)}</p><p className="font-black">Kembali {formatIDR(order.change || 0)}</p></div>}
+          </div>
+
+          <div className="pt-4 text-center">
+            <div className="receipt-code mx-auto mb-2" aria-label={`Kode transaksi ${code}`}>
+              {Array.from({length: 24}, (_, i) => <i key={i} style={{height: `${10 + ((i * 7 + code.charCodeAt(i % Math.max(1, code.length))) % 15)}px`}} />)}
+            </div>
+            <p className="font-black text-[10px]">Terima kasih sudah belanja.</p>
+            <p className="text-[8.5px] text-slate-400 mt-0.5">Simpan struk ini sebagai bukti transaksi.</p>
+          </div>
         </div>
         <div className="no-print p-3 bg-surface dark:bg-surface-dark border-t border-line dark:border-line-dark flex gap-2">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-paper dark:bg-white/10 border border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/80 font-bold text-xs">Tutup</button>
-          <button onClick={() => window.print()} className="flex-1 py-2.5 rounded-xl bg-flame-600 text-white font-bold text-xs flex items-center justify-center gap-2"><StrukCetak className="w-4 h-4" /> Cetak / Simpan PDF</button>
+          <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-paper dark:bg-white/10 border border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/80 font-bold text-xs">Tutup</button>
+          <button type="button" onClick={() => window.print()} className="flex-1 py-2.5 rounded-xl bg-flame-600 hover:bg-flame-500 text-white font-bold text-xs flex items-center justify-center gap-2"><StrukCetak className="w-4 h-4" /> Cetak / PDF</button>
         </div>
       </div>
     </div>,
     document.body
   );
 };
-
 /* ============================================================
    CHECKOUT SHEET (mobile bottom sheet / desktop modal)
    Kontrak prop IDENTIK dengan CartPopup lama (dipakai SelfOrder).

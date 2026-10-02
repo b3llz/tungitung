@@ -26,7 +26,7 @@
 //  • Framing 3:4 dipotong persis seperti preview (WYSIWYG).
 // ============================================================
 import React, { useState, useEffect, useRef } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import {
   Absensi, AbsenMasuk, AbsenPulang, WaktuReal, Lokasi, KameraBuddy,
   Cabang, Tim, PerisaiBuddy, GembokBuddy, BahayaBuddy, Check,
@@ -46,7 +46,7 @@ import {
   kontrakOf, buildSlipHtml, writeBrandMirror,
   ensureAuth, verifyCred, credIsLegacy, upgradeCred, makeCred, pinGate, pinGateMsg,   // v15 F0
   empBranchIds, roleLabelOfV15, isAtasanRole, openDataUrl,   // v15 F2/F3/F4
-  reverseGeocode, uploadMedia   // v15 F5
+  reverseGeocode, uploadMedia, makeEmpId   // v15 F5
 } from './core.jsx';
 import { Button, Toast, Mascot, Badge } from './ui';
 import { BrandLogo, useBrandState } from './brand.jsx';
@@ -55,6 +55,20 @@ import { BrandLogo, useBrandState } from './brand.jsx';
 const fmtTime = (ms) => new Date(ms).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 const fmtClock = (ms) => new Date(ms).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const SESSION_KEY = 'welp_absen_session';
+
+// Bukti capture: hash foto di device supaya setiap evidence punya fingerprint
+// yang dapat dibandingkan server/admin. Ini bukan detektor AI; sumber capture
+// tetap harus kamera WELP, bukan file galeri.
+const sha256Hex = async (text) => {
+  const bytes = new TextEncoder().encode(String(text));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+const randomId = (prefix = 'cap') => {
+  try { return `${prefix}_${crypto.randomUUID()}`; }
+  catch (_) { return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`; }
+};
 
 const Kicker = ({ children }) => <p className="text-[9px] font-extrabold uppercase tracking-[0.2em] text-ink-faint dark:text-ink-inv/40">{children}</p>;
 
@@ -113,16 +127,24 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
     setBusy(false);
   };
 
-  const finishAt = (e, br) => {
+  const finishAt = async (e, br) => {
+    // Karyawan lama yang belum punya Employee ID diberi ID otomatis sekali.
+    let finalEmpId = e.empId || '';
+    if (!finalEmpId) {
+      finalEmpId = makeEmpId(br?.name || 'PUSAT', employees.map(x => x.empId));
+      try {
+        await setDoc(doc(db, 'tenants', tenant.id, 'karyawan', e.cid), { empId: finalEmpId }, { merge: true });
+      } catch (_) { /* tetap tampilkan ID sesi meski sinkronisasi gagal */ }
+    }
     const session = {
       lic: tenant.id, tenant: tenant.tenant,
       branchId: br?.cid || e.branchId || 'PUSAT', branchName: br?.name || 'Cabang',
-      employeeCid: e.cid, employeeName: e.name, empId: e.empId || '', role: e.role || 'kasir',
+      employeeCid: e.cid, employeeName: e.name, empId: finalEmpId, role: e.role || 'kasir',
       hasPin: true, at: Date.now(), deviceId: getDeviceId()
     };
     try {
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-      localStorage.setItem('welp_absen_last', JSON.stringify({ lic: tenant.id, empId: e.empId || '' }));   // ingat ID (bukan PIN)
+      localStorage.setItem('welp_absen_last', JSON.stringify({ lic: tenant.id, empId: finalEmpId }));   // ingat ID (bukan PIN)
     } catch (err) { }
     onDone(session);
   };
@@ -149,7 +171,7 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
     const ids = empBranchIds(rec);
     const myBranches = ids.map(bid => branches.find(b => b.cid === bid)).filter(Boolean);
     if (myBranches.length > 1) { setEmp(rec); setMyBranchList(myBranches); setStep('branch'); return; }
-    finishAt(rec, myBranches[0] || null);
+    await finishAt(rec, myBranches[0] || null);
   };
 
   const pinKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'go'];
@@ -286,13 +308,32 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
   const [camErr, setCamErr] = useState(null);
   const [geo, setGeo] = useState(null);
   const [geoErr, setGeoErr] = useState(null);
+  const [geoAddress, setGeoAddress] = useState(null);
+  const [addressLoading, setAddressLoading] = useState(false);
+  const addressPromiseRef = useRef(null);
   const [busy, setBusy] = useState(false);
-  const [stage, setStage] = useState('');   // v15.3: kabar progres pengiriman
+  const [stage, setStage] = useState('');   // v16: progres pengiriman yang jelas
 
   const grabGeo = async () => {
     setGeoErr(null);
-    try { setGeo(await getLocation()); }
-    catch (e) { setGeoErr('Lokasi gagal: ' + (e.message || 'izin ditolak') + '. Aktifkan GPS & izinkan lokasi.'); }
+    setGeoAddress(null);
+    setAddressLoading(false);
+    try {
+      const g = await getLocation();
+      setGeo(g);
+      setAddressLoading(true);
+      const job = reverseGeocode(g.lat, g.lng);
+      addressPromiseRef.current = job;
+      const a = await job;
+      if (a) setGeoAddress(a);
+      else setGeoErr('Koordinat terbaca, tetapi nama jalan belum ditemukan. Koordinat tetap tersimpan.');
+      setAddressLoading(false);
+      return g;
+    } catch (e) {
+      setAddressLoading(false);
+      setGeoErr('Lokasi gagal: ' + (e.message || 'izin ditolak') + '. Aktifkan GPS & izinkan lokasi.');
+      throw e;
+    }
   };
 
   // siapkan waktu terpercaya sejak awal (offset jam server via header host)
@@ -312,18 +353,41 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
       setCamOn(true);
     } catch (e) {
       setCamOn(false);
-      setCamErr('Kamera tidak bisa dibuka (' + (e.name || e.message) + '). Pakai tombol Pilih Foto sebagai alternatif, lalu selfie via kamera HP.');
+      setCamErr('Kamera tidak bisa dibuka (' + (e.name || e.message) + '). Izinkan kamera WELP lalu coba lagi.');
     }
   };
 
   const stopCam = () => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } setCamOn(false); };
+
+  // Cek sederhana bahwa stream benar-benar menghasilkan perubahan frame.
+  // Ini menolak foto statis yang ditempel di depan kamera, tetapi bukan
+  // pengganti liveness/face verification tingkat enterprise.
+  const hasLiveMotion = async (video) => {
+    if (!video || !video.videoWidth) return false;
+    const w = 96, h = 72;
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    const sample = () => { x.drawImage(video, 0, 0, w, h); return x.getImageData(0, 0, w, h).data; };
+    const a = sample();
+    await new Promise(r => setTimeout(r, 260));
+    const b = sample();
+    let diff = 0;
+    for (let i = 0; i < a.length; i += 16) diff += Math.abs(a[i] - b[i]);
+    return diff > 1200;
+  };
 
   /* Potret: crop 3:4 PERSIS seperti preview (object-cover center),
      kamera depan di-mirror biar hasilnya natural seperti yang
      dilihat karyawan. Kualitas 720px JPEG — jelas tapi hemat. */
   const shoot = async () => {
     const v = videoRef.current;
-    if (!v || !v.videoWidth) return;
+    if (!v || !v.videoWidth || busy) return;
+    setBusy(true);
+    try {
+      if (!(await hasLiveMotion(v))) {
+        setCamErr('Kamera belum mendeteksi capture live. Gerakkan kepala sedikit lalu ambil ulang.');
+        return;
+      }
     const vw = v.videoWidth, vh = v.videoHeight;
     let cw = vh * 3 / 4, ch = vh;
     if (cw > vw) { cw = vw; ch = vw * 4 / 3; }
@@ -337,47 +401,46 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
     if (facingRef.current === 'user') { ctx.translate(cv.width, 0); ctx.scale(-1, 1); }
     ctx.drawImage(v, cx, cy, cw, ch, 0, 0, cv.width, cv.height);
     const raw = cv.toDataURL('image/jpeg', 0.8);
-    setBusy(true);
-    // stempel dari data sistem — bukan input manual (logo perusahaan ikut F5/E1)
+    // Tunggu reverse-geocoding sebentar supaya nama jalan/kecamatan/kota ikut foto.
+    let addr = geoAddress;
+    if (!addr && addressPromiseRef.current) {
+      try { addr = await Promise.race([addressPromiseRef.current, new Promise(res => setTimeout(() => res(null), 3500))]); } catch (_) {}
+    }
+    if (addr && !geoAddress) setGeoAddress(addr);
+    // stempel dari data sistem — bukan input manual.
     const stamped = await stampAbsenPhoto({
       dataUrl: raw, company: session.tenant, branchName,
-      employeeName: session.employeeName, type, atMs: trustedNow(), geo,
-      trusted: trustedSourceLabel() === 'server', logo: brandLogo
+      employeeName: session.employeeName, employeeId: session.empId, type, atMs: trustedNow(), geo,
+      trusted: trustedSourceLabel() === 'server', logo: brandLogo, address: addr
     });
     setBusy(false);
     setPhoto(stamped);
     stopCam();
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const pickFile = async (file) => {
-    if (!file) return;
-    stopCam();
-    try {
-      const raw = await fileToDataUrl(file, 720, 0.8);
-      const stamped = await stampAbsenPhoto({
-        dataUrl: raw, company: session.tenant, branchName,
-        employeeName: session.employeeName, type, atMs: trustedNow(), geo,
-        trusted: trustedSourceLabel() === 'server', logo: brandLogo
-      });
-      setPhoto(stamped);
-    } catch (e) { setCamErr('Gagal memuat foto: ' + e.message); }
-  };
 
   const dist = geo && branch?.lat != null ? distanceMeters(geo, { lat: branch.lat, lng: branch.lng }) : null;
   const outOfRadius = dist != null && dist > aturan.radius;
 
   const submit = async () => {
     if (!photo || busy) return;
+    if (!geo) { setCamErr('Lokasi wajib aktif untuk absensi. Izinkan lokasi lalu coba lagi.'); return; }
+    if (!branch?.lat || !branch?.lng) { setCamErr('Lokasi cabang belum diatur owner. Absensi belum dapat diverifikasi.'); return; }
+    if (geo.acc && geo.acc > 100) { setCamErr(`Akurasi GPS terlalu rendah (±${geo.acc}m). Pindah ke area terbuka lalu coba lagi.`); return; }
+    if (outOfRadius) { setCamErr(`Kamu berada ${dist}m dari cabang. Absensi hanya bisa dilakukan di dalam radius cabang.`); return; }
     setBusy(true);
     // v15.3: setiap tahap memberi kabar di tombol, dan busy SELALU
     // di-reset (try/finally) sehingga tombol tidak pernah mentok di
     // status mengirim gara-gara GPS lambat atau upload foto gagal.
     try {
       setStage('Menyiapkan data absen...');
-      // v15 F5/F1: absen TETAP BISA tanpa GPS (izin ditolak/sinyal buruk/
-      // desktop) — tercatat dgn flag geoStatus 'unavailable' agar owner
-      // tahu lokasi belum terverifikasi.
-      await onSubmit({ photo, geo, geoStatus: geo ? 'ok' : 'unavailable', dist, outOfRadius: !!outOfRadius, type, onStage: setStage });
+      // v20 FIX: alamat hasil reverse-geocode diteruskan ke onSubmit —
+      // dulu doSubmit di root merujuk `geoAddress` yang tidak ada di scope-nya
+      // (ReferenceError setiap submit absensi dgn GPS aktif → absen gagal).
+      await onSubmit({ photo, geo, geoStatus: 'ok', dist, outOfRadius: false, type, address: geoAddress, onStage: setStage });
     } catch (e) {
       setStage('');
       setBusy(false);
@@ -429,11 +492,7 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
               <div className="absolute top-2.5 left-2.5 flex items-center gap-1 bg-black/55 text-white text-[9px] font-extrabold px-2 py-1 rounded-full"><Lokasi className="w-3 h-3" /> Posisikan wajah di garis</div>
             </div>
             <div className="flex gap-2 mt-3">
-              <Button onClick={startCam} variant="secondary" className="flex-1 py-3 text-xs" icon={KameraBuddy}>{camErr ? 'Coba Lagi' : (camOn ? 'Kamera Aktif' : 'Buka Kamera')}</Button>
-              <label className="flex-1 cursor-pointer">
-                <span className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-paper dark:bg-white/5 border border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/70 text-xs font-extrabold press">Pilih Foto</span>
-                <input type="file" accept="image/*" capture="user" className="hidden" onChange={e => pickFile(e.target.files[0])} />
-              </label>
+              <Button onClick={startCam} variant="secondary" className="w-full py-3 text-xs" icon={KameraBuddy}>{camErr ? 'Coba Lagi' : (camOn ? 'Kamera Aktif' : 'Buka Kamera')}</Button>
             </div>
             {camOn && (
               <Button onClick={shoot} disabled={busy} className="w-full py-4 mt-2 text-sm" icon={busy ? WaktuReal : KameraBuddy}>{busy ? 'Menyiapkan foto...' : 'Ambil Selfie'}</Button>
@@ -454,31 +513,42 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
         <div className={`mt-4 p-3.5 rounded-2xl border ${geoErr ? 'bg-brick-soft dark:bg-brick/10 border-brick/25' : 'bg-paper dark:bg-white/[.03] border-line dark:border-line-dark'}`}>
           <div className="flex items-center justify-between gap-2">
             <p className="text-[11px] font-extrabold text-ink dark:text-ink-inv flex items-center gap-1.5">
-              <Lokasi className="w-4 h-4 text-flame-600 dark:text-apricot" /> Lokasi {geo ? `terkunci (±${geo.acc}m)` : 'belum terkunci'}
+              <Lokasi className="w-4 h-4 text-flame-600 dark:text-apricot" /> Lokasi {geo ? `terverifikasi (±${geo.acc}m)` : 'wajib aktif'}
             </p>
             {geoErr && <button onClick={grabGeo} className="text-[10px] font-extrabold text-flame-700 dark:text-apricot">Coba lagi</button>}
           </div>
           {geo && (
-            <p className="text-[10px] font-semibold text-ink-faint mt-1 font-mono">
-              {geo.lat.toFixed(5)}, {geo.lng.toFixed(5)}
-              {dist != null && <>, {dist}m dari cabang</>}
-              {dist == null && branch?.lat == null && <>, titik cabang belum diatur owner</>}
-            </p>
+            <div className="mt-1 space-y-1">
+              <p className="text-[10px] font-semibold text-ink-faint font-mono">
+                {geo.lat.toFixed(5)}, {geo.lng.toFixed(5)}
+                {dist != null && <>, {dist}m dari cabang</>}
+              </p>
+              {addressLoading && <p className="text-[10px] font-bold text-flame-600 dark:text-apricot">Membaca nama jalan, kelurahan, kecamatan, dan kota...</p>}
+              {geoAddress && (
+                <div className="rounded-xl bg-white/70 dark:bg-white/[.04] border border-line dark:border-line-dark p-2.5">
+                  <p className="text-[10.5px] font-extrabold text-ink dark:text-ink-inv leading-relaxed">{geoAddress.jalan || geoAddress.displayName}</p>
+                  <p className="text-[9.5px] font-semibold text-ink-faint leading-relaxed mt-0.5">
+                    {[geoAddress.kelurahan, geoAddress.kecamatan && `Kec. ${geoAddress.kecamatan}`, geoAddress.kota && `Kota/Kab. ${geoAddress.kota}`, geoAddress.provinsi, geoAddress.kodepos].filter(Boolean).join(' · ')}
+                  </p>
+                </div>
+              )}
+              {dist == null && branch?.lat == null && <p className="text-[10px] font-semibold text-ink-faint">Titik cabang belum diatur owner.</p>}
+            </div>
           )}
           {geoErr && <p className="text-[10px] font-bold text-brick-deep dark:text-brick mt-1">{geoErr}</p>}
           {!geo && !geoErr && (
             <p className="text-[10px] font-extrabold text-gold-deep dark:text-gold mt-1.5 flex items-start gap-1.5">
-              <BahayaBuddy className="w-3.5 h-3.5 shrink-0 mt-0.5" /> Lokasi belum terbaca. Absen tetap bisa dikirim, tapi owner melihat penanda TANPA GPS.
+              <BahayaBuddy className="w-3.5 h-3.5 shrink-0 mt-0.5" /> Lokasi belum terbaca. Absensi membutuhkan lokasi terverifikasi.
             </p>
           )}
           {outOfRadius && (
             <p className="text-[10px] font-extrabold text-gold-deep dark:text-gold mt-1.5 flex items-start gap-1.5">
-              <BahayaBuddy className="w-3.5 h-3.5 shrink-0 mt-0.5" /> Kamu di luar radius {aturan.radius}m. Absen tetap tercatat, tapi ditandai owner.
+              <BahayaBuddy className="w-3.5 h-3.5 shrink-0 mt-0.5" /> Kamu di luar radius {aturan.radius}m. Absensi akan ditolak sampai berada di area cabang.
             </p>
           )}
         </div>
 
-        {/* v15 F5/F1: GPS bukan lagi syarat mutlak — hanya foto */}
+        {/* GPS + kamera wajib untuk attendance terverifikasi */}
         <Button onClick={submit} disabled={!photo || busy} className="w-full py-4 mt-4 text-sm" icon={busy ? WaktuReal : (type === 'in' ? AbsenMasuk : AbsenPulang)}>
           {busy ? (stage || 'Mengirim...') : `Kirim Absen ${type === 'in' ? 'Masuk' : 'Pulang'}`}
         </Button>
@@ -539,7 +609,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
         <div className="max-w-md mx-auto relative">
           <div className="flex justify-between items-start">
             <div>
-              <p className="text-apricot/85 text-[9px] font-extrabold uppercase tracking-[0.24em] flex items-center gap-1.5"><Beranda className="w-3.5 h-3.5" /> Aplikasi Karyawan</p>
+              <p className="text-apricot/85 text-[9px] font-extrabold uppercase tracking-[0.24em] flex items-center gap-1.5"><Beranda className="w-3.5 h-3.5" /> Employee Area</p>
               <h1 className="font-display font-extrabold text-xl text-ink-inv tracking-tight mt-1">Halo, {firstName}</h1>
               <p className="text-[10.5px] font-bold text-ink-inv/55 mt-0.5 flex items-center gap-1.5 flex-wrap">
                 <Cabang className="w-3.5 h-3.5" /> {branchName}
@@ -657,6 +727,16 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
           </div>
         </div>
 
+        {/* v20: INFO PERUSAHAAN (pengumuman & dokumen dibagikan pusat) */}
+        <button onClick={() => goTab('info')} className="card !rounded-3xl p-4.5 w-full text-left hover:border-flame-300 transition press flex items-center gap-3">
+          <span className="w-10 h-10 rounded-2xl bg-teal2-soft dark:bg-teal2/15 text-teal2 flex items-center justify-center shrink-0"><Toko className="w-5 h-5" /></span>
+          <div className="min-w-0 flex-1">
+            <p className="kicker">Info perusahaan</p>
+            <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv leading-tight">Pengumuman, dokumen kerja & aktivitasmu</p>
+          </div>
+          <Badge tone="grey">Lihat</Badge>
+        </button>
+
         {/* TOMBOL ABSEN */}
         <div className="card !rounded-3xl p-5">
           {!inRec ? (
@@ -762,6 +842,9 @@ const EmpAbsensi = ({ session, target = 0 }) => {
         </div>
       </div>
 
+      {/* v20: JADWAL & SHIFT cabang */}
+      <EmpJadwalSection session={session} />
+
       <div className="card !rounded-3xl p-4">
         <div className="flex items-center gap-3">
           <span className="w-10 h-10 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center shrink-0"><WaktuReal className="w-5 h-5" /></span>
@@ -859,10 +942,12 @@ const EmpGaji = ({ session }) => {
     if (paid) { try { localStorage.setItem(`welp_seen_slip_${session.employeeCid}`, paid.cid); } catch (e) { } }
   }, [mine.length, session.employeeCid]);
 
-  const printSlip = (rec) => {
+  // v20 FIX: buildSlipHtml kini async (QR verifikasi lokal) — slip
+  // karyawan men-await HTML final sebelum document.write.
+  const printSlip = async (rec) => {
     const w = window.open('', '_blank', 'width=560,height=800');
     if (!w) return;
-    w.document.write(buildSlipHtml({ rec, company: session.tenant || 'Perusahaan', profile: coProfile, roleLabel: roleLabelOf(rec.role || session.role) }));
+    w.document.write(await buildSlipHtml({ rec, company: session.tenant || 'Perusahaan', profile: coProfile, roleLabel: roleLabelOf(rec.role || session.role) }));
     w.document.close();
   };
 
@@ -1476,6 +1561,190 @@ const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
 /* ============================================================
    ROOT APLIKASI KARYAWAN — bottom nav 5 tab + tema + sesi
    ============================================================ */
+
+/* ============================================================
+   v20 — JADWAL & SHIFT (Employee Area)
+   Menampilkan sistem shift cabang, penugasan karyawan, dan
+   posisi shift saat ini. Data: doc cabang (shifts) atau
+   pengaturan 'shift_pusat' untuk Cabang Pusat.
+   ============================================================ */
+const EmpJadwalSection = ({ session }) => {
+  const { items: branches } = useTenantCol({ id: session.lic }, 'cabang', 'cabang_db');
+  const { items: karyawan } = useTenantCol({ id: session.lic }, 'karyawan', 'karyawan_db');
+  const { items: settings } = useTenantCol({ id: session.lic }, 'pengaturan', 'pengaturan_db');
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(iv); }, []);
+
+  const me = karyawan.find(k => k.cid === session.employeeCid) || null;
+  const pusatShifts = normShifts((settings || []).find(x => x.key === 'shift_pusat')?.shifts);
+  const branch = branches.find(b => b.cid === session.branchId) || null;
+  const branchShifts = shiftsForBranch(session.branchId, branches, pusatShifts);
+  const myShift = me?.shiftId ? shiftById(branchShifts, me.shiftId) : null;
+  const current = shiftOfMs(branchShifts, now);
+
+  if (!branchShifts.length) {
+    return (
+      <div className="card !rounded-3xl p-4.5">
+        <p className="font-extrabold text-[13px] flex items-center gap-2 mb-1.5"><WaktuReal className="w-4 h-4 text-flame-600 dark:text-apricot" /> Jadwal & Shift</p>
+        <p className="text-[11px] font-semibold text-ink-faint leading-relaxed">Cabangmu belum menetapkan sistem shift. Absensimu tercatat fleksibel mengikuti jam masuk cabang ({getAturan(branch).jamMasuk}).</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card !rounded-3xl p-4.5">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <p className="font-extrabold text-[13px] flex items-center gap-2"><WaktuReal className="w-4 h-4 text-flame-600 dark:text-apricot" /> Jadwal & Shift Cabang</p>
+        {myShift ? <Badge tone="green">Shift-mu: {myShift.nama}</Badge> : <Badge tone="gold">Belum dipasangkan</Badge>}
+      </div>
+      <div className="space-y-2">
+        {branchShifts.map(sh => {
+          const running = current && current.id === sh.id;
+          const mine = myShift && myShift.id === sh.id;
+          return (
+            <div key={sh.id} className={`flex items-center gap-3 p-3 rounded-2xl border ${mine ? 'border-flame-300 bg-flame-50/60 dark:bg-flame-900/20 dark:border-flame-700/60' : 'border-line dark:border-line-dark bg-paper dark:bg-white/[.03]'}`}>
+              <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${mine ? 'bg-flame-500 text-white' : 'bg-surface dark:bg-white/10 text-ink-faint'}`}><WaktuReal className="w-4 h-4" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="font-extrabold text-[12px] text-ink dark:text-ink-inv truncate">{sh.nama}{mine ? ' (kamu)' : ''}</p>
+                <p className="text-[10px] font-bold text-ink-faint">{fmtShiftRange(sh)} · {fmtJam(shiftDurMin(sh))}</p>
+              </div>
+              {running ? <Badge tone="green"><span className="w-1.5 h-1.5 rounded-full bg-leaf animate-pulse-dot" /> Berjalan</Badge> : (sh.aktif === false ? <Badge tone="grey">Nonaktif</Badge> : null)}
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[9.5px] font-semibold text-ink-faint mt-3 leading-relaxed">
+        Penugasan shift diatur owner/admin cabang. Bila kamu merasa penugasanmu keliru, hubungi atasan langsung.
+      </p>
+    </div>
+  );
+};
+
+/* ============================================================
+   v20 — INFO KARYAWAN: Pengumuman · Dokumen · Aktivitas
+   (Employee Area — konten dari pusat untuk karyawan)
+   ============================================================ */
+const SEEN_ANNOUNCE_KEY = 'welp_announce_seen_at';
+const EmpInfo = ({ session }) => {
+  const [seg, setSeg] = useState('pengumuman');
+  const { items: pengumuman } = useTenantCol({ id: session.lic }, 'pengumuman', 'pengumuman_db');
+  const { items: dokumen } = useTenantCol({ id: session.lic }, 'dokumen', 'dokumen_db');
+  const { items: audit } = useTenantCol({ id: session.lic }, 'audit_log', 'audit_log_db');
+
+  // tandai semua pengumuman terbaca saat halaman ini dibuka
+  useEffect(() => { try { localStorage.setItem(SEEN_ANNOUNCE_KEY, String(Date.now())); } catch (e) { } }, []);
+
+  const ann = (pengumuman || [])
+    .filter(a => a && a.aktif !== false)
+    .filter(a => !a.branchId || a.branchId === session.branchId || a.audience === 'all')
+    .sort((a, b) => trustedTime(b).ms - trustedTime(a).ms);
+
+  const docs = (dokumen || [])
+    .filter(d => d && d.share)
+    .sort((a, b) => (b.uploadedAt || 0) - (a.uploadedAt || 0));
+
+  const acts = (audit || [])
+    .filter(a => a && (a.actor === session.employeeName || (a.detail && a.detail.employeeCid === session.employeeCid) || a.employeeCid === session.employeeCid))
+    .sort((a, b) => trustedTime(b).ms - trustedTime(a).ms)
+    .slice(0, 40);
+
+  const segItems = [
+    { id: 'pengumuman', label: `Pengumuman${ann.length ? ` (${ann.length})` : ''}` },
+    { id: 'dokumen', label: `Dokumen${docs.length ? ` (${docs.length})` : ''}` },
+    { id: 'aktivitas', label: 'Aktivitas' },
+  ];
+
+  return (
+    <div className="max-w-md mx-auto px-4 pb-32 pt-4 space-y-4">
+      <h2 className="font-display font-extrabold text-lg text-ink dark:text-ink-inv flex items-center gap-2"><Toko className="w-5 h-5 text-flame-600 dark:text-apricot" /> Info Perusahaan</h2>
+
+      <div className="flex gap-1.5 p-1 bg-paper dark:bg-white/5 rounded-2xl">
+        {segItems.map(it => (
+          <button key={it.id} onClick={() => setSeg(it.id)}
+            className={`flex-1 py-2 rounded-xl text-[10.5px] font-extrabold transition press truncate px-1 ${seg === it.id ? 'bg-flame-500 text-white shadow-card' : 'text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv'}`}>
+            {it.label}
+          </button>
+        ))}
+      </div>
+
+      {seg === 'pengumuman' && (
+        <div className="space-y-3">
+          {ann.length === 0 ? (
+            <div className="card !rounded-3xl py-10 text-center">
+              <Mascot pose="pikir" className="w-20 h-20 object-contain mx-auto mb-2" alt="" />
+              <p className="text-xs font-bold text-ink-faint">Belum ada pengumuman.</p>
+            </div>
+          ) : ann.map(a => {
+            const t = trustedTime(a);
+            return (
+              <div key={a.cid} className="card !rounded-3xl p-4.5">
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv leading-snug">{a.title || 'Pengumuman'}</p>
+                  {a.priority === 'penting' && <Badge tone="gold">Penting</Badge>}
+                </div>
+                <p className="text-[11px] font-semibold text-ink-soft dark:text-ink-inv/70 leading-relaxed whitespace-pre-wrap break-words">{a.body || '-'}</p>
+                <p className="text-[9px] font-bold text-ink-faint mt-2.5 flex items-center gap-1.5 flex-wrap">
+                  <span>{dayLabelShort(t.ms)}</span>
+                  {a.author ? <span>· {a.author}</span> : null}
+                  {a.branchName ? <span>· {a.branchName}</span> : null}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {seg === 'dokumen' && (
+        <div className="space-y-3">
+          {docs.length === 0 ? (
+            <div className="card !rounded-3xl py-10 text-center">
+              <Mascot pose="bingung" className="w-20 h-20 object-contain mx-auto mb-2" alt="" />
+              <p className="text-xs font-bold text-ink-faint">Belum ada dokumen yang dibagikan ke karyawan.</p>
+            </div>
+          ) : docs.map(d => (
+            <div key={d.cid} className="card !rounded-3xl p-4 flex items-center gap-3">
+              <span className="w-10 h-10 rounded-2xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center shrink-0"><Kredensial className="w-5 h-5" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{d.nama}</p>
+                <p className="text-[9.5px] font-bold text-ink-faint mt-0.5">{d.kategori || 'Dokumen'}{d.uploadedAt ? ` · ${dayLabelShort(d.uploadedAt)}` : ''}</p>
+              </div>
+              {(d.fileUrl || d.fileData) && (
+                <button onClick={() => openDataUrl(d.fileUrl || d.fileData, d.nama)}
+                  className="px-3 py-2 rounded-xl bg-flame-600 text-white text-[10.5px] font-extrabold press shrink-0">Buka</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {seg === 'aktivitas' && (
+        <div className="card !rounded-3xl p-4.5">
+          <p className="font-extrabold text-[13px] flex items-center gap-2 mb-3"><Riwayat className="w-4 h-4 text-flame-600 dark:text-apricot" /> Riwayat Aktivitasmu</p>
+          {acts.length === 0 ? (
+            <p className="text-[11px] font-semibold text-ink-faint text-center py-6">Belum ada aktivitas tercatat. Mulai dari absen hari ini, ya.</p>
+          ) : (
+            <div className="space-y-2">
+              {acts.map(a => {
+                const t = trustedTime(a);
+                return (
+                  <div key={a.cid} className="flex items-start gap-2.5 p-2.5 rounded-xl bg-paper dark:bg-white/[.03]">
+                    <span className="w-2 h-2 rounded-full bg-flame-400 mt-1.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-extrabold text-ink dark:text-ink-inv truncate">{String(a.action || 'AKTIVITAS').replaceAll('_', ' ')}</p>
+                      <p className="text-[9.5px] font-semibold text-ink-faint">{dayLabelShort(t.ms)}, {fmtTime(t.ms)}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <p className="text-[9px] font-semibold text-ink-faint mt-3 leading-relaxed">Riwayat aktivitas bersifat audit — tidak dapat diubah atau dihapus oleh siapa pun.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const TABS = [
   { id: 'home', label: 'Beranda', icon: Beranda },
   { id: 'absensi', label: 'Absensi', icon: Absensi },
@@ -1484,42 +1753,28 @@ const TABS = [
   { id: 'profil', label: 'Profil', icon: Tim },
 ];
 
-export const AbsensiApp = ({ preLic = '' }) => {
-  const [dark, setDark] = useState(() => {
-    const saved = localStorage.getItem('theme');
-    return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
-  });
-  useEffect(() => { document.documentElement.classList.toggle('dark', dark); }, [dark]);
-  const toggleDark = () => {
-    const nd = !dark; setDark(nd);
-    localStorage.setItem('theme', nd ? 'dark' : 'light');
-    document.documentElement.classList.toggle('dark', nd);
-  };
+export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark }) => {
+  // Waktu terpercaya di-offset sejak awal (header host) — dipakai
+  // watermark foto absensi sebelum data terkirim ke server.
+  useEffect(() => { syncTrustedTime(); }, []);
 
-  // v15 F0: sesi anonymous Firebase sejak boot (sesi tersimpan pun
-  // butuh auth untuk listener tenant).
-  useEffect(() => { ensureAuth(); }, []);
-
-  const [session, setSession] = useState(() => safeParse(SESSION_KEY, null));
   const [tab, setTab] = useState('home');
   const [flow, setFlow] = useState(null);            // 'in' | 'out' | null
   const [popup, setPopup] = useState({ show: false, message: '', type: 'success' });
   const alert = (message, type = 'success') => { setPopup({ show: true, message, type }); };
 
-  const logout = () => { try { localStorage.removeItem(SESSION_KEY); } catch (e) { } setSession(null); setTab('home'); };
-
   // data utk flow absen (branch + aturan + shift) — dibaca sekali di root
   const { items: branches } = useTenantCol(session ? { id: session.lic } : null, 'cabang', 'cabang_db');
   const { items: karyawan } = useTenantCol(session ? { id: session.lic } : null, 'karyawan', 'karyawan_db');
   const { items: settings } = useTenantCol(session ? { id: session.lic } : null, 'pengaturan', 'pengaturan_db');
-  const { addRow, live } = useTenantCol(session ? { id: session.lic } : null, 'absensi', 'absensi_db');
+  const { live } = useTenantCol(session ? { id: session.lic } : null, 'absensi', 'absensi_db');
 
   const branch = session ? (branches.find(b => b.cid === session.branchId) || null) : null;
   const branchName = branch?.name || session?.branchName || 'Cabang';
   const aturan = getAturan(branch);
 
   // Custom Aplikasi (v14): terapkan logo & warna perusahaan dari
-  // pengaturan tenant — app karyawan ikut white-label seperti app utama.
+  // pengaturan tenant — Employee Area ikut white-label seperti app utama.
   useEffect(() => {
     if (!settings || settings.length === 0) return;
     const rec = settings.find(s => s.key === 'branding');
@@ -1540,18 +1795,17 @@ export const AbsensiApp = ({ preLic = '' }) => {
     return rec && rec.aktif ? (rec.logo || null) : null;
   })();
 
-  const doSubmit = async ({ photo, geo, geoStatus, dist, outOfRadius, type, onStage }) => {
+  const doSubmit = async ({ photo, geo, geoStatus, dist, outOfRadius, type, address, onStage }) => {
     try {
       // v15 F4-H11: telat dihitung dari waktu terpercaya (offset server)
       const li = lateInfo(trustedNow(), aturan);
       const sh = myShift || shiftOfMs(branchShifts, Date.now());   // shift tercatat di absensi
-      // v15 F5/F2: alamat manusiawi dari koordinat (Nominatim) — koordinat
-      // & akurasi ASLI tetap disimpan; gagal resolve = tanpa alamat.
-      // v15.3: proses kini berkabar lewat onStage supaya karyawan melihat
-      // progresnya (mencari alamat, mengunggah foto, menyimpan).
-      let alamat = null;
-      if (geo && geo.lat != null) {
-        try { if (onStage) onStage('Mencari alamat lokasi...'); alamat = await Promise.race([reverseGeocode(geo.lat, geo.lng), new Promise(res => setTimeout(() => res(null), 6500))]); } catch (_) { }
+      // v20 FIX: alamat dari AbsenFlow (sudah di-resolve saat foto diambil).
+      // Bila kosong, fallback reverse-geocode sekali di sini — TIDAK lagi
+      // merujuk variabel `geoAddress` yang tidak pernah ada di scope ini.
+      let alamat = address || null;
+      if (geo && geo.lat != null && !alamat) {
+        try { if (onStage) onStage('Memastikan alamat lokasi...'); alamat = await reverseGeocode(geo.lat, geo.lng); } catch (_) { alamat = null; }
       }
       // v15 F5/J3: foto diunggah ke Storage (URL hemat kuota baca);
       // bila Storage belum siap → fallback base64 inline seperti sebelumnya.
@@ -1561,32 +1815,36 @@ export const AbsensiApp = ({ preLic = '' }) => {
         photoUrl = await uploadMedia(session.lic, `absensi/${todayKey()}/${session.employeeCid}_${Date.now()}.jpg`, photo);
       }
       try { if (onStage) onStage('Menyimpan absen...'); } catch (_) { }
-      addRow({
+      const captureId = randomId('capture');
+      const photoHash = await sha256Hex(photo);
+      const attendanceId = randomId('abs');
+      const evidence = {
+        captureId, photoHash, captureMode: 'welp-camera', liveMotionCheck: true,
         employeeName: session.employeeName, employeeCid: session.employeeCid, empId: session.empId || '', role: session.role,
         branchId: session.branchId, branchName, date: todayKey(), type,
         shiftId: sh?.id || null, shiftNama: sh?.nama || null,
-        lat: geo?.lat ?? null, lng: geo?.lng ?? null, acc: geo?.acc ?? null,
-        dist: dist ?? null, far: outOfRadius,
-        geoStatus: geoStatus || (geo ? 'ok' : 'unavailable'), alamat,
+        lat: geo.lat, lng: geo.lng, acc: geo.acc ?? null,
+        dist: dist ?? null, far: false, geoStatus: 'verified', alamat,
+        addressDisplay: alamat?.displayName || null,
+        addressRoad: alamat?.jalan || null, addressKelurahan: alamat?.kelurahan || null,
+        addressKecamatan: alamat?.kecamatan || null, addressKota: alamat?.kota || null,
+        addressProvinsi: alamat?.provinsi || null, addressKodepos: alamat?.kodepos || null,
         lateMin: type === 'in' ? li.telatMin : null, lateStatus: type === 'in' ? li.status : null,
-        photo: photoUrl ? null : (photo || null), photoUrl,
-        deviceId: session.deviceId || getDeviceId(), deviceTs: Date.now()
-      });
-      auditLog({ id: session.lic, tenant: session.tenant, currentUserRole: 'karyawan', branchId: session.branchId, employeeName: session.employeeName },
-        'ABSEN_' + (type === 'in' ? 'MASUK' : 'PULANG'), { jarak: dist, luarRadius: outOfRadius, tanpaGps: !geo });
+        photo: photoUrl ? null : photo, photoUrl,
+        deviceId: session.deviceId || getDeviceId(), deviceTs: Date.now(),
+        createdAt: Date.now(), serverAt: serverTimestamp(),
+        evidenceVersion: 2, status: 'verified'
+      };
+      await setDoc(doc(db, 'tenants', session.lic, 'absensi', attendanceId), evidence);
+      auditLog({ id: session.lic, tenant: session.tenant, currentUserRole: session.role, branchId: session.branchId, employeeName: session.employeeName },
+        'ABSEN_' + (type === 'in' ? 'MASUK' : 'PULANG'), { jarak: dist, luarRadius: outOfRadius, tanpaGps: !geo, employeeCid: session.employeeCid });
       setFlow(null);
-      alert(!geo
-        ? 'Absen tercatat TANPA lokasi GPS. Owner melihat penandanya.'
-        : outOfRadius
-        ? `Absen tercatat, tapi kamu ${dist}m dari cabang. Owner akan melihat tandanya.`
-        : `Absen ${type === 'in' ? 'masuk' : 'pulang'} tercatat! Waktu dikunci server.`, (!geo || outOfRadius) ? 'error' : 'success');
+      alert(`Absen ${type === 'in' ? 'masuk' : 'pulang'} tercatat. Bukti kamera, lokasi, dan waktu server tersimpan.`, 'success');
     } catch (e) {
       alert('Gagal mengirim absensi: ' + (e.message || 'coba lagi'), 'error');
       throw e;   // v15.3: kabarkan ke flow supaya tombol kembali normal
     }
   };
-
-  if (!session) return <AbsenLogin preLic={preLic} onDone={setSession} dark={dark} toggleDark={toggleDark} />;
 
   return (
     <div className="min-h-screen bg-paper dark:bg-night text-ink dark:text-ink-inv animate-fade-in">
@@ -1596,10 +1854,11 @@ export const AbsensiApp = ({ preLic = '' }) => {
       {tab === 'absensi' && <EmpAbsensi session={session} target={myTarget} />}
       {tab === 'gaji' && <EmpGaji session={session} />}
       {tab === 'ajukan' && <EmpAjukan session={session} me={me} />}
-      {tab === 'profil' && <EmpProfil session={session} dark={dark} toggleDark={toggleDark} onLogout={logout} />}
+      {tab === 'info' && <EmpInfo session={session} />}
+      {tab === 'profil' && <EmpProfil session={session} dark={dark} toggleDark={toggleDark} onLogout={onLogout} />}
 
-      {/* BOTTOM NAV */}
-      <nav className="fixed bottom-0 inset-x-0 z-40 bg-surface/95 dark:bg-chrome-deep/95 backdrop-blur-md border-t border-line dark:border-chrome-edge">
+      {/* BOTTOM NAV — safe-area aware */}
+      <nav className="fixed bottom-0 inset-x-0 z-40 bg-surface/95 dark:bg-chrome-deep/95 backdrop-blur-md border-t border-line dark:border-chrome-edge pb-safe">
         <div className="grid grid-cols-5 max-w-md mx-auto h-16">
           {TABS.map(it => {
             const isActive = tab === it.id;
@@ -1620,6 +1879,226 @@ export const AbsensiApp = ({ preLic = '' }) => {
         <AbsenFlow type={flow} session={session} branch={branch} branchName={branchName} aturan={aturan} brandLogo={brandLogo}
           onClose={() => setFlow(null)} onSubmit={doSubmit} />
       )}
+    </div>
+  );
+};
+
+/* ============================================================
+   ABSENSIAPP STANDALONE (?absen=1 — QR lama tetap berfungsi)
+   Login: ID Toko → Employee ID + PIN pribadi (v15 F2).
+   ============================================================ */
+export const AbsensiApp = ({ preLic = '' }) => {
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  useEffect(() => { document.documentElement.classList.toggle('dark', dark); }, [dark]);
+  const toggleDark = () => {
+    const nd = !dark; setDark(nd);
+    localStorage.setItem('theme', nd ? 'dark' : 'light');
+    document.documentElement.classList.toggle('dark', nd);
+  };
+
+  // v15 F0: sesi anonymous Firebase sejak boot (sesi tersimpan pun
+  // butuh auth untuk listener tenant).
+  useEffect(() => { ensureAuth(); }, []);
+
+  const [session, setSession] = useState(() => safeParse(SESSION_KEY, null));
+
+  if (!session) return <AbsenLogin preLic={preLic} onDone={setSession} dark={dark} toggleDark={toggleDark} />;
+
+  return (
+    <EmployeeAreaApp
+      session={session}
+      onLogout={() => { try { localStorage.removeItem(SESSION_KEY); } catch (e) { } setSession(null); }}
+      dark={dark}
+      toggleDark={toggleDark}
+    />
+  );
+};
+
+/* ============================================================
+   EMPLOYEE AREA (v20) — di dalam aplikasi utama WELP
+   ------------------------------------------------------------
+   Dipakai ketika user dengan role karyawan login memakai AKUN
+   PRIBADI (Firebase Auth enterprise) dari aplikasi utama. Sistem
+   mengenali record karyawan lewat:
+     1. karyawan.uid  === session.uid          (link langsung)
+     2. karyawan.email === session.email       (email terverifikasi)
+     3. Sesi legacy karyawan: employeeCid tersimpan di sesi.
+   Bila belum tertaut, karyawan memverifikasi diri SEKALI dengan
+   Employee ID + PIN pribadi → sistem menulis karyawan.uid pada
+   record miliknya (audit tertulis) → sesi berikutnya otomatis.
+   ============================================================ */
+export const EmployeeArea = ({ licenseInfo, onLogout, dark, toggleDark, triggerAlert }) => {
+  const { items: employees } = useTenantCol(licenseInfo, 'karyawan', 'karyawan_db');
+  const [linkEmp, setLinkEmp] = useState(null);      // record kandidat saat verifikasi
+  const [pin2, setPin2] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const uid = licenseInfo?.uid || null;
+  const email = String(licenseInfo?.email || '').toLowerCase();
+  const legacyCid = licenseInfo?.employeeCid || null;
+
+  // Resolusi record karyawan milik akun ini (defensif: koleksi belum
+  // termuat / kosong → resolved null, tidak pernah crash).
+  const resolved = (() => {
+    if (!licenseInfo) return null;
+    if (legacyCid) {
+      const rec = (employees || []).find(k => k.cid === legacyCid);
+      if (rec) return rec;
+    }
+    if (uid) {
+      const rec = (employees || []).find(k => k.uid === uid);
+      if (rec) return rec;
+    }
+    if (email) {
+      const rec = (employees || []).find(k => String(k.email || '').toLowerCase() === email);
+      if (rec) return rec;
+    }
+    return null;
+  })();
+
+  const doLink = async () => {
+    setErr('');
+    if (!linkEmp) return;
+    if (pin2.length !== 6) return setErr('Masukkan PIN pribadi 6 digit yang diatur atasanmu.');
+    const gateKey = `link:${licenseInfo?.id || 'x'}:${linkEmp.cid}`;
+    const st = pinGate.status(gateKey);
+    if (st.locked) return setErr(pinGateMsg(st));
+    setBusy(true);
+    try {
+      if (!(await verifyCred(pin2, linkEmp, 'pin'))) {
+        const gst = pinGate.fail(gateKey);
+        setErr(gst.locked ? pinGateMsg(gst) : `PIN salah! Sisa ${5 - gst.fails} percobaan.`);
+        setPin2(''); setBusy(false); return;
+      }
+      pinGate.reset(gateKey);
+      if (credIsLegacy(linkEmp)) upgradeCred(['tenants', licenseInfo.id, 'karyawan', linkEmp.cid], pin2, 'pin');
+      // Tautkan akun pribadi ke record karyawan (sekali saja).
+      const patch = {};
+      if (uid) patch.uid = uid;
+      if (email) patch.email = licenseInfo.email;
+      if (Object.keys(patch).length) {
+        await setDoc(doc(db, 'tenants', licenseInfo.id, 'karyawan', linkEmp.cid), patch, { merge: true });
+        auditLog({ id: licenseInfo.id, tenant: licenseInfo.tenant, currentUserRole: 'employee', branchId: linkEmp.branchId || 'PUSAT', employeeName: linkEmp.name },
+          'KARYAWAN_LINK_AKUN', { target: linkEmp.empId || linkEmp.cid, email: licenseInfo.email || null });
+      }
+      setLinkEmp(null); setPin2(''); setErr('');
+      triggerAlert && triggerAlert('Akun berhasil tertaut ke data karyawan.', 'success');
+    } catch (e) {
+      setErr('Gagal menautkan akun: ' + (e.message || 'coba lagi'));
+    }
+    setBusy(false);
+  };
+
+  // ---------- Belum ada record: pandu verifikasi Employee ID ----------
+  if (!resolved && !linkEmp) {
+    const candidates = (employees || []).filter(k =>
+      k.status !== 'nonaktif' && !k.uid && !(email && String(k.email || '').toLowerCase() === email));
+    return (
+      <div className="min-h-screen bg-paper dark:bg-night flex flex-col items-center justify-center p-5">
+        <div className="w-full max-w-[400px] animate-rise">
+          <div className="flex justify-center mb-4"><BrandLogo size="md" withTagline={false} /></div>
+          <div className="text-center mb-5">
+            <p className="font-display text-xl font-extrabold text-ink dark:text-ink-inv tracking-tight">Employee Area</p>
+            <p className="text-[11px] text-ink-faint font-bold mt-1 flex items-center justify-center gap-1.5">
+              <PerisaiBuddy className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
+              Hubungkan akun pribadimu dengan data karyawan
+            </p>
+          </div>
+          <div className="card p-6 space-y-4">
+            {err && (
+              <div className="px-4 py-3 rounded-2xl bg-brick-soft dark:bg-brick/10 border border-brick/25 text-brick-deep dark:text-brick text-xs font-bold animate-pop flex items-start gap-2">
+                <BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> {err}
+              </div>
+            )}
+            <p className="text-[11px] font-semibold text-ink-soft dark:text-ink-inv/70 leading-relaxed">
+              Akunmu belum tertaut ke data karyawan di perusahaan ini. Pilih <b>Employee ID</b> kamu, lalu verifikasi dengan PIN pribadi. Proses ini hanya sekali.
+            </p>
+            <EmpIdPicker employees={candidates} onPick={(rec) => { setLinkEmp(rec); setErr(''); }} />
+          </div>
+          <button onClick={onLogout} className="w-full mt-4 py-2.5 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition flex items-center justify-center gap-1.5">
+            <Keluar className="w-3.5 h-3.5" /> Keluar dari akun
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- Verifikasi PIN untuk menautkan ----------
+  if (!resolved && linkEmp) {
+    const pinKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'go'];
+    return (
+      <div className="min-h-screen bg-paper dark:bg-night flex flex-col items-center justify-center p-5">
+        <div className="w-full max-w-[400px] animate-rise">
+          <div className="flex justify-center mb-4"><BrandLogo size="md" withTagline={false} /></div>
+          <div className="text-center mb-5">
+            <p className="font-display text-xl font-extrabold text-ink dark:text-ink-inv tracking-tight">Verifikasi PIN</p>
+            <p className="text-[11px] text-ink-faint font-bold mt-1">Halo, <b>{linkEmp.name}</b> ({linkEmp.empId || 'ID belum diatur'}). Masukkan PIN pribadimu.</p>
+          </div>
+          <div className="card p-6">
+            {err && (
+              <div className="mb-4 px-4 py-3 rounded-2xl bg-brick-soft dark:bg-brick/10 border border-brick/25 text-brick-deep dark:text-brick text-xs font-bold animate-pop">
+                {err}
+              </div>
+            )}
+            <div className="flex gap-2 justify-center mb-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className={`w-9 h-11 rounded-2xl border-2 flex items-center justify-center transition-all ${i < pin2.length ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25' : 'border-line dark:border-line-dark bg-paper dark:bg-night/60'}`}>
+                  {i < pin2.length && <div className="w-2.5 h-2.5 rounded-full bg-flame-500 animate-pop" />}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {pinKeys.map(k => {
+                if (k === 'del') return <button key={k} onClick={() => setPin2(p => p.slice(0, -1))} aria-label="Hapus" className="py-3 rounded-2xl bg-brick-soft dark:bg-brick/10 text-brick text-lg font-extrabold transition active:scale-95 press">⌫</button>;
+                if (k === 'go') return <button key={k} onClick={doLink} disabled={pin2.length !== 6 || busy} aria-label="Verifikasi" className="py-3 rounded-2xl bg-flame-600 text-white flex items-center justify-center transition active:scale-95 press disabled:opacity-40 hover:bg-flame-500"><Check className="w-5 h-5" /></button>;
+                return <button key={k} onClick={() => setPin2(p => (p.length < 6 ? p + k : p))} className="py-3 rounded-2xl bg-paper dark:bg-white/5 text-ink dark:text-ink-inv text-lg font-extrabold transition active:scale-95 press hover:bg-flame-50 dark:hover:bg-flame-900/20">{k}</button>;
+              })}
+            </div>
+            <button onClick={() => { setLinkEmp(null); setPin2(''); setErr(''); }} className="w-full mt-4 py-2.5 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition">Pilih Employee ID lain</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- Tertaut: render Employee Area penuh ----------
+  const session = {
+    lic: licenseInfo.id, tenant: licenseInfo.tenant || licenseInfo.id,
+    branchId: resolved.branchId || licenseInfo.branchId || 'PUSAT',
+    branchName: licenseInfo.branchName || 'Cabang',
+    employeeCid: resolved.cid, employeeName: resolved.name,
+    empId: resolved.empId || '', role: resolved.role || 'employee',
+    hasPin: !!(resolved.cred || resolved.pin), at: Date.now(), deviceId: getDeviceId(),
+  };
+  return <EmployeeAreaApp session={session} onLogout={onLogout} dark={dark} toggleDark={toggleDark} />;
+};
+
+/* Pemilih Employee ID sederhana (search + list) */
+const EmpIdPicker = ({ employees, onPick }) => {
+  const [q, setQ] = useState('');
+  const list = (employees || [])
+    .filter(k => !q || String(k.name || '').toLowerCase().includes(q.toLowerCase()) || String(k.empId || '').toLowerCase().includes(q.toLowerCase()))
+    .slice(0, 8);
+  return (
+    <div className="space-y-2">
+      <input value={q} onChange={e => setQ(e.target.value)} className="field-lg font-mono uppercase" placeholder="Cari nama atau EMP-2025-0001" autoComplete="off" />
+      <div className="max-h-52 overflow-y-auto custom-scrollbar space-y-1.5">
+        {list.length === 0 && <p className="text-[10.5px] font-bold text-ink-faint text-center py-3">Tidak ada kandidat. Pastikan Employee ID-mu terdaftar & belum tertaut akun lain.</p>}
+        {list.map(k => (
+          <button key={k.cid} onClick={() => onPick(k)}
+            className="w-full flex items-center gap-3 p-3 rounded-2xl border-2 border-line dark:border-line-dark bg-surface dark:bg-surface-dark text-left hover:border-flame-400 transition press">
+            <span className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center shrink-0 font-extrabold text-[11px]">{String(k.name || '?')[0]?.toUpperCase()}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{k.name}</span>
+              <span className="block text-[9.5px] font-bold text-ink-faint font-mono truncate">{k.empId || 'ID belum diatur'}</span>
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 };

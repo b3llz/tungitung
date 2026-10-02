@@ -16,11 +16,12 @@ import {
   Penggajian, BuktiTransfer, SlipGaji, WaktuReal, Perangkat,
   PerisaiBuddy, Trash2, Check, GembokBuddy, GembokBuka, BahayaBuddy,
   KoinBuddy, StrukCetak, Riwayat, MedaliBuddy, LayarBuddy, Edit3, Plus,
-  Search, Toko
+  Search, Toko, JaringanBuddy
 } from './welp-icons.jsx';
+import { normRegions, DEPARTMENTS } from './welp-core/org.js';
 import {
   formatIDR, useTenantCol, trustedTime, trustedNow, getLocation,
-  distanceMeters, todayKey, fileToDataUrl,
+  distanceMeters, todayKey, fileToDataUrl, useQr,
   getAturan, DEFAULT_ATURAN, lateInfo, lateInfoMs, fmtDurJMD,
   dateKeyOf, dayLabel, dayLabelShort, qrDataUrl,
   auditLog, makeEmpId, PAYROLL_FLOW, payrollPushHistory,
@@ -230,7 +231,10 @@ export const PusatShiftsCard = ({ licenseInfo }) => {
 export const BranchTab = ({ licenseInfo, triggerAlert }) => {
   const { items: branches, live, addRow, updateRow, removeRow } = useTenantCol(licenseInfo, 'cabang', 'cabang_db');
   const { items: employees } = useTenantCol(licenseInfo, 'karyawan', 'karyawan_db');
-  const [form, setForm] = useState({ name: '', location: '', password: '', pin: '', role: 'admin', payrollEnabled: false, jamMasuk: DEFAULT_ATURAN.jamMasuk, toleransi: DEFAULT_ATURAN.toleransi, radius: DEFAULT_ATURAN.radius, hkBulan: DEFAULT_ATURAN.hkBulan, shifts: [] });
+  // v20: region/area untuk struktur organisasi Pusat → Region → Cabang.
+  const { items: regions } = useTenantCol(licenseInfo, 'regions', 'regions_db');
+  const regionOpts = normRegions(regions);
+  const [form, setForm] = useState({ name: '', location: '', password: '', pin: '', role: 'admin', payrollEnabled: false, jamMasuk: DEFAULT_ATURAN.jamMasuk, toleransi: DEFAULT_ATURAN.toleransi, radius: DEFAULT_ATURAN.radius, hkBulan: DEFAULT_ATURAN.hkBulan, shifts: [], regionId: '' });
   const [pin, setPin] = useState('');
   const [geo, setGeo] = useState(null);
   const [geoBusy, setGeoBusy] = useState(false);
@@ -238,7 +242,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
   const [revealPinId, setRevealPinId] = useState(null);   // PIN cabang: tersembunyi, tampil sesaat saat diminta
   const [editingId, setEditingId] = useState(null);
 
-  const resetForm = () => { setForm({ name: '', location: '', password: '', pin: '', role: 'admin', payrollEnabled: false, jamMasuk: DEFAULT_ATURAN.jamMasuk, toleransi: DEFAULT_ATURAN.toleransi, radius: DEFAULT_ATURAN.radius, hkBulan: DEFAULT_ATURAN.hkBulan, shifts: [] }); setPin(''); setGeo(null); setEditingId(null); };
+  const resetForm = () => { setForm({ name: '', location: '', password: '', pin: '', role: 'admin', payrollEnabled: false, jamMasuk: DEFAULT_ATURAN.jamMasuk, toleransi: DEFAULT_ATURAN.toleransi, radius: DEFAULT_ATURAN.radius, hkBulan: DEFAULT_ATURAN.hkBulan, shifts: [], regionId: '' }); setPin(''); setGeo(null); setEditingId(null); };
 
   const pickGeo = async () => {
     setGeoBusy(true);
@@ -263,6 +267,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
     const payload = {
       name: form.name.trim(), location: form.location.trim(),
       role: form.role, payrollEnabled: !!form.payrollEnabled,
+      regionId: form.regionId || null,   // v20: penempatan dalam struktur organisasi
       ...(credPass ? { credPass, password: null } : {}),
       ...(credPin ? { credPin, pin: null } : {}),
       aturan: {
@@ -284,7 +289,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
     setEditingId(b.cid);
     // v15 F0: password tidak lagi bisa dibaca (tersimpan hash) —
     // kolom kosong berarti "tidak diganti".
-    setForm({ name: b.name || '', location: b.location || '', password: '', pin: '', role: b.role || 'admin', payrollEnabled: !!b.payrollEnabled, jamMasuk: at.jamMasuk, toleransi: at.toleransi, radius: at.radius, hkBulan: at.hkBulan, shifts: normShifts(b.shifts) });
+    setForm({ name: b.name || '', location: b.location || '', password: '', pin: '', role: b.role || 'admin', payrollEnabled: !!b.payrollEnabled, jamMasuk: at.jamMasuk, toleransi: at.toleransi, radius: at.radius, hkBulan: at.hkBulan, shifts: normShifts(b.shifts), regionId: b.regionId || '' });
     setPin(''); setGeo(b.lat != null ? { lat: b.lat, lng: b.lng, acc: b.geoAcc } : null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -316,8 +321,20 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
             </div>
           </FieldCard>
 
+          <FieldCard icon={JaringanBuddy} label="Region / Area (Opsional)" desc="Kelompokkan cabang ke dalam region utk penugasan Area Manager">
+            <Select
+              value={regionOpts.find(r => r.cid === form.regionId)?.name || '— Tanpa Region —'}
+              options={['— Tanpa Region —', ...regionOpts.map(r => r.name + (r.code ? ` (${r.code})` : ''))]}
+              onChange={v => {
+                if (v === '— Tanpa Region —') return setForm(f => ({ ...f, regionId: '' }));
+                const found = regionOpts.find(r => (r.name + (r.code ? ` (${r.code})` : '')) === v);
+                setForm(f => ({ ...f, regionId: found ? found.cid : '' }));
+              }} />
+            <p className="text-[9.5px] text-ink-faint font-semibold mt-2">Region dikelola di menu Organisasi &amp; Region. Area Manager dengan scope region otomatis mengelola cabang di dalamnya.</p>
+          </FieldCard>
+
           <div className="grid sm:grid-cols-2 gap-3.5">
-            <FieldCard icon={Kredensial} label="Password Cabang" desc={editingId ? 'Biarkan kosong bila tidak diganti (tersimpan hash)' : 'Dipakai di layar login, mode Cabang'}>
+            <FieldCard icon={Kredensial} label="Password Kompatibilitas" desc={editingId ? 'Biarkan kosong bila tidak diganti (tersimpan hash)' : 'Hanya jalur legacy — semua orang kini disarankan akun pribadi'}>
               <div className="flex gap-2">
                 <input className="field min-w-0 flex-1" type={showPw ? 'text' : 'password'} placeholder={editingId ? 'Tidak diganti' : 'Password cabang'}
                   value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
@@ -554,10 +571,13 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
   const { items: employees, live, addRow, removeRow, updateRow } = useTenantCol(licenseInfo, 'karyawan', 'karyawan_db');
   const { items: branches } = useTenantCol(licenseInfo, 'cabang', 'cabang_db');
   const { items: settings } = useTenantCol(licenseInfo, 'pengaturan', 'pengaturan_db');
+  // v20: region/area utk penugasan Area Manager & supervisor wilayah.
+  const { items: regions } = useTenantCol(licenseInfo, 'regions', 'regions_db');
+  const regionOpts = normRegions(regions);
   const pusatShifts = normShifts((settings || []).find(s => s.key === 'shift_pusat')?.shifts);
   const shiftsOf = (bid) => shiftsForBranch(bid, branches, pusatShifts);
   const [openBranch, setOpenBranch] = useState(null);          // cid cabang yang dibuka
-  const [form, setForm] = useState({ name: '', role: 'kasir', branchId: 'PUSAT', pin: '', status: 'aktif', shiftId: '', hkBulan: '', jenisKontrak: 'tetap', upahHarian: '', gajiPokok: '', hakCuti: '' });
+  const [form, setForm] = useState({ name: '', role: 'kasir', branchId: 'PUSAT', pin: '', status: 'aktif', shiftId: '', hkBulan: '', jenisKontrak: 'tetap', upahHarian: '', gajiPokok: '', hakCuti: '', regionIds: [], email: '', department: '' });
   const [editingId, setEditingId] = useState(null);
   const [q, setQ] = useState('');
   const [roleFilter, setRoleFilter] = useState('semua');
@@ -565,7 +585,7 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
   const [showPinForm, setShowPinForm] = useState(false);
 
   const branchName = (id) => id === 'PUSAT' ? 'Pusat' : (branches.find(b => b.cid === id)?.name || 'Cabang');
-  const reset = () => { setForm({ name: '', role: 'kasir', branchId: 'PUSAT', branchIds: [], pin: '', status: 'aktif', shiftId: '', hkBulan: '', jenisKontrak: 'tetap', upahHarian: '', gajiPokok: '', hakCuti: '' }); setEditingId(null); setShowPinForm(false); };
+  const reset = () => { setForm({ name: '', role: 'kasir', branchId: 'PUSAT', branchIds: [], pin: '', status: 'aktif', shiftId: '', hkBulan: '', jenisKontrak: 'tetap', upahHarian: '', gajiPokok: '', hakCuti: '', regionIds: [], email: '', department: '' }); setEditingId(null); setShowPinForm(false); };
   const formShifts = shiftsOf(form.branchId);
   const formKontrak = JENIS_KONTRAK[form.jenisKontrak] || JENIS_KONTRAK.tetap;
 
@@ -604,6 +624,12 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
       ...(cred ? { cred, pin: null } : {}),
       // v15 F2: relasi cabang tambahan (multi-cabang)
       branchIds: (form.branchIds || []).filter(x => x && x !== form.branchId),
+      // v20: penugasan region (Area Manager / supervisor wilayah) +
+      // email utk linking akun pribadi (Employee Area otomatis) +
+      // department utk filter HR & scope.
+      regionIds: (form.regionIds || []).filter(Boolean),
+      email: form.email.trim() || null,
+      department: form.department || null,
       shiftId: formShifts.some(s => s.id === form.shiftId) ? form.shiftId : '',
       // Target HK khusus (v13): 0/kosong = ikuti aturan cabang
       hkBulan: Math.min(31, Math.max(0, parseInt(form.hkBulan, 10) || 0)) || null,
@@ -627,7 +653,7 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
 
   const startEdit = (e) => {
     setEditingId(e.cid);
-    setForm({ name: e.name, role: e.role || 'kasir', branchId: e.branchId || 'PUSAT', branchIds: Array.isArray(e.branchIds) ? e.branchIds : [], pin: '', status: e.status || 'aktif', shiftId: e.shiftId || '', hkBulan: e.hkBulan ?? '', jenisKontrak: JENIS_KONTRAK[e.jenisKontrak] ? e.jenisKontrak : 'tetap', upahHarian: e.upahHarian ?? '', gajiPokok: e.gajiPokok ?? '', hakCuti: e.hakCuti ?? '' });
+    setForm({ name: e.name, role: e.role || 'kasir', branchId: e.branchId || 'PUSAT', branchIds: Array.isArray(e.branchIds) ? e.branchIds : [], pin: '', status: e.status || 'aktif', shiftId: e.shiftId || '', hkBulan: e.hkBulan ?? '', jenisKontrak: JENIS_KONTRAK[e.jenisKontrak] ? e.jenisKontrak : 'tetap', upahHarian: e.upahHarian ?? '', gajiPokok: e.gajiPokok ?? '', hakCuti: e.hakCuti ?? '', regionIds: Array.isArray(e.regionIds) ? e.regionIds : [], email: e.email || '', department: e.department || '' });
     setShowPinForm(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -699,6 +725,47 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
               })}
             </div>
             <p className="text-[9.5px] text-ink-faint font-semibold mt-2">Dipakai di Aplikasi Karyawan: pilihan cabang saat login mengikuti daftar ini (utama + tambahan).</p>
+          </FieldCard>
+
+          <FieldCard icon={JaringanBuddy} label="Penugasan Region / Area (Opsional)" desc="Untuk Area Manager, Area Supervisor & role wilayah lainnya">
+            {regionOpts.length === 0 ? (
+              <p className="text-[11px] font-bold text-ink-faint">
+                Belum ada region. Buat dulu di menu <b>Organisasi &amp; Region</b>, lalu tugaskan di sini — scope cabang mengikuti region yang dipilih.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {regionOpts.map(r => {
+                  const on = (form.regionIds || []).includes(r.cid);
+                  return (
+                    <button key={r.cid} type="button" onClick={() => setForm(f => ({
+                      ...f,
+                      regionIds: on ? (f.regionIds || []).filter(x => x !== r.cid) : [...(f.regionIds || []), r.cid]
+                    }))}
+                      className={`px-3 py-2 rounded-xl text-[10.5px] font-extrabold border-2 transition press ${on ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25 text-flame-700 dark:text-apricot' : 'border-line dark:border-line-dark text-ink-faint hover:border-flame-300'}`}>
+                      {on ? '✓ ' : ''}{r.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-[9.5px] text-ink-faint font-semibold mt-2">Karyawan dengan region assignment dapat memantau & mengelola seluruh cabang dalam region tersebut (sesuai permission role-nya). Pusat cukup mengganti assignment di sini — cabang & histori data tidak berubah.</p>
+          </FieldCard>
+
+          <FieldCard icon={Kredensial} label="Akun Pribadi & Department" desc="Email akun WELP karyawan + department untuk HR">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="kicker block mb-1.5 ml-0.5">Email Akun (opsional)</label>
+                <input className="field" type="email" inputMode="email" placeholder="nama@perusahaan.com"
+                  value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+                <p className="text-[9.5px] text-ink-faint font-semibold mt-1.5">Bila diisi &amp; karyawan login dgn akun ini, Employee Area terbuka otomatis tanpa verifikasi ulang.</p>
+              </div>
+              <div>
+                <label className="kicker block mb-1.5 ml-0.5">Department</label>
+                <Select value={form.department || '—'}
+                  options={['—', ...DEPARTMENTS]}
+                  onChange={v => setForm(f => ({ ...f, department: v === '—' ? '' : v }))} />
+              </div>
+            </div>
           </FieldCard>
 
           <FieldCard icon={WaktuReal} label="Shift Kerja & Target HK" desc="Pilih shift dari cabangnya; target HK opsional khusus karyawan ini">
@@ -1163,6 +1230,10 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
   };
 
   const absenUrl = `${window.location.origin}${window.location.pathname}?absen=1${licenseInfo?.id ? '&lic=' + encodeURIComponent(licenseInfo.id) : ''}`;
+  // v20 FIX: qrUrl tidak pernah didefinisikan (ReferenceError yang
+  // merusak tab QR Aplikasi Karyawan). QR kini via hook useQr yang
+  // meng-generate data URL lokal secara async & reaktif.
+  const qrAbsen = useQr(absenUrl, 200);
   const copyLink = async () => {
     try { await navigator.clipboard.writeText(absenUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); triggerAlert('Link Aplikasi Karyawan dikopi!', 'success'); }
     catch (e) { triggerAlert('Gagal mengopi link. Salin manual dari kolom, ya.', 'error'); }
@@ -1233,7 +1304,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
       <Card title="Aplikasi Karyawan" icon={PerisaiBuddy}>
         <div className="flex flex-col sm:flex-row items-center gap-4">
           <div className="bg-white p-2.5 rounded-2xl border-2 border-dashed border-line dark:border-line-dark shrink-0">
-            <img src={qrUrl(absenUrl, 200)} width="120" height="120" className="w-[120px] h-[120px]" alt="QR Aplikasi Karyawan" />
+            <img src={qrAbsen || ''} width="120" height="120" className={`w-[120px] h-[120px] ${qrAbsen ? '' : 'opacity-40'}`} alt="QR Aplikasi Karyawan" />
           </div>
           <div className="min-w-0 flex-1 text-center sm:text-left">
             <p className="text-[12.5px] font-extrabold text-ink dark:text-ink-inv">Aplikasi terpisah untuk seluruh pekerja</p>
@@ -1772,7 +1843,9 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
     // v15.3: QR verifikasi dibuat lokal (data URL) sebelum dokumen ditulis
     const no = 'SG-' + String(rec.cid || '').slice(-6).toUpperCase();
     const qr = await qrDataUrl(`WELP-SLIP|${no}|${licenseInfo?.tenant || 'Toko'}|${rec.employeeName || ''}|${rec.period || ''}|${formatIDR(rec.amount)}`, 96);
-    w.document.write(buildSlipHtml({ rec, company: licenseInfo?.tenant || 'Toko', profile: coProfile, roleLabel, qr }));
+    // v20 FIX: buildSlipHtml kini async (QR fallback di dalamnya) —
+    // document.write menunggu HTML final, bukan Promise.
+    w.document.write(await buildSlipHtml({ rec, company: licenseInfo?.tenant || 'Toko', profile: coProfile, roleLabel, qr }));
     w.document.close();
   };
 
@@ -2067,6 +2140,9 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
   const { items: employees } = useTenantCol(licenseInfo, 'karyawan', 'karyawan_db');
   const { items: pengajuan } = useTenantCol(licenseInfo, 'pengajuan', 'pengajuan_db');
   const { items: dokumen, addRow: addDok, removeRow: removeDok, updateRow: updateDok } = useTenantCol(licenseInfo, 'dokumen', 'dokumen_db');
+  // v20: PENGUMUMAN — konten perusahaan yg muncul di Employee Area.
+  const { items: pengumuman, addRow: addAnn, updateRow: updateAnn, removeRow: removeAnn } = useTenantCol(licenseInfo, 'pengumuman', 'pengumuman_db');
+  const { items: branchesAll } = useTenantCol(licenseInfo, 'cabang', 'cabang_db');
 
   const upsertSetting = (key, patch) => {
     const rec = settings.find(s => s.key === key);
@@ -2074,6 +2150,7 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
     else addRow({ key, ...patch });
   };
 
+  const branchLabelOf = (id) => id === 'PUSAT' ? 'Pusat' : ((branchesAll || []).find(b => b.cid === id)?.name || 'Cabang');
   const coRec = settings.find(s => s.key === 'perusahaan') || null;
   const [co, setCo] = useState(null);            // draft profil perusahaan
   const hk = hariKerjaOf(settings);
@@ -2087,6 +2164,34 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
   const [viewDok, setViewDok] = useState(null);
 
   const resetDok = () => setDokForm({ nama: '', kategori: 'Kontrak Kerja', ket: '', share: false, fileData: null, fileName: '', fileType: '', size: 0 });
+
+  // --- v20 PENGUMUMAN ---
+  const [annForm, setAnnForm] = useState({ title: '', body: '', priority: 'info', branchId: '', aktif: true });
+  const [annEditing, setAnnEditing] = useState(null);
+  const resetAnn = () => { setAnnForm({ title: '', body: '', priority: 'info', branchId: '', aktif: true }); setAnnEditing(null); };
+  const saveAnn = () => {
+    if (!annForm.title.trim()) return triggerAlert('Judul pengumuman wajib diisi.', 'error');
+    if (!annForm.body.trim() || annForm.body.trim().length < 5) return triggerAlert('Isi pengumumannya dulu (minimal 5 huruf).', 'error');
+    const payload = {
+      title: annForm.title.trim(),
+      body: annForm.body.trim(),
+      priority: annForm.priority,
+      audience: annForm.branchId ? 'branch' : 'all',
+      branchId: annForm.branchId || null,
+      branchName: annForm.branchId ? branchLabelOf(annForm.branchId) : null,
+      aktif: annForm.aktif !== false,
+    };
+    if (annEditing) {
+      updateAnn(annEditing.cid, payload);
+      auditLog(licenseInfo, 'PENGUMUMAN_UBAH', { target: annEditing.cid, judul: payload.title });
+      triggerAlert('Pengumuman diperbarui & langsung terlihat di Employee Area.', 'success');
+    } else {
+      addAnn({ ...payload, author: licenseInfo?.employeeName || licenseInfo?.tenant || 'Pusat' });
+      auditLog(licenseInfo, 'PENGUMUMAN_TAMBAH', { judul: payload.title });
+      triggerAlert('Pengumuman terbit & langsung terlihat di Employee Area.', 'success');
+    }
+    resetAnn();
+  };
 
   const pickDok = async (file) => {
     if (!file) return;
@@ -2243,6 +2348,73 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
             </div>
           </>
         )}
+      </Card>
+
+      {/* v20: PENGUMUMAN PERUSAHAAN — tampil di Employee Area karyawan */}
+      <Card title="Pengumuman Perusahaan" icon={JaringanBuddy}
+        help="Pengumuman terbit langsung muncul di Employee Area seluruh karyawan (atau cabang tertentu). Cocok untuk info shift libur, rapat, kebijakan baru, dll.">
+        <div className="space-y-3">
+          <div className="grid sm:grid-cols-2 gap-3">
+            <FieldCard icon={Edit3} label="Judul">
+              <input className="field" placeholder="Contoh: Libur Nasional 26 Des" value={annForm.title} onChange={e => setAnnForm(f => ({ ...f, title: e.target.value }))} />
+            </FieldCard>
+            <FieldCard icon={Toko} label="Prioritas & Target">
+              <div className="flex gap-1.5 mb-2">
+                {[['info', 'Info'], ['penting', 'Penting']].map(([k, lbl]) => (
+                  <button key={k} type="button" onClick={() => setAnnForm(f => ({ ...f, priority: k }))}
+                    className={`flex-1 py-2 rounded-xl text-[10px] font-extrabold border-2 transition press ${annForm.priority === k ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/25 text-flame-700 dark:text-apricot' : 'border-line dark:border-line-dark text-ink-faint'}`}>{lbl}</button>
+                ))}
+              </div>
+              <Select value={annForm.branchId ? branchLabelOf(annForm.branchId) : 'Semua cabang'}
+                options={['Semua cabang', 'Pusat', ...branchesAll.map(b => b.name)]}
+                onChange={v => {
+                  if (v === 'Semua cabang') return setAnnForm(f => ({ ...f, branchId: '' }));
+                  if (v === 'Pusat') return setAnnForm(f => ({ ...f, branchId: 'PUSAT' }));
+                  const b = branchesAll.find(x => x.name === v);
+                  setAnnForm(f => ({ ...f, branchId: b ? b.cid : '' }));
+                }} />
+            </FieldCard>
+          </div>
+          <FieldCard icon={Riwayat} label="Isi Pengumuman">
+            <textarea className="field h-20 resize-none" placeholder="Tulis pengumumannya di sini..." value={annForm.body} onChange={e => setAnnForm(f => ({ ...f, body: e.target.value }))} />
+          </FieldCard>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button onClick={saveAnn} icon={Plus}>{annEditing ? 'Simpan Perubahan' : 'Terbitkan'}</Button>
+            {annEditing && <Button variant="secondary" onClick={resetAnn}>Batal Edit</Button>}
+            <label className="flex items-center gap-2 ml-auto cursor-pointer">
+              <input type="checkbox" checked={annForm.aktif !== false} onChange={e => setAnnForm(f => ({ ...f, aktif: e.target.checked }))} className="w-4 h-4 accent-[#D84312]" />
+              <span className="text-[10.5px] font-bold text-ink-faint">Aktif</span>
+            </label>
+          </div>
+
+          <div className="pt-2 border-t border-line dark:border-line-dark">
+            <p className="kicker mb-2">Terbit ({pengumuman.length})</p>
+            {pengumuman.length === 0 ? (
+              <p className="text-[11px] font-bold text-ink-faint text-center py-3">Belum ada pengumuman.</p>
+            ) : [...pengumuman].sort((a, b) => trustedTime(b).ms - trustedTime(a).ms).map(a => (
+              <div key={a.cid} className="flex items-start gap-2.5 p-3 rounded-2xl bg-paper dark:bg-white/[.03] mb-1.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="font-extrabold text-[12px] text-ink dark:text-ink-inv truncate">{a.title}</p>
+                    {a.priority === 'penting' && <Badge tone="gold">Penting</Badge>}
+                    {a.aktif === false && <Badge tone="grey">Arsip</Badge>}
+                    {a.branchName && <Badge tone="grey">{a.branchName}</Badge>}
+                  </div>
+                  <p className="text-[10px] font-semibold text-ink-faint mt-0.5 line-clamp-2 leading-relaxed">{a.body}</p>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => { setAnnEditing(a); setAnnForm({ title: a.title || '', body: a.body || '', priority: a.priority || 'info', branchId: a.branchId || '', aktif: a.aktif !== false }); }}
+                    className="p-1.5 rounded-lg bg-surface dark:bg-white/10 text-ink-faint hover:text-ink-soft press" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => updateAnn(a.cid, { aktif: a.aktif === false })}
+                    className={`p-1.5 rounded-lg press ${a.aktif === false ? 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf' : 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold'}`}
+                    aria-label={a.aktif === false ? 'Aktifkan' : 'Arsipkan'}>{a.aktif === false ? <Check className="w-3.5 h-3.5" /> : <GembokBuddy className="w-3.5 h-3.5" />}</button>
+                  <button onClick={() => { if (confirm(`Hapus pengumuman "${a.title}"?`)) { removeAnn(a.cid); auditLog(licenseInfo, 'PENGUMUMAN_HAPUS', { judul: a.title }); } }}
+                    className="p-1.5 rounded-lg bg-brick-soft dark:bg-brick/10 text-brick press" aria-label="Hapus"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </Card>
 
       {/* DOKUMEN PERUSAHAAN */}

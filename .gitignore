@@ -8,3 +8,7 @@ build/
 .env
 .DS_Store
 *.log
+
+functions/.env
+functions/.env.*
+!functions/.env.example

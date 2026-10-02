@@ -1,17 +1,22 @@
 // ============================================================
-// BERANDA WELP v5 — halaman pembuka untuk pemilik bisnis.
-// Semua angka diambil dari data nyata aplikasi (pos_history_db,
-// expense_db, product_stock_db). Tidak ada data karangan.
-// Laba kotor hanya tampil untuk owner/admin (RBAC sama seperti
-// tab Laporan) dan dihitung dari hppAtSale transaksi.
+// COMMAND CENTER WELP v20 — pusat kendali perusahaan.
+// Semua angka diambil dari data nyata (pos_history_db, expense_db,
+// product_stock_db) + data realtime Firestore: pengajuan payroll &
+// cuti yang menunggu keputusan, kehadiran hari ini, pengumuman
+// terbaru, dan ringkasan organisasi (region/cabang). Tidak ada
+// data karangan. Akses mengikuti permission granular per role.
 // ============================================================
 import React, { useState, useEffect } from 'react';
-import { safeParse, formatIDR } from './core.jsx';
+import { safeParse, formatIDR, trustedTime, todayKey } from './core.jsx';
+import { useTenantCol } from './core.jsx';
 import { Badge, EmptyState, Mascot } from './ui';
 import {
   Kasir, HppCalc, Stok, Riwayat, KasKeluar, Laporan, Karyawan,
-  Supplier, Uang, Qris, Perhatian, Omzet, LabaKotor, Terang
+  Supplier, Uang, Qris, Perhatian, Omzet, LabaKotor, Terang,
+  BadgeCheck, JaringanBuddy, Absensi, Cabang
 } from './welp-icons.jsx';
+import { canDo } from './welp-core/rbac.js';
+import { normRegions } from './welp-core/org.js';
 
 const sameDay = (iso) => { try { return new Date(iso).toDateString() === new Date().toDateString(); } catch (e) { return false; } };
 
@@ -26,7 +31,32 @@ const MetricCard = ({ label, value, sub, icon: Icon, tone = 'light' }) => (
   </div>
 );
 
-export const HomeTab = ({ licenseInfo, setActive, activeTab }) => {
+export const HomeTab = ({ licenseInfo, setActive, activeTab, perms }) => {
+  // ---- DATA REALTIME (WELP Core) untuk Command Center ----
+  const { items: pengajuan } = useTenantCol(licenseInfo, 'pengajuan', 'pengajuan_db');
+  const { items: payrollRows } = useTenantCol(licenseInfo, 'payroll', 'payroll_db');
+  const { items: absensiRows } = useTenantCol(licenseInfo, 'absensi', 'absensi_db');
+  const { items: branchesRows } = useTenantCol(licenseInfo, 'cabang', 'cabang_db');
+  const { items: regionRows } = useTenantCol(licenseInfo, 'regions', 'regions_db');
+  const { items: announceRows } = useTenantCol(licenseInfo, 'pengumuman', 'pengumuman_db');
+
+  const canSeeApproval = canDo(perms, 'approval.view');
+  const pendingPayroll = canSeeApproval ? (payrollRows || []).filter(p => p.status === 'DIAJUKAN').length : 0;
+  const pendingCuti = canSeeApproval ? (pengajuan || []).filter(p => p.status === 'DIAJUKAN' || p.status === 'DITINJAU').length : 0;
+  const pendingTotal = pendingPayroll + pendingCuti;
+
+  const today = todayKey();
+  const presentToday = new Set((absensiRows || []).filter(a => a.date === today && a.type === 'in').map(a => a.employeeCid || a.employeeName)).size;
+  const headcount = (new Set([...(absensiRows || []).map(a => a.employeeCid).filter(Boolean)])).size;
+
+  const regionCount = normRegions(regionRows).length;
+  const branchCount = (branchesRows || []).length;
+
+  const latestAnnouncements = (announceRows || [])
+    .filter(a => a && a.aktif !== false)
+    .sort((a, b) => trustedTime(b).ms - trustedTime(a).ms)
+    .slice(0, 2);
+
   const [snapshot, setSnapshot] = useState(null);
 
   useEffect(() => {
@@ -65,11 +95,11 @@ export const HomeTab = ({ licenseInfo, setActive, activeTab }) => {
   const dayGreet = hour < 11 ? 'Selamat pagi' : hour < 15 ? 'Selamat siang' : hour < 19 ? 'Selamat sore' : 'Selamat malam';
 
   const quickActions = [
-    { id: 'pos', label: 'Jualan', icon: Kasir },
-    { id: 'stock', label: 'Stok', icon: Stok },
-    { id: 'calc', label: 'Hitung HPP', icon: HppCalc },
-    { id: 'history', label: 'Riwayat', icon: Riwayat },
-  ].filter(a => a.id === 'pos' || a.id === 'stock' || a.id === 'calc' || a.id === 'history');
+    { id: 'pos', label: 'Jualan', icon: Kasir, perm: 'pos.use' },
+    { id: 'stock', label: 'Stok', icon: Stok, perm: 'inventory.manage' },
+    { id: 'calc', label: 'Hitung HPP', icon: HppCalc, perm: 'product.manage' },
+    { id: 'history', label: 'Riwayat', icon: Riwayat, perm: 'report.view' },
+  ].filter(a => !perms || !perms.has || canDo(perms, a.perm));
 
   const latest = [...snapshot.txs].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
   const nothingAtAll = snapshot.txs.length === 0 && snapshot.products.length === 0;
@@ -117,6 +147,66 @@ export const HomeTab = ({ licenseInfo, setActive, activeTab }) => {
             : <MetricCard label="Laba Kotor" value="Belum terhitung" sub="lengkapi resep HPP produk" icon={LabaKotor} />
         )}
       </div>
+
+      {/* v20: PUSAT KENDALI — persetujuan, organisasi, kehadiran */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {canSeeApproval && (
+          <button onClick={() => setActive('approval')} className={`card p-4 sm:p-5 text-left transition press hover:border-flame-300 dark:hover:border-flame-600 ${pendingTotal > 0 ? '!border-gold/60' : ''}`}>
+            <div className="flex items-center justify-between">
+              <p className="kicker">Perlu Keputusan</p>
+              <BadgeCheck className={`w-6 h-6 ${pendingTotal > 0 ? 'text-gold-deep dark:text-gold' : 'text-ink-faint'}`} />
+            </div>
+            <p className={`text-xl sm:text-[26px] font-extrabold money tracking-tight leading-none mt-2 ${pendingTotal > 0 ? 'text-gold-deep dark:text-gold' : 'text-ink-faint'}`}>{pendingTotal}</p>
+            <p className="text-[10.5px] font-bold text-ink-faint mt-1.5">{pendingPayroll} payroll · {pendingCuti} cuti/izin</p>
+          </button>
+        )}
+        <button onClick={() => setActive('organization')} className="card p-4 sm:p-5 text-left transition press hover:border-flame-300 dark:hover:border-flame-600">
+          <div className="flex items-center justify-between">
+            <p className="kicker">Organisasi</p>
+            <JaringanBuddy className="w-6 h-6 text-flame-500 dark:text-apricot" />
+          </div>
+          <p className="text-xl sm:text-[26px] font-extrabold money tracking-tight leading-none text-ink dark:text-ink-inv mt-2">{branchCount}<span className="text-sm text-ink-faint">/{Math.max(branchCount, 1)}</span></p>
+          <p className="text-[10.5px] font-bold text-ink-faint mt-1.5">{regionCount} region · {branchCount} cabang</p>
+        </button>
+        <button onClick={() => setActive('absensi')} className="card p-4 sm:p-5 text-left transition press hover:border-flame-300 dark:hover:border-flame-600">
+          <div className="flex items-center justify-between">
+            <p className="kicker">Hadir Hari Ini</p>
+            <Absensi className="w-6 h-6 text-leaf-deep dark:text-leaf" />
+          </div>
+          <p className="text-xl sm:text-[26px] font-extrabold money tracking-tight leading-none text-ink dark:text-ink-inv mt-2">{presentToday}</p>
+          <p className="text-[10.5px] font-bold text-ink-faint mt-1.5">absen masuk tercatat</p>
+        </button>
+        <button onClick={() => setActive('outlet')} className="card p-4 sm:p-5 text-left transition press hover:border-flame-300 dark:hover:border-flame-600">
+          <div className="flex items-center justify-between">
+            <p className="kicker">POS Monitoring</p>
+            <Cabang className="w-6 h-6 text-flame-500 dark:text-apricot" />
+          </div>
+          <p className="text-xl sm:text-[26px] font-extrabold money tracking-tight leading-none text-ink dark:text-ink-inv mt-2">Live</p>
+          <p className="text-[10.5px] font-bold text-ink-faint mt-1.5">pantau seluruh cabang</p>
+        </button>
+      </div>
+
+      {/* v20: PENGUMUMAN TERBARU (dari Pusat, realtime) */}
+      {latestAnnouncements.length > 0 && (
+        <div className="space-y-2">
+          {latestAnnouncements.map(a => {
+            const t = trustedTime(a);
+            return (
+              <div key={a.cid} className="card p-4 flex items-start gap-3">
+                <span className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/40 text-flame-700 dark:text-apricot flex items-center justify-center shrink-0"><JaringanBuddy className="w-4.5 h-4.5" /></span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv">{a.title}</p>
+                    {a.priority === 'penting' && <Badge tone="gold">Penting</Badge>}
+                  </div>
+                  <p className="text-[10.5px] font-semibold text-ink-faint mt-0.5 line-clamp-2 leading-relaxed">{a.body}</p>
+                  <p className="text-[9px] font-bold text-ink-faint/80 mt-1">{new Date(t.ms).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}{a.author ? ` · ${a.author}` : ''}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-4 items-start">
         {/* TRANSAKSI TERAKHIR (nyata) */}

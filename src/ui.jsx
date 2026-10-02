@@ -19,28 +19,28 @@ export { BrandLogo, BrandLockup, Mascot, AppSymbol };
    Posisi responsif agar tidak menutupi navigasi & aksi utama:
    • Mobile   : tengah-bawah, DI ATAS bottom nav & bar keranjang.
    • Tablet/PC: kanan-atas, di luar jalur kerja utama. */
-export const Toast = ({ message, type, onClose }) => {
+export const Toast = ({ message, type = 'success', onClose }) => {
   useEffect(() => {
-    const timer = setTimeout(onClose, 3000);
+    const timer = setTimeout(onClose, type === 'error' ? 4200 : 3200);
     return () => clearTimeout(timer);
-  }, [onClose]);
+  }, [onClose, type]);
 
+  const isError = type === 'error';
   return createPortal(
-    <div className="fixed z-[9999] left-1/2 -translate-x-1/2 bottom-[6.2rem] sm:left-auto sm:right-5 sm:top-5 sm:bottom-auto sm:translate-x-0 max-w-[calc(100vw-2rem)] sm:max-w-sm animate-slide-up">
-      <div className={`flex items-center gap-3 pl-3 pr-5 py-3 rounded-2xl shadow-pop border ${
-        type === 'error'
-          ? 'bg-brick-deep border-brick/40 text-white'
-          : 'bg-chrome-deep border-chrome-edge text-ink-inv'
+    <div className="fixed z-[9999] left-1/2 -translate-x-1/2 bottom-[calc(5.75rem+env(safe-area-inset-bottom,0px))] sm:left-auto sm:right-5 sm:top-5 sm:bottom-auto sm:translate-x-0 w-[calc(100vw-2rem)] sm:w-auto sm:max-w-[390px] animate-slide-up" role={isError ? 'alert' : 'status'} aria-live={isError ? 'assertive' : 'polite'}>
+      <div className={`flex items-start gap-3 p-3 rounded-2xl shadow-pop border backdrop-blur-xl ${
+        isError ? 'bg-brick-deep/95 border-brick/40 text-white' : 'bg-chrome-deep/95 border-chrome-edge text-ink-inv'
       }`}>
-        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-          type === 'error' ? 'bg-white/15' : 'bg-flame-500 text-white'
-        }`}>
-          {type === 'error' ? <AlertCircle className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isError ? 'bg-white/15' : 'bg-flame-500 text-white'}`}>
+          {isError ? <AlertCircle className="w-4 h-4" /> : <Check className="w-4 h-4" />}
         </div>
-        <div className="min-w-0">
-          <p className="text-[10px] font-extrabold uppercase tracking-widest opacity-60">{type === 'error' ? 'Ups, tunggu' : 'Siap!'}</p>
-          <p className="text-xs font-bold leading-snug break-words">{message}</p>
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="text-[9px] font-extrabold uppercase tracking-[.18em] opacity-60">{isError ? 'Perlu perhatian' : 'Berhasil'}</p>
+          <p className="text-xs font-bold leading-snug break-words mt-0.5">{message}</p>
         </div>
+        <button type="button" onClick={onClose} aria-label="Tutup notifikasi" className="w-7 h-7 rounded-lg flex items-center justify-center opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0">
+          <X className="w-4 h-4" />
+        </button>
       </div>
     </div>,
     document.body
@@ -58,7 +58,7 @@ export const Button = ({ children, onClick, variant = 'primary', className = "",
     danger: "bg-brick-soft dark:bg-brick/10 border-2 border-brick/30 text-brick-deep dark:text-brick hover:bg-brick hover:text-white hover:border-brick",
   };
   return (
-    <button onClick={onClick} disabled={disabled}
+    <button type="button" onClick={onClick} disabled={disabled}
       className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl font-extrabold text-xs transition-all active:scale-[.98] press disabled:opacity-50 disabled:pointer-events-none ${styles[variant]} ${className}`}>
       {Icon && <Icon className="w-4 h-4" />} {children}
     </button>
