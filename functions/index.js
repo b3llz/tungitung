@@ -55,6 +55,12 @@ const PERMISSIONS = new Set([
   'roles.view', 'roles.manage',
   'settings.view', 'settings.manage',
   'refund.perform',
+  // v21 granular keys (domain finansial kasir) — selaras welp-core/rbac.js
+  'transaction.view', 'transaction.create', 'transaction.void', 'transaction.refund',
+  'payment.view', 'payment.confirm', 'payment.manage',
+  'settlement.view', 'settlement.manage',
+  'reconciliation.view',
+  'shift.open', 'shift.close', 'shift.view',
 ]);
 
 const ROLE_KEY_RE = /^[a-z0-9_-]{2,32}$/;
@@ -447,5 +453,177 @@ exports.submitAttendanceEvidence = onCall(async (request) => {
 
 exports.health = onRequest((req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.status(200).json({ ok: true, service: 'welp-functions', version: 'v20-core', time: new Date().toISOString() });
+  res.status(200).json({ ok: true, service: 'welp-functions', version: 'v21.1-payment-core', time: new Date().toISOString() });
+});
+
+// ============================================================
+// v21.1 — WELP PAYMENT WEBHOOK (endpoint internal milik WELP)
+// ------------------------------------------------------------
+// POST /welpPaymentEvents — pintu masuk SEMUA payment event:
+//
+//   Payment Event Source (simulator PWA / Android Notification
+//   Bridge / provider adapter masa depan)
+//     → WELP Payment Webhook (endpoint ini)
+//     → Normalize → Validate → Dedup (eventId)
+//     → Match (paymentReference > providerRef > konteks)
+//     → CONFIRMED / AMBIGUOUS / NO_MATCH / EXPIRED
+//     → Ledger (payment_events, append-only) → Audit
+//
+// KEAMANAN (jujur — tanpa fake):
+//   • Wajib secret env WELP_PAYMENT_WEBHOOK_SECRET (HMAC-SHA256
+//     atas raw body, header 'x-welp-signature'). Secret belum
+//     diset → endpoint menolak dengan 503, BUKAN membuka akses.
+//   • Set secret: firebase functions:secrets:set WELP_PAYMENT_WEBHOOK_SECRET
+//   • Idempoten: payment_events/{eventId} memakai create() — event
+//     yang sama dua kali → duplikat diabaikan (tidak ada revenue ganda).
+//   • Nominal BUKAN identitas: event tanpa reference provider
+//     dinyatakan AMBIGUOUS untuk review manual (spec #19).
+// ============================================================
+const crypto = require('crypto');
+
+function matchDecisionServer(event, intentDocs, now) {
+  const ref = String(event.reference || '').toUpperCase();
+  const pref = String(event.providerRef || '').toUpperCase();
+  const byRef = ref ? intentDocs.find(d => String(d.paymentReference || '').toUpperCase() === ref) : null;
+  if (byRef) {
+    if (byRef.status !== 'PENDING') return { status: 'DUPLICATE', intent: byRef, reason: 'intent sudah diproses' };
+    if (byRef.expiresAt && byRef.expiresAt < now) return { status: 'EXPIRED', intent: byRef, reason: 'intent kedaluwarsa' };
+    if (Number(byRef.amount) !== Number(event.amount)) return { status: 'AMBIGUOUS', intents: [byRef], reason: `reference cocok tapi dana masuk ${event.amount} ≠ tagihan ${byRef.amount}` };
+    return { status: 'CONFIRMED', intent: byRef, reason: `cocok paymentReference ${ref}` };
+  }
+  const byPref = pref ? intentDocs.find(d => String(d.providerRef || '').toUpperCase() === pref) : null;
+  if (byPref) {
+    if (byPref.status !== 'PENDING') return { status: 'DUPLICATE', intent: byPref, reason: 'intent sudah diproses' };
+    if (Number(byPref.amount) !== Number(event.amount)) return { status: 'AMBIGUOUS', intents: [byPref], reason: `providerRef cocok tapi nominal beda` };
+    return { status: 'CONFIRMED', intent: byPref, reason: `cocok providerRef ${pref}` };
+  }
+  // Bukti lemah: nominal (+method) — TIDAK PERNAH auto-confirm.
+  const cands = intentDocs.filter(d => d.status === 'PENDING' && Number(d.amount) === Number(event.amount)
+    && (!d.expiresAt || d.expiresAt > now));
+  if (!cands.length) return { status: 'NO_MATCH', reason: 'tidak ada intent PENDING dgn nominal cocok' };
+  return { status: 'AMBIGUOUS', intents: cands, reason: `nominal sama dgn ${cands.length} order — wajib review manual` };
+}
+
+exports.welpPaymentEvents = onRequest(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, x-welp-signature');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'METHOD_NOT_ALLOWED' });
+
+  const secret = String(process.env.WELP_PAYMENT_WEBHOOK_SECRET || '');
+  if (!secret) {
+    // Fail-closed: tanpa secret, endpoint TIDAK terbuka untuk publik.
+    return res.status(503).json({ ok: false, error: 'WEBHOOK_SECRET_NOT_CONFIGURED', hint: 'firebase functions:secrets:set WELP_PAYMENT_WEBHOOK_SECRET' });
+  }
+  const raw = JSON.stringify(req.body || {});
+  const sig = String(req.get('x-welp-signature') || '');
+  const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
+  const a = Buffer.from(sig), b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return res.status(401).json({ ok: false, error: 'INVALID_SIGNATURE' });
+  }
+
+  const d = req.body || {};
+  const tenant = String(d.tenantId || '').trim();
+  const eventId = String(d.eventId || '').trim();
+  const amount = Math.round(Number(d.amount) || 0);
+  if (!tenant || !eventId || amount <= 0) {
+    return res.status(400).json({ ok: false, error: 'VALIDATION', need: ['tenantId', 'eventId', 'amount>0'] });
+  }
+
+  const now = Date.now();
+  const event = {
+    eventId,
+    source: String(d.source || 'PROVIDER_WEBHOOK').slice(0, 40),
+    reference: String(d.reference || d.paymentReference || '').trim().toUpperCase() || null,
+    providerRef: String(d.providerRef || d.transactionRef || '').trim().toUpperCase() || null,
+    amount, currency: String(d.currency || 'IDR').slice(0, 8),
+    method: String(d.method || 'QRIS').slice(0, 24),
+    merchantId: d.merchantId ? String(d.merchantId).slice(0, 64) : null,
+    timestamp: Number(d.timestamp) || now,
+    rawText: d.rawText ? String(d.rawText).slice(0, 500) : null,
+  };
+
+  const tRef = db.collection('tenants').doc(tenant);
+  const evRef = tRef.collection('payment_events').doc(eventId);
+
+  try {
+    const result = await db.runTransaction(async (tx) => {
+      // 1) IDEMPOTENCY — create() gagal bila eventId sudah ada.
+      const evSnap = await tx.get(evRef);
+      if (evSnap.exists) {
+        return { status: 'DUPLICATE', reason: 'eventId sudah pernah diproses' };
+      }
+
+      // 2) MATCHING — payment_intents per tenant (ditulis saat checkout).
+      let intents = [];
+      if (event.reference) {
+        const byRef = await tRef.collection('payment_intents').where('paymentReference', '==', event.reference).limit(5).get();
+        intents = intents.concat(byRef.docs.map(x => ({ id: x.id, ...x.data() })));
+      }
+      if (event.providerRef) {
+        const byPref = await tRef.collection('payment_intents').where('providerRef', '==', event.providerRef).limit(5).get();
+        intents = intents.concat(byPref.docs.map(x => ({ id: x.id, ...x.data() })));
+      }
+      if (!intents.length) {
+        // kandidat nominal sama (equality-only → aman tanpa composite index)
+        const byAmt = await tRef.collection('payment_intents').where('status', '==', 'PENDING').where('amount', '==', amount).limit(10).get();
+        intents = byAmt.docs.map(x => ({ id: x.id, ...x.data() }));
+      }
+      const decision = matchDecisionServer(event, intents, now);
+
+      // 3) LEDGER — event append-only (audit + dedup permanen).
+      tx.set(evRef, {
+        ...event,
+        matchStatus: decision.status,
+        reason: decision.reason || '',
+        orderId: decision.intent ? (decision.intent.orderId || decision.intent.clientTransactionId || null) : null,
+        processedAt: now,
+        serverAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // 4) CONFIRMED → intent + order lunas (satu transaksi atomik).
+      if (decision.status === 'CONFIRMED' && decision.intent) {
+        const it = decision.intent;
+        const intentRef = tRef.collection('payment_intents').doc(it.id);
+        tx.set(intentRef, {
+          status: 'CONFIRMED', confirmedAt: now, providerRef: event.providerRef || it.providerRef || null,
+          eventId, matchedBy: decision.reason, serverAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        const orderId = it.orderId || it.clientTransactionId;
+        if (orderId) {
+          const orderRef = tRef.collection('pos_history').doc(orderId);
+          const orderSnap = await tx.get(orderRef);
+          if (orderSnap.exists) {
+            const order = orderSnap.data() || {};
+            const payments = (Array.isArray(order.payments) ? order.payments : []).map(p =>
+              p.paymentId === it.paymentId
+                ? { ...p, status: 'CONFIRMED', paidAt: new Date(now).toISOString(), confirmedAt: now, providerRef: event.providerRef || p.providerRef || null, eventId, eventSource: event.source, matchedBy: decision.reason, matchedActor: 'payment-webhook' }
+                : p
+            );
+            tx.set(orderRef, {
+              payments, status: 'paid', paidAt: new Date(now).toISOString(),
+              txState: 'PAYMENT_CONFIRMED',
+              serverAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+          }
+        }
+      }
+      return { status: decision.status, reason: decision.reason || '', orderId: decision.intent ? (decision.intent.orderId || decision.intent.clientTransactionId || null) : null };
+    });
+
+    await writeAudit(tenant, {
+      action: 'PAYMENT_EVENT_' + result.status, target: eventId,
+      source: event.source, reference: event.reference, providerRef: event.providerRef,
+      amount, orderId: result.orderId || null, alasan: result.reason,
+      actor: 'welpPaymentEvents', actorRole: 'system',
+      createdAt: now,
+    });
+    return res.status(200).json({ ok: true, ...result });
+  } catch (e) {
+    console.error('welpPaymentEvents', e);
+    return res.status(500).json({ ok: false, error: 'INTERNAL', detail: String(e?.message || e).slice(0, 200) });
+  }
 });

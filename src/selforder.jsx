@@ -16,8 +16,9 @@ import {
   Toko, Riwayat, Plus, Keranjang, WaktuReal, Qris, Edit3, Check,
   CategoryIcon, Perangkat, PerisaiBuddy, BahayaBuddy
 } from './welp-icons.jsx';
-import { safeParse, formatIDR, computeOrderTotals, getBizConfig, useQr, db, getDeviceId, ensureAuth } from './core.jsx';
-import { CartPopup } from './pos';
+import { safeParse, formatIDR, computeOrderTotals, getBizConfig, useQr, db, getDeviceId, ensureAuth, stockTrackingOn } from './core.jsx';
+import { CartPopup, ModifierSheet } from './pos';
+import { needsModifierSheet, lineModifiersPayload, cartLineKey, normModifierGroups } from './welp-core/modifier.js';
 import { Badge, Mascot } from './ui';
 // v15.3: QR validasi pesanan di-generate lokal (data URL).
 const OrderQr = ({ payload }) => {
@@ -36,6 +37,9 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
   const [profile, setProfile] = useState(profileProp || {});
   const [bizCfg, setBizCfg] = useState(null);
   const [cart, setCart] = useState([]);
+  // v21.1: grup modifier dibaca dari Firestore tenant (menu pelanggan
+  // sama dgn kasir) + mirror lama sebagai fallback offline.
+  const [modGroups, setModGroups] = useState(() => normModifierGroups(safeParse('modifier_group_db', [])));
   const [myOrder, setMyOrder] = useState(null);
   const [showCartPopup, setShowCartPopup] = useState(false);
 
@@ -62,7 +66,12 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
     const un3 = onSnapshot(doc(db, 'tenants', lic, 'pengaturan', 'bizconfig'), s => {
       if (s.exists()) setBizCfg({ ...s.data() });
     }, () => { });
-    return () => { un1(); un2(); un3(); };
+    // v21.1: grup modifier ikut dibagikan ke pelanggan (baca-saja)
+    const un4 = onSnapshot(collection(db, 'tenants', lic, 'modifier_groups'), snap => {
+      const rows = snap.docs.map(d => ({ ...d.data(), cid: d.id }));
+      if (rows.length) setModGroups(normModifierGroups(rows));
+    }, () => { });
+    return () => { un1(); un2(); un3(); un4(); };
   }, [lic]);
 
   // ===== SESI MEJA (anti-fraud) =====
@@ -147,15 +156,32 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
 
   const addToCart = (p) => {
     if (!canOrder) return;
+    // v21.1: produk configurable → modifier sheet pelanggan (varian wajib)
+    if (needsModifierSheet(p, modGroups)) { setModProduct(p); return; }
     setCart(prev => {
-      const exist = prev.find(i => i.id === p.id);
-      return exist ? prev.map(i => i.id === p.id ? { ...i, qty: i.qty + 1 } : i) : [...prev, { ...p, qty: 1 }];
+      const exist = prev.find(i => i.lineId === cartLineKey(p.id, 'retail', []));
+      return exist ? prev.map(i => i.lineId === cartLineKey(p.id, 'retail', []) ? { ...i, qty: i.qty + 1 } : i)
+        : [...prev, { ...p, qty: 1, price: p.price, basePrice: p.price, tier: 'retail', lineId: cartLineKey(p.id, 'retail', []), lineKey: cartLineKey(p.id, 'retail', []), modifiers: [] }];
     });
   };
-  const updateQty = (id, d) => setCart(prev => prev.map(i => i.id === id ? { ...i, qty: Math.max(1, i.qty + d) } : i));
-  const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
+  const [modProduct, setModProduct] = useState(null);
+  const addModToCart = (p, sel, groups, qty, unitPrice) => {
+    const mods = lineModifiersPayload(groups, sel);
+    const key = cartLineKey(p.id, 'retail', mods);
+    setCart(prev => {
+      const exist = prev.find(i => i.lineId === key);
+      if (exist) return prev.map(i => i.lineId === key ? { ...i, qty: Math.min(99, i.qty + qty) } : i);
+      return [...prev, { ...p, qty, price: unitPrice, basePrice: p.price, tier: 'retail', lineId: key, lineKey: key, modifiers: mods }];
+    });
+    setModProduct(null);
+  };
+  const updateQty = (lineId, d) => setCart(prev => prev.map(i => (i.lineId || i.id) === lineId ? { ...i, qty: Math.max(1, i.qty + d) } : i));
+  const removeFromCart = (lineId) => setCart(prev => prev.filter(i => (i.lineId || i.id) !== lineId));
 
-  const available = products.filter(p => p.stock > 0);
+  // v21.1: self-order hormati Stock Tracking — OFF → semua produk tetap
+  // tampil/laku tanpa blokir stok (spec #10).
+  const trackStock = stockTrackingOn();
+  const available = trackStock ? products.filter(p => p.stock > 0) : products;
 
   /* Banner status sesi (anti-fraud transparan ke pelanggan) */
   const SessionBanner = () => {
@@ -313,6 +339,9 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
 
       {/* Re-use Cart Popup (Tanpa Cash) */}
       <CartPopup showCart={showCartPopup} setShowCart={setShowCartPopup} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile} isLoading={isLoading} orderType="Dine-in" setOrderType={() => { }} tableNo={tableNo} setTableNo={() => { }} notes={notes} setNotes={setNotes} cashTendered={0} setCashTendered={() => { }} isSelfOrder={true} />
+
+      {/* v21.1 — Modifier Sheet pelanggan (produk configurable) */}
+      {modProduct && <ModifierSheet product={modProduct} groups={modGroups} onClose={() => setModProduct(null)} onAdd={addModToCart} />}
 
       <div className="fixed bottom-0 left-0 right-0 bg-surface/95 dark:bg-chrome-deep/95 backdrop-blur border-t border-line dark:border-chrome-edge flex justify-around p-2 z-50 pb-safe">
         <button onClick={() => setActiveTab('menu')} className={`flex flex-col items-center p-2 w-1/2 transition press ${activeTab === 'menu' ? 'text-flame-600 dark:text-apricot' : 'text-ink-faint dark:text-ink-inv/45'}`}><Toko className="w-5 h-5" /><span className="text-[9px] font-extrabold mt-1">Buku Menu</span></button>

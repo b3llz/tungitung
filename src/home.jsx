@@ -9,6 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import { safeParse, formatIDR, trustedTime, todayKey } from './core.jsx';
 import { useTenantCol } from './core.jsx';
+import { countsAsSale, netTotalOf } from './welp-core/tx.js';   // v21: void/refund-aware
 import { Badge, EmptyState, Mascot } from './ui';
 import {
   Kasir, HppCalc, Stok, Riwayat, KasKeluar, Laporan, Karyawan,
@@ -66,16 +67,23 @@ export const HomeTab = ({ licenseInfo, setActive, activeTab, perms }) => {
     const products = safeParse('product_stock_db', []);
     const threshold = parseInt(localStorage.getItem('low_stock_threshold')) || 5;
 
-    const todayTxs = txs.filter(t2 => sameDay(t2.date));
-    const omzetToday = todayTxs.reduce((s, t2) => s + (t2.total || 0), 0);
+    // v21: hanya transaksi yang sah (void/gagal bayar tidak dihitung),
+    // omzet bersih = total − refund.
+    const todayTxs = txs.filter(t2 => sameDay(t2.date) && countsAsSale(t2));
+    const omzetToday = todayTxs.reduce((s, t2) => s + netTotalOf(t2), 0);
     const expenseToday = expenses.filter(e => sameDay(e.date)).reduce((s, e) => s + (e.amount || 0), 0);
 
     // Laba kotor hari ini: hanya dari transaksi yang punya HPP saat penjualan.
+    // Refund sebagian diskalakan proporsional (net/total).
     let grossProfit = 0, profitKnown = false;
-    todayTxs.forEach(t2 => (t2.items || []).forEach(i => {
-      if (typeof i.hppAtSale === 'number') { grossProfit += (i.price - i.hppAtSale) * i.qty; profitKnown = true; }
-      else if (typeof i.hpp === 'number') { grossProfit += (i.price - i.hpp) * i.qty; profitKnown = true; }
-    }));
+    todayTxs.forEach(t2 => {
+      const tot = Number(t2.total) || 0;
+      const factor = tot > 0 ? netTotalOf(t2) / tot : 1;
+      (t2.items || []).forEach(i => {
+        if (typeof i.hppAtSale === 'number') { grossProfit += (i.price - i.hppAtSale) * i.qty * factor; profitKnown = true; }
+        else if (typeof i.hpp === 'number') { grossProfit += (i.price - i.hpp) * i.qty * factor; profitKnown = true; }
+      });
+    });
 
     const lowStock = products.filter(p => (p.stock || 0) <= threshold).sort((a, b) => (a.stock || 0) - (b.stock || 0));
 

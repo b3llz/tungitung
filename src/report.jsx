@@ -10,6 +10,7 @@ import {
   BahayaBuddy, RoketBuddy, Uang, Qris, Stok, HppCalc, Riwayat
 } from './welp-icons.jsx';
 import { safeParse, formatIDR, loadExcelJS } from './core.jsx';
+import { countsAsSale, netTotalOf } from './welp-core/tx.js';   // v21: void/refund-aware
 import { Button, Card, Badge, EmptyState, Segmented, PageTitle } from './ui';
 
 export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
@@ -36,6 +37,7 @@ export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
     const currentYear = now.getFullYear();
 
     const filteredTxs = txs.filter(t2 => {
+      if (!countsAsSale(t2)) return false;   // v21: void/gagal bayar tidak dihitung
       const d = new Date(t2.date);
       if (filter === 'today') return d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === currentYear;
       if (filter === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === currentYear;
@@ -51,11 +53,11 @@ export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
       count: 0
     }));
 
-    txs.filter(t2 => new Date(t2.date).getMonth() === currentMonth && new Date(t2.date).getFullYear() === currentYear)
+    txs.filter(t2 => countsAsSale(t2) && new Date(t2.date).getMonth() === currentMonth && new Date(t2.date).getFullYear() === currentYear)
       .forEach(t2 => {
         const day = new Date(t2.date).getDate();
         if (dailyData[day - 1]) {
-          dailyData[day - 1].total += t2.total;
+          dailyData[day - 1].total += netTotalOf(t2);   // v21: bersih dari refund
           dailyData[day - 1].count += 1;
         }
       });
@@ -74,7 +76,7 @@ export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
       .slice(0, 5);
 
     return {
-      rev: filteredTxs.reduce((a, b) => a + b.total, 0),
+      rev: filteredTxs.reduce((a, b) => a + netTotalOf(b), 0),
       count: filteredTxs.length,
       list: filteredTxs.reverse(),
       dailyData,
@@ -161,16 +163,19 @@ export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
   }, [plotSize, stats, chart]);
 
   // LABA NYATA: dihitung dari hppAtSale (snapshot saat checkout)
+  // v21: transaksi refund sebagian diskalakan proporsional (net/total).
   const profitStats = useMemo(() => {
     let cogs = 0, netSales = 0, knownQty = 0, totalQty = 0;
     stats.list.forEach(tx => {
       const items = tx.items || [];
+      const tot = Number(tx.total) || 0;
+      const factor = tot > 0 ? netTotalOf(tx) / tot : 1;   // proporsional refund
       items.forEach(it => {
         const hpp = (typeof it.hppAtSale === 'number') ? it.hppAtSale : (typeof it.hpp === 'number' ? it.hpp : null);
         totalQty += it.qty;
-        if (hpp != null) { cogs += hpp * it.qty; knownQty += it.qty; }
+        if (hpp != null) { cogs += hpp * it.qty * factor; knownQty += it.qty; }
       });
-      netSales += (tx.subtotal != null ? tx.subtotal : items.reduce((a, b) => a + b.price * b.qty, 0)) - (tx.discountAmt || 0);
+      netSales += ((tx.subtotal != null ? tx.subtotal : items.reduce((a, b) => a + b.price * b.qty, 0)) - (tx.discountAmt || 0)) * factor;
     });
     const grossProfit = netSales - cogs;
     const coverage = totalQty ? Math.round((knownQty / totalQty) * 100) : 100;

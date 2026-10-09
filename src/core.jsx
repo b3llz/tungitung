@@ -5,9 +5,10 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from "firebase/app";
 import {
-  getFirestore, collection, doc, addDoc, setDoc, deleteDoc,
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, doc, addDoc, setDoc, deleteDoc,
   onSnapshot, serverTimestamp, updateDoc, deleteField,
-  getDocs, writeBatch
+  getDocs, getDoc, writeBatch
 } from "firebase/firestore";
 import { getAuth, signInAnonymously, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { getStorage, ref as sRef, uploadString, getDownloadURL } from "firebase/storage";
@@ -52,11 +53,22 @@ const firebaseConfig = {
 
 // Robustness: kalau env key tidak ada, jangan crash seluruh app —
 // fitur lisensi/login menampilkan pesan koneksi yang jelas.
+// v21 OFFLINE-FIRST: Firestore memakai PERSISTENT LOCAL CACHE +
+// multi-tab manager → tulisan & bacaan tetap hidup saat internet
+// putus (SDK mengantre otomatis), tab keep-alive saling konsisten.
 let app = null, db = null, auth = null, functions = null;
 let firebaseInitError = null;
 try {
   app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  } catch (cacheErr) {
+    // Lingkungan tak mendukung IndexedDB (mis. private mode ketat) → fallback memori.
+    console.warn('[WELP] Persistent cache tidak tersedia, fallback memori:', cacheErr?.code || cacheErr?.message);
+    db = getFirestore(app);
+  }
   auth = getAuth(app);
   functions = getFunctions(app, "asia-southeast2");
 } catch (e) {
@@ -301,8 +313,21 @@ export const DB_MAP = {
   expense_db: 'kas_keluar',
   supplier_db: 'supplier',
   stock_history_db: 'riwayat_stok',
-  self_orders_db: 'self_orders'
+  self_orders_db: 'self_orders',
+  // v21.1 — WELP Payment Core & Modifier Engine
+  modifier_group_db: 'modifier_groups',     // grup modifier produk
+  payment_event_db: 'payment_events',       // ledger event pembayaran (append-only)
+  payment_intent_db: 'payment_intents',     // proyeksi intent (server matching)
+  // v21 — domain finansial kasir (settlement, shift, kas)
+  settlement_db: 'settlements',
+  shift_log_db: 'shift_log',
+  cash_event_db: 'cash_events'
 };
+// v21 — koleksi finansial APPEND-ONLY: dbSet TIDAK PERNAH menghapus
+// dokumen cloud yang hilang dari mirror lokal (melindungi riwayat
+// transaksi/ settlement/ shift saat satu perangkat offline/stale).
+// Pembatalan = perubahan STATE (void/refund), bukan penghapusan data.
+export const DB_PROTECTED = new Set(['pos_history_db', 'settlement_db', 'shift_log_db', 'cash_event_db', 'payment_event_db', 'payment_intent_db']);
 // Dokumen OBJEK (bukan koleksi): key lokal → id doc di koleksi 'pengaturan'
 export const DB_DOC_MAP = {
   store_profile: 'toko_profile',
@@ -381,7 +406,24 @@ export const dbSet = (licId, key, rows) => {
     }
   });
   Object.keys(prev).forEach(id => {
-    if (!next[id]) deleteDoc(doc(db, 'tenants', licId, col, id)).catch(() => { });
+    if (!next[id]) {
+      // v21: koleksi finansial dilindungi — dokumen cloud yang tak ada
+      // di array lokal DIPERTAHANKAN (bukan dihapus) lalu di-re-merge
+      // ke mirror, sehingga perangkat stale tak bisa memusungkan data.
+      if (DB_PROTECTED.has(key)) {
+        try {
+          const cloudRow = JSON.parse(prev[id]);
+          const cur = JSON.parse(localStorage.getItem(key) || '[]');
+          if (Array.isArray(cur) && !cur.some(r => String(r.id ?? r.cid) === id)) {
+            localStorage.setItem(key, JSON.stringify([{ ...cloudRow, cid: id }, ...cur]));
+            fireDbSync();
+          }
+        } catch (e) { }
+        next[id] = prev[id];       // tetap dianggap "ada" agar tak dihapus berulang
+        return;
+      }
+      deleteDoc(doc(db, 'tenants', licId, col, id)).catch(() => { });
+    }
   });
   _dbSnap[key] = next;
 };
@@ -418,6 +460,15 @@ export const getBizConfig = () => {
   catch (e) { return { tax: 0, service: 0, globalDiscount: 0 }; }
 };
 
+// v21.1 — INVENTORY OPTIONAL (spec #9–11): Stock Tracking ON/OFF.
+// Default ON (kompatibel mundur dgn seluruh tenant lama). OFF =
+// produk tetap laku, POS tidak memblok/menurunkan stok, crew tidak
+// dipaksa mengelola inventaris; opname manual tetap tersedia.
+export const stockTrackingOn = () => {
+  const cfg = getBizConfig();
+  return cfg.stockTracking !== false;
+};
+
 export const computeOrderTotals = (items = [], cfg = getBizConfig(), extraDiscount = 0) => {
   const subtotal = items.reduce((a, b) => a + (b.price * b.qty), 0);
   const discPercent = Number(cfg.globalDiscount || 0);
@@ -443,7 +494,7 @@ export const TRANSLATIONS = {
     karyawan: 'Manajemen Karyawan', absensi: 'Kelola Absensi', payroll: 'Manajemen Penggajian', absenKu: 'Absensi Saya',
     perusahaan: 'Manajemen Perusahaan',
     area: 'Area Saya', customers: 'Customer (CRM)', organization: 'Organisasi & Region', roles: 'Role & Permission',
-    approval: 'Pusat Persetujuan', audit: 'Audit Log',
+    approval: 'Pusat Persetujuan', audit: 'Audit Log', finance2: 'Keuangan (Settlement & Kas)',
     profile: 'Identitas Toko (Profil)', payment: 'Metode Pembayaran', hardware: 'Alat Tambahan (Hardware)', settings: 'Pengaturan Utama',
     logout: 'Keluar (Logout)', menu: 'Menu', staffNav: 'Navigasi Karyawan', access: 'Akses',
     shop: 'Kasir', orders: 'Pesanan', tables: 'Meja', products: 'Daftar Produk', search: 'Ketik SKU / Nama Produk...',
@@ -460,7 +511,7 @@ export const TRANSLATIONS = {
     karyawan: 'Staff Management', absensi: 'Attendance Control', payroll: 'Payroll Management', absenKu: 'My Attendance',
     perusahaan: 'Company Management',
     area: 'My Area', customers: 'Customers (CRM)', organization: 'Organization & Regions', roles: 'Roles & Permissions',
-    approval: 'Approval Center', audit: 'Audit Log',
+    approval: 'Approval Center', audit: 'Audit Log', finance2: 'Finance (Settlement & Cash)',
     profile: 'Store Identity (Profile)', payment: 'Payment Methods', hardware: 'Hardware Devices', settings: 'Main Settings',
     logout: 'Logout', menu: 'Menu', staffNav: 'Staff Navigation', access: 'Access',
     shop: 'Cashier', orders: 'Orders', tables: 'Tables', products: 'Product List', search: 'Type SKU / Product name...',
@@ -555,87 +606,18 @@ export const useQr = (text, size = 220) => {
 };
 
 // ============================================================
-// QRIS DINAMIS (EMVCo) — parse payload QRIS statis, sisipkan tag 54
-// (nominal), tandai 01="12" (dinamis), hitung ulang CRC16-CCITT.
-// Pelanggan scan → nominal langsung terisi otomatis di app bank.
+// QRIS DINAMIS (EMVCo) — dipindah ke welp-core/emv.js (PURE, dapat
+// diuji Node). Semua helper di re-export di sini agar import lama
+// (settings.jsx, pos.jsx, selforder.jsx, paymentOps) tetap sah.
+//   • parseEmv / crc16CCITT / verifyQrisCrc / qrisMeta
+//   • buildDynamicQris — statis → dinamis (tag 01=12, tag 54 nominal)
+//   • buildIntentQris  — dinamis + paymentReference di tag 62/07
+//     (Bill Number) utk WELP Payment Matching Engine.
 // ============================================================
-export const crc16CCITT = (str) => {
-  let crc = 0xFFFF;
-  for (let i = 0; i < str.length; i++) {
-    crc ^= str.charCodeAt(i) << 8;
-    for (let j = 0; j < 8; j++) {
-      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
-      crc &= 0xFFFF;
-    }
-  }
-  return crc.toString(16).toUpperCase().padStart(4, '0');
-};
-
-export const parseEmv = (payload) => {
-  const out = {}; let i = 0;
-  payload = String(payload || '').trim();
-  while (i + 4 <= payload.length) {
-    const tag = payload.slice(i, i + 2);
-    const len = parseInt(payload.slice(i + 2, i + 4), 10);
-    if (isNaN(len) || i + 4 + len > payload.length) break;
-    out[tag] = payload.slice(i + 4, i + 4 + len);
-    i += 4 + len;
-  }
-  return out;
-};
-
-// v15 F5/G2 — VALIDASI & METADATA QRIS: verifikasi CRC-16 tag 63,
-// bedakan statis/dinamis, dan baca metadata merchant (tag 26 sub-05,
-// 59 nama merchant, 60 kota). Dipakai saat upload QRIS di Pengaturan.
-export const verifyQrisCrc = (payload) => {
-  try {
-    const p = String(payload || '').trim();
-    if (!p.endsWith('6304') || p.length < 8) return false;
-    const body = p.slice(0, -4);
-    return crc16CCITT(body) === p.slice(-4).toUpperCase();
-  } catch (e) { return false; }
-};
-export const qrisMeta = (payload) => {
-  try {
-    const m = parseEmv(payload);
-    // tag 26 berisi sub-TLV: cari ID penempat (mis. IDCO.../936...) →
-    // sub-tag 05 = ID merchant; tag 51= kripto; fallback: pola QRID/ID
-    let mid = '';
-    const t26 = m['26'] || '';
-    const sub = parseEmv(t26);
-    mid = sub['05'] || sub['02'] || '';
-    return {
-      type: m['01'] === '12' ? 'dinamis' : 'statis',
-      merchant: m['59'] || null,
-      city: m['60'] || null,
-      merchantId: mid || null,
-      nmid: sub['05'] || null,
-      crcValid: verifyQrisCrc(payload),
-      amount: m['54'] ? Number(m['54']) : null,
-      country: m['58'] || null,
-      currency: m['53'] || null
-    };
-  } catch (e) { return null; }
-};
-
-// return payload dinamis siap di-render, atau null jika payload tidak valid.
-export const buildDynamicQris = (staticPayload, amount) => {
-  try {
-    const m = parseEmv(staticPayload);
-    if (!m['00'] || !m['01']) return null;
-    const amt = Number(amount);
-    if (!isFinite(amt) || amt <= 0) return null;
-    m['01'] = '12';                 // 11 = statis → 12 = dinamis
-    m['54'] = amt.toFixed(2);       // Transaction Amount
-    let p = '';
-    Object.keys(m).filter(tag => tag !== '63').sort().forEach(tag => {
-      const v = String(m[tag]);
-      p += tag + String(v.length).padStart(2, '0') + v;
-    });
-    p += '6304';
-    return p + crc16CCITT(p);
-  } catch (e) { return null; }
-};
+export {
+  crc16CCITT, parseEmv, verifyQrisCrc, qrisMeta,
+  buildDynamicQris, buildIntentQris,
+} from './welp-core/emv.js';
 
 // ============================================================
 // KEAMANAN SELF-ORDER — sesi meja ber-token + pengikatan perangkat.

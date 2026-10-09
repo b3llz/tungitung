@@ -49,6 +49,7 @@ import { BranchTab, KaryawanTab, OutletTab, AbsensiTab, PayrollTab, PerusahaanTa
 import { AbsensiApp, EmployeeArea } from './absensi-app';
 import { CustomersTab } from './business/crm.jsx';
 import { OrganizationTab, RolesTab, ApprovalTab, AuditTab } from './business/governance.jsx';
+import { FinanceTab } from './finance.jsx';   // v21: Settlement · Rekonsiliasi · Kas & Shift
 import { Sidebar, BottomNav, MenuSheet, NAV_GROUPS, navAllowed } from './shell';
 import { SelfOrderApp } from './selforder';
 import { DeveloperPanel } from './devpanel';
@@ -293,7 +294,7 @@ const MainAdminApp = ({ mode = 'management' }) => {
               <EmployeeArea licenseInfo={licenseInfo} triggerAlert={triggerAlert} dark={dark} toggleDark={toggleDarkMode} onLogout={handleLogout} />
             </div>
             <div className={active === 'calc' ? 'block' : 'hidden'}><CalculatorTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} /></div>
-            <div className={active === 'history' ? 'block' : 'hidden'}><HistoryTab activeTab={active} /></div>
+            <div className={active === 'history' ? 'block' : 'hidden'}><HistoryTab activeTab={active} licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
             <div className={active === 'cashout' ? 'block' : 'hidden'}><CashOutTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
             <div className={active === 'discount' ? 'block' : 'hidden'}><DiscountTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
             <div className={active === 'customers' ? 'block' : 'hidden'}><CustomersTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
@@ -306,6 +307,7 @@ const MainAdminApp = ({ mode = 'management' }) => {
             <div className={active === 'roles' ? 'block' : 'hidden'}><RolesTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
             <div className={active === 'approval' ? 'block' : 'hidden'}><ApprovalTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} sessionRole={role} /></div>
             <div className={active === 'audit' ? 'block' : 'hidden'}><AuditTab licenseInfo={licenseInfo} perms={perms} /></div>
+            <div className={active === 'finance2' ? 'block' : 'hidden'}><FinanceTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} perms={perms} /></div>
 
             <div className={active === 'stock' ? 'block' : 'hidden'}>
               <StockTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} />

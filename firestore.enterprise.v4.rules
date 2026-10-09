@@ -196,6 +196,72 @@ service cloud.firestore {
       allow delete: if tenantWrite(lic, 'sales.refund');
     }
 
+    // ---------- v21 Riwayat transaksi kasir (immutable: batal = void) ----------
+    match /tenants/{lic}/pos_history/{id} {
+      allow read: if tenantRead(lic, 'sales.read') || tenantRead(lic, 'report.view')
+        || tenantRead(lic, 'transaction.view');
+      allow create: if tenantWrite(lic, 'sales.write') || tenantWrite(lic, 'transaction.create');
+      // update HANYA untuk siklus nyata: konfirmasi bayar, void, refund (audit menyertai).
+      allow update: if tenantWrite(lic, 'sales.write') || tenantWrite(lic, 'sales.refund')
+        || tenantWrite(lic, 'refund.perform') || tenantWrite(lic, 'transaction.void')
+        || tenantWrite(lic, 'transaction.refund');
+      allow delete: if false;
+    }
+
+    // ---------- v21 Settlement (siklus dana per metode) ----------
+    match /tenants/{lic}/settlements/{id} {
+      allow read: if tenantRead(lic, 'settlement.view') || tenantRead(lic, 'reconciliation.view')
+        || tenantRead(lic, 'finance.read') || tenantRead(lic, 'reports.read');
+      allow create, update: if tenantWrite(lic, 'settlement.manage') || tenantWrite(lic, 'finance.write');
+      allow delete: if false;
+    }
+
+    // ---------- v21 Shift log (append-only) ----------
+    match /tenants/{lic}/shift_log/{id} {
+      allow read: if tenantRead(lic, 'shift.view') || tenantRead(lic, 'dashboard.view')
+        || tenantRead(lic, 'dashboard.read') || tenantRead(lic, 'branch.manage');
+      allow create: if tenantWrite(lic, 'shift.open') || tenantWrite(lic, 'shift.close');
+      allow update, delete: if false;
+    }
+
+    // ---------- v21 Cash events (append-only: uang masuk/keluar) ----------
+    match /tenants/{lic}/cash_events/{id} {
+      allow read: if tenantRead(lic, 'shift.view') || tenantRead(lic, 'finance.read')
+        || tenantRead(lic, 'dashboard.view') || tenantRead(lic, 'dashboard.read');
+      allow create: if tenantWrite(lic, 'shift.open') || tenantWrite(lic, 'pos.use');
+      allow update, delete: if false;
+    }
+
+    // ---------- v21.1 Modifier Engine (grup modifier produk) ----------
+    match /tenants/{lic}/modifier_groups/{id} {
+      allow read: if hasTenant(lic);
+      allow create, update: if tenantWrite(lic, 'product.manage') || tenantWrite(lic, 'inventory.manage');
+      allow delete: if (tenantWrite(lic, 'product.manage') || tenantWrite(lic, 'inventory.manage'))
+        && request.auth.token.welpCanDelete == true;
+    }
+
+    // ---------- v21.1 WELP Payment Core: ledger event (append-only) ----------
+    match /tenants/{lic}/payment_events/{id} {
+      allow read: if tenantRead(lic, 'payment.view') || tenantRead(lic, 'finance.read')
+        || tenantRead(lic, 'transaction.view') || tenantRead(lic, 'settlement.view');
+      allow create: if tenantWrite(lic, 'pos.use') || tenantWrite(lic, 'payment.confirm')
+        || tenantWrite(lic, 'payment.manage') || tenantWrite(lic, 'transaction.create');
+      // Ledger immutabel: koreksi lewat STATE baru (confirm/reject manual), bukan edit.
+      allow update: if tenantWrite(lic, 'payment.confirm') || tenantWrite(lic, 'payment.manage');
+      allow delete: if false;
+    }
+
+    // ---------- v21.1 WELP Payment Core: proyeksi intent ----------
+    match /tenants/{lic}/payment_intents/{id} {
+      allow read: if tenantRead(lic, 'payment.view') || tenantRead(lic, 'finance.read')
+        || tenantRead(lic, 'transaction.view');
+      allow create: if tenantWrite(lic, 'pos.use') || tenantWrite(lic, 'transaction.create');
+      // update hanya oleh siklus konfirmasi (client payment.confirm / server webhook).
+      allow update: if tenantWrite(lic, 'payment.confirm') || tenantWrite(lic, 'payment.manage')
+        || tenantWrite(lic, 'pos.use');
+      allow delete: if false;
+    }
+
     // ---------- Keuangan ----------
     match /tenants/{lic}/kas_keluar/{id} {
       allow read: if tenantRead(lic, 'finance.read') || tenantRead(lic, 'finance.view') || tenantRead(lic, 'reports.read');

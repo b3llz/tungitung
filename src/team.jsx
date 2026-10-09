@@ -20,7 +20,7 @@ import {
 } from './welp-icons.jsx';
 import { normRegions, DEPARTMENTS } from './welp-core/org.js';
 import {
-  formatIDR, useTenantCol, trustedTime, trustedNow, getLocation,
+  safeParse, formatIDR, useTenantCol, trustedTime, trustedNow, getLocation,
   distanceMeters, todayKey, fileToDataUrl, useQr,
   getAturan, DEFAULT_ATURAN, lateInfo, lateInfoMs, fmtDurJMD,
   dateKeyOf, dayLabel, dayLabelShort, qrDataUrl,
@@ -33,6 +33,8 @@ import {
   buildSlipHtml, makeCred, credIsLegacy,   // v15 F0
   roleLabelOfV15, ROLE_META, PERMISSIONS, getRolesMatrix, permsOf, openDataUrl, uploadMedia   // v15 F3-F5
 } from './core.jsx';
+// v21.1 — laporan lintas cabang memakai state machine transaksi
+import { countsAsSale, netTotalOf, normalizePayments } from './welp-core/tx.js';
 import { Button, Card, PageTitle, Badge, EmptyState, Modal, Toggle, Select, NumericInput } from './ui';
 
 /* ---------- util kecil ---------- */
@@ -988,43 +990,207 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
 };
 
 /* ============================================================
-   MULTI OUTLET — MONITORING TERPUSAT (realtime)
+   MULTI OUTLET — MONITORING TERPUSAT v21.1 (realtime + laporan)
+   ------------------------------------------------------------
+   • Kartu per cabang: omzet, laba kotor, transaksi — dengan
+     INDIKATOR TREN 3/7/30 hari gaya ticker saham (▲ naik hijau,
+     ▼ turun merah, ■ datar) dibanding periode sebelumnya.
+   • Klik kartu → rincian laporan: KPI, tren harian, campuran
+     metode bayar, produk terlaris, kehadiran & station.
+   • Data = pos_history (semua cabang) + absensi + stations,
+     realtime via useTenantCol, tetap hidup offline (mirror).
    ============================================================ */
+
+const OUTLET_WINDOWS = [
+  { id: 3, label: '3 Hari' },
+  { id: 7, label: '7 Hari' },
+  { id: 30, label: '30 Hari' },
+];
+
+// Tren gaya saham: ▲ naik / ▼ turun / ■ datar, vs periode sebelumnya.
+const TrendChip = ({ pct, size = 'sm' }) => {
+  const base = 'inline-flex items-center gap-1 rounded-full font-extrabold animate-trend shrink-0';
+  const cls = size === 'lg' ? 'px-2.5 py-1.5 text-[12px]' : 'px-2 py-0.5 text-[10px]';
+  if (pct == null) return <span className={`${base} ${cls} bg-paper dark:bg-white/5 text-ink-faint`}>■ Baru</span>;
+  const up = pct > 0.5, down = pct < -0.5;
+  if (up) return <span className={`${base} ${cls} bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf`}>▲ +{pct.toLocaleString('id-ID', { maximumFractionDigits: 1 })}%</span>;
+  if (down) return <span className={`${base} ${cls} bg-brick-soft dark:bg-brick/10 text-brick-deep dark:text-brick`}>▼ {pct.toLocaleString('id-ID', { maximumFractionDigits: 1 })}%</span>;
+  return <span className={`${base} ${cls} bg-paper dark:bg-white/5 text-ink-faint`}>■ 0%</span>;
+};
+
+// Sparkline harian (bar). GPU ringan: div tinggi proporsional.
+const DailyBars = ({ values, tone = 'flame' }) => {
+  const max = Math.max(...values, 1);
+  const color = tone === 'flame' ? 'bg-flame-500' : 'bg-leaf-500';
+  return (
+    <div className="flex items-end gap-[3px] h-9 mt-2">
+      {values.map((v, i) => (
+        <span key={i} className={`flex-1 rounded-t-[3px] ${color} ${v === 0 ? 'opacity-15' : 'opacity-80'} transition-all duration-300`} style={{ height: `${Math.max(6, (v / max) * 100)}%` }} title={formatIDR(v)} />
+      ))}
+    </div>
+  );
+};
+
+// Hitung laporan satu cabang utk window W hari + periode pembanding.
+const branchReport = (txs, branchId, W) => {
+  const now = Date.now();
+  const start = now - W * 864e5, prevStart = now - 2 * W * 864e5;
+  const tsOf = (tx) => { const t = trustedTime(tx); return t.source === 'server' ? t.ms : (tx.createdAtMs || new Date(tx.date).getTime() || t.ms); };
+  const own = (tx) => countsAsSale(tx) && String(tx.branchId || 'PUSAT') === branchId;
+  const inWin = txs.filter(tx => own(tx) && tsOf(tx) >= start);
+  const inPrev = txs.filter(tx => own(tx) && tsOf(tx) >= prevStart && tsOf(tx) < start);
+
+  let omzet = 0, prevOmzet = 0, netSales = 0, cogs = 0, knownQty = 0, totalQty = 0, items = 0;
+  const daily = Array.from({ length: W }, (_, i) => ({ day: i, total: 0 }));
+  const methods = {}, products = {};
+  inWin.forEach(tx => {
+    const net = netTotalOf(tx);
+    const tot = Number(tx.total) || 0;
+    const factor = tot > 0 ? net / tot : 1;
+    omzet += net;
+    const dayIdx = Math.min(W - 1, Math.floor((now - tsOf(tx)) / 864e5));
+    if (daily[dayIdx]) daily[dayIdx].total += net;
+    normalizePayments(tx).forEach(pp => { if (pp.status === 'CONFIRMED') methods[pp.method] = (methods[pp.method] || 0) + (Number(pp.amount) || 0); });
+    (tx.items || []).forEach(it => {
+      const hpp = (typeof it.hppAtSale === 'number') ? it.hppAtSale : (typeof it.hpp === 'number' ? it.hpp : null);
+      totalQty += it.qty; items += it.qty;
+      if (hpp != null) { cogs += hpp * it.qty * factor; knownQty += it.qty; }
+      products[it.name] = (products[it.name] || 0) + it.qty;
+    });
+    netSales += ((tx.subtotal != null ? tx.subtotal : (tx.items || []).reduce((a, b) => a + b.price * b.qty, 0)) - (tx.discountAmt || 0)) * factor;
+  });
+  inPrev.forEach(tx => { prevOmzet += netTotalOf(tx); });
+
+  const laba = netSales - cogs;
+  const trendPct = prevOmzet > 0 ? ((omzet - prevOmzet) / prevOmzet) * 100 : (omzet > 0 ? null : 0);
+  return {
+    omzet, prevOmzet, trendPct, laba, count: inWin.length, items,
+    avg: inWin.length ? omzet / inWin.length : 0,
+    marginPct: netSales > 0 ? (laba / netSales) * 100 : 0,
+    coverage: totalQty ? Math.round((knownQty / totalQty) * 100) : 100,
+    daily: daily.map(d => d.total),
+    methods: Object.entries(methods).sort((a, b) => b[1] - a[1]),
+    topProducts: Object.entries(products).sort((a, b) => b[1] - a[1]).slice(0, 5),
+  };
+};
+
 export const OutletTab = ({ licenseInfo }) => {
   const { items: branches, live } = useTenantCol(licenseInfo, 'cabang', 'cabang_db');
   const { items: employees } = useTenantCol(licenseInfo, 'karyawan', 'karyawan_db');
   const { items: absensi } = useTenantCol(licenseInfo, 'absensi', 'absensi_db');
-  const { items: payroll } = useTenantCol(licenseInfo, 'payroll', 'payroll_db');
   const { items: stations } = useTenantCol(licenseInfo, 'stations', 'stations_db');
   const { items: pengajuan } = useTenantCol(licenseInfo, 'pengajuan', 'pengajuan_db');
+
+  // Transaksi seluruh cabang (mirror pos_history). Refresh realtime.
+  const [txs, setTxs] = useState(() => safeParse('pos_history_db', []));
+  useEffect(() => {
+    const h = () => setTxs(safeParse('pos_history_db', []));
+    window.addEventListener('welp_db_sync', h);
+    window.addEventListener('welp_sync_evt', h);
+    return () => { window.removeEventListener('welp_db_sync', h); window.removeEventListener('welp_sync_evt', h); };
+  }, []);
+
+  const [W, setW] = useState(7);
+  const [detail, setDetail] = useState(null);   // {branch, report}
 
   const today = todayKey();
   const inToday = absensi.filter(a => a.date === today && a.type === 'in');
   const presentCount = new Set(inToday.map(a => a.employeeName + '|' + a.branchId)).size;
-  const payrollOn = branches.filter(b => b.payrollEnabled).length;
   const pengajuanPending = pengajuan.filter(p => p.status === 'DIAJUKAN' || p.status === 'DITINJAU').length;
   const feed = [...absensi].sort((a, b) => (trustedTime(b).ms) - (trustedTime(a).ms)).slice(0, 8);
 
+  // Semua unit: Cabang Pusat + cabang Firestore.
+  const units = useMemo(() => [
+    { cid: 'PUSAT', name: 'Cabang Pusat', location: 'Kantor pusat' },
+    ...branches.map(b => ({ cid: b.cid, name: b.name, location: b.location || '' })),
+  ], [branches]);
+
+  const totalOmzet = units.reduce((a, u) => a + branchReport(txs, u.cid, W).omzet, 0);
   const stats = [
-    { label: 'Total Cabang', value: branches.length, icon: Cabang, tone: 'text-flame-700 dark:text-apricot' },
-    { label: 'Total Karyawan', value: employees.length, icon: Tim, tone: 'text-flame-700 dark:text-apricot' },
+    { label: 'Total Cabang', value: units.length, icon: Cabang, tone: 'text-flame-700 dark:text-apricot' },
+    { label: `Omzet ${W} Hari`, value: formatIDR(totalOmzet), icon: KoinBuddy, tone: 'text-leaf-deep dark:text-leaf' },
     { label: 'Hadir Hari Ini', value: presentCount, icon: Absensi, tone: 'text-leaf-deep dark:text-leaf' },
     { label: 'Pengajuan Baru', value: pengajuanPending, icon: BahayaBuddy, tone: 'text-gold-deep dark:text-gold' },
   ];
 
+  const openDetail = (u) => {
+    const rep = branchReport(txs, u.cid, W);
+    setDetail({ unit: u, rep });
+  };
+
   return (
-    <div className="max-w-3xl mx-auto w-full pb-24 space-y-5">
-      <PageTitle title="Multi Outlet" sub="Monitoring terpusat seluruh cabang, realtime"
+    <div className="max-w-5xl mx-auto w-full pb-24 space-y-5">
+      <PageTitle title="Multi Outlet" sub="Performa & laporan seluruh cabang, realtime"
         right={<LiveDot live={live} />} />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {stats.map(s => (
           <div key={s.label} className="card !rounded-3xl p-4">
             <s.icon className={`w-6 h-6 mb-2.5 ${s.tone}`} />
-            <p className="text-2xl font-extrabold text-ink dark:text-ink-inv money leading-none">{s.value}</p>
+            <p className="text-xl sm:text-2xl font-extrabold text-ink dark:text-ink-inv money leading-none">{s.value}</p>
             <p className="kicker mt-1.5">{s.label}</p>
           </div>
         ))}
+      </div>
+
+      {/* ==== PERIODE TREN: 3 / 7 / 30 hari (seperti cek saham) ==== */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h3 className="font-extrabold text-[13px] text-ink dark:text-ink-inv px-1">Performa Cabang <span className="text-ink-faint font-bold">· {W} hari terakhir vs {W} hari sebelumnya</span></h3>
+        <div className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-xl p-1 flex shadow-card">
+          {OUTLET_WINDOWS.map(w => (
+            <button key={w.id} onClick={() => setW(w.id)}
+              className={`px-3.5 py-1.5 rounded-lg text-[11px] font-extrabold transition press ${W === w.id ? 'bg-flame-600 text-white shadow-card' : 'text-ink-faint hover:text-ink-soft'}`}>{w.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ==== KARTU CABANG (klik → rincian laporan) ==== */}
+      {units.length === 0 && <EmptyState mascot="pikir" title="Belum ada cabang" desc="Tambahkan cabang di menu Manajemen Cabang, lalu pantau semuanya dari sini." />}
+      <div className="grid sm:grid-cols-2 gap-3">
+        {units.map(u => {
+          const rep = branchReport(txs, u.cid, W);
+          const staff = employees.filter(e => e.branchId === u.cid);
+          const present = new Set(inToday.filter(a => a.branchId === u.cid).map(a => a.employeeName)).size;
+          const stList = stations.filter(s => s.branchId === u.cid && s.active);
+          return (
+            <button key={u.cid} onClick={() => openDetail(u)}
+              className="card !rounded-3xl p-4.5 text-left transition-all press hover:border-flame-300 hover:shadow-pop">
+              <div className="flex justify-between items-start gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-extrabold text-ink dark:text-ink-inv text-[15px] truncate">{u.name}</h4>
+                    {stList.length > 0 && <Badge tone="lime"><LayarBuddy className="w-3 h-3" /> {stList.length}</Badge>}
+                  </div>
+                  <p className="text-[10.5px] text-ink-faint font-bold mt-0.5 flex items-center gap-1.5 truncate"><Lokasi className="w-3.5 h-3.5 shrink-0" />{u.location || 'Lokasi belum diisi'}</p>
+                </div>
+                <TrendChip pct={rep.trendPct} />
+              </div>
+
+              <div className="mt-3 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-[8.5px] font-extrabold uppercase tracking-widest text-ink-faint">Omzet {W} hari</p>
+                  <p key={`${u.cid}-${W}`} className="text-[22px] font-extrabold text-ink dark:text-ink-inv money leading-none mt-1 animate-trend">{formatIDR(rep.omzet)}</p>
+                </div>
+                <DailyBars values={rep.daily} />
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <div className="bg-paper dark:bg-white/[.04] rounded-xl py-2 px-1">
+                  <p className={`text-[12.5px] font-extrabold money leading-none ${rep.laba >= 0 ? 'text-leaf-deep dark:text-leaf' : 'text-brick-deep dark:text-brick'}`}>{formatIDR(rep.laba)}</p>
+                  <p className="text-[8px] font-extrabold uppercase tracking-wider text-ink-faint mt-1">Laba Kotor</p>
+                </div>
+                <div className="bg-paper dark:bg-white/[.04] rounded-xl py-2 px-1">
+                  <p className="text-[12.5px] font-extrabold text-ink dark:text-ink-inv money leading-none">{rep.count}</p>
+                  <p className="text-[8px] font-extrabold uppercase tracking-wider text-ink-faint mt-1">Transaksi</p>
+                </div>
+                <div className="bg-paper dark:bg-white/[.04] rounded-xl py-2 px-1">
+                  <p className={`text-[12.5px] font-extrabold money leading-none ${present > 0 ? 'text-leaf-deep dark:text-leaf' : 'text-ink-faint'}`}>{present}<span className="text-[9px] text-ink-faint">/{staff.length}</span></p>
+                  <p className="text-[8px] font-extrabold uppercase tracking-wider text-ink-faint mt-1">Hadir</p>
+                </div>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       {/* POS STATION RINGKAS */}
@@ -1041,41 +1207,6 @@ export const OutletTab = ({ licenseInfo }) => {
           </div>
         )}
       </Card>
-
-      <div className="space-y-2.5">
-        <h3 className="font-extrabold text-[13px] text-ink dark:text-ink-inv px-1">Status Cabang</h3>
-        {branches.length === 0 && <EmptyState mascot="pikir" title="Belum ada cabang" desc="Tambahkan cabang di menu Manajemen Cabang, lalu pantau semuanya dari sini secara realtime." />}
-        {branches.map(b => {
-          const staff = employees.filter(e => e.branchId === b.cid);
-          const inList = inToday.filter(a => a.branchId === b.cid);
-          const present = new Set(inList.map(a => a.employeeName)).size;
-          const lastTs = inList.length ? Math.max(...inList.map(a => trustedTime(a).ms)) : null;
-          const stList = stations.filter(s => s.branchId === b.cid && s.active);
-          return (
-            <div key={b.cid} className="card p-4.5">
-              <div className="flex justify-between items-start gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h4 className="font-extrabold text-ink dark:text-ink-inv text-[15px]">{b.name}</h4>
-                    {b.payrollEnabled ? <Badge tone="gold"><Penggajian className="w-3 h-3" /> Gaji ON</Badge> : <Badge tone="grey">Gaji OFF</Badge>}
-                    {stList.length > 0 && <Badge tone="lime"><LayarBuddy className="w-3 h-3" /> {stList.length} station</Badge>}
-                  </div>
-                  <p className="text-[11px] text-ink-faint font-semibold mt-1 flex items-center gap-1.5"><Lokasi className="w-3.5 h-3.5 shrink-0" />{b.location || 'Lokasi belum diisi'}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className={`text-2xl font-extrabold money leading-none ${present > 0 ? 'text-leaf-deep dark:text-leaf' : 'text-ink-faint'}`}>{present}<span className="text-sm text-ink-faint">/{staff.length}</span></p>
-                  <p className="text-[9px] font-extrabold uppercase tracking-wider text-ink-faint mt-1">hadir</p>
-                </div>
-              </div>
-              {lastTs && (
-                <p className="text-[10px] text-ink-faint font-bold mt-2.5 flex items-center gap-1.5">
-                  <WaktuReal className="w-3.5 h-3.5" /> Aktivitas terakhir {fmtTime(lastTs)}
-                </p>
-              )}
-            </div>
-          );
-        })}
-      </div>
 
       <Card title="Aktivitas Absensi Terbaru" icon={WaktuReal}>
         {feed.length === 0 ? (
@@ -1094,8 +1225,8 @@ export const OutletTab = ({ licenseInfo }) => {
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-[12.5px] font-extrabold text-ink dark:text-ink-inv truncate">{a.employeeName} <span className="text-ink-faint font-bold">({a.branchName})</span></p>
-                    <p className="text-[10px] text-ink-faint font-semibold">{a.type === 'in' ? 'Absen masuk' : 'Absen pulang'}, {fmtDateTime(t.ms)}
-                      {t.source === 'server' && <span className="text-leaf-deep dark:text-leaf font-extrabold">✓ server</span>}
+                    <p className="text-[10px] text-ink-faint font-semibold">{a.type === 'in' ? 'Absen masuk' : 'Absen pulang'}, {fmtDate(t.ms)}
+                      {t.source === 'server' && <span className="text-leaf-deep dark:text-leaf font-extrabold"> ✓ server</span>}
                       {a.dist != null && <span className={a.dist > 500 ? 'text-gold-deep dark:text-gold' : ''}>, {a.dist}m dari cabang</span>}
                     </p>
                   </div>
@@ -1105,6 +1236,125 @@ export const OutletTab = ({ licenseInfo }) => {
           </div>
         )}
       </Card>
+
+      {/* ==== DETAIL LAPORAN CABANG (klik kartu) ==== */}
+      {detail && (() => {
+        const rep = branchReport(txs, detail.unit.cid, W);
+        const staff = employees.filter(e => e.branchId === detail.unit.cid);
+        const present = new Set(inToday.filter(a => a.branchId === detail.unit.cid).map(a => a.employeeName)).size;
+        const methodTotal = rep.methods.reduce((a, b) => a + b[1], 0) || 1;
+        const maxDaily = Math.max(...rep.daily, 1);
+        return (
+          <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center sm:p-4 bg-chrome-deep/70 backdrop-blur-sm animate-fade-in" onClick={() => setDetail(null)}>
+            <div className="bg-surface dark:bg-surface-dark w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-pop flex flex-col max-h-[92vh] overflow-hidden animate-sheet" onClick={e => e.stopPropagation()}>
+              <div className="px-5 pt-4 pb-3.5 bg-chrome-deep text-ink-inv shrink-0">
+                <div className="flex justify-between items-start gap-3">
+                  <div className="min-w-0">
+                    <p className="text-apricot/80 text-[9px] font-extrabold uppercase tracking-[0.2em]">Laporan {W} Hari</p>
+                    <h3 className="font-extrabold text-lg leading-tight mt-0.5 truncate">{detail.unit.name}</h3>
+                    <p className="text-[10px] font-bold text-white/50 mt-0.5 flex items-center gap-1.5"><Lokasi className="w-3.5 h-3.5 shrink-0" />{detail.unit.location || 'Lokasi belum diisi'}</p>
+                  </div>
+                  <button onClick={() => setDetail(null)} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition shrink-0">✕</button>
+                </div>
+                <div className="flex items-center gap-2 mt-2.5">
+                  <TrendChip pct={rep.trendPct} size="lg" />
+                  <span className="text-[9.5px] font-bold text-white/50">vs {W} hari sebelumnya{rep.prevOmzet > 0 ? ` (${formatIDR(rep.prevOmzet)})` : ''}</span>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-5 py-4 space-y-4 bg-paper/60 dark:bg-white/[.02]">
+                {/* KPI utama */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl p-3.5">
+                    <p className="text-[8.5px] font-extrabold uppercase tracking-widest text-ink-faint">Omzet (net)</p>
+                    <p className="text-xl font-extrabold text-ink dark:text-ink-inv money leading-none mt-1.5">{formatIDR(rep.omzet)}</p>
+                  </div>
+                  <div className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl p-3.5">
+                    <p className="text-[8.5px] font-extrabold uppercase tracking-widest text-ink-faint">Laba Kotor {rep.coverage < 100 && <span className="normal-case">· HPP {rep.coverage}%</span>}</p>
+                    <p className={`text-xl font-extrabold money leading-none mt-1.5 ${rep.laba >= 0 ? 'text-leaf-deep dark:text-leaf' : 'text-brick-deep dark:text-brick'}`}>{formatIDR(rep.laba)}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { l: 'Transaksi', v: String(rep.count) },
+                    { l: 'Rata²/Trx', v: formatIDR(rep.avg) },
+                    { l: 'Margin', v: `${rep.marginPct.toLocaleString('id-ID', { maximumFractionDigits: 1 })}%` },
+                    { l: 'Item', v: String(rep.items) },
+                  ].map(k => (
+                    <div key={k.l} className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-xl py-2.5 px-1.5 text-center">
+                      <p className="text-[12px] font-extrabold text-ink dark:text-ink-inv money leading-none">{k.v}</p>
+                      <p className="text-[7.5px] font-extrabold uppercase tracking-wider text-ink-faint mt-1">{k.l}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* tren harian */}
+                <div>
+                  <p className="kicker mb-1">Tren Harian (net omzet)</p>
+                  <div className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl p-3.5">
+                    <div className="flex items-end gap-1 h-24">
+                      {rep.daily.map((v, i) => (
+                        <span key={i} className="flex-1 rounded-t-[4px] bg-flame-500 opacity-85 transition-all duration-300" style={{ height: `${Math.max(4, (v / maxDaily) * 100)}%` }} title={formatIDR(v)} />
+                      ))}
+                    </div>
+                    <div className="flex justify-between text-[8px] font-extrabold text-ink-faint mt-1.5">
+                      <span>{W} hari lalu</span><span className="money">puncak {formatIDR(maxDaily)}</span><span>hari ini</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* campuran metode bayar */}
+                <div>
+                  <p className="kicker mb-1">Campuran Metode Bayar</p>
+                  <div className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl p-3.5 space-y-2">
+                    {rep.methods.length === 0 ? <p className="text-[10.5px] font-bold text-ink-faint">Belum ada pembayaran pada periode ini.</p> : rep.methods.map(([m, amt]) => (
+                      <div key={m}>
+                        <div className="flex justify-between text-[10.5px] font-extrabold text-ink-soft dark:text-ink-inv/80 mb-1">
+                          <span>{m}</span><span className="money">{formatIDR(amt)}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-paper dark:bg-white/5 overflow-hidden">
+                          <span className="block h-full rounded-full bg-flame-500 transition-all duration-500" style={{ width: `${Math.min(100, (amt / methodTotal) * 100)}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* produk terlaris */}
+                <div>
+                  <p className="kicker mb-1">Produk Terlaris</p>
+                  <div className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl divide-y divide-line/60 dark:divide-line-dark/60">
+                    {rep.topProducts.length === 0 ? <p className="text-[10.5px] font-bold text-ink-faint p-3.5">Belum ada penjualan pada periode ini.</p> : rep.topProducts.map(([name, qty], i) => (
+                      <div key={name} className="flex justify-between items-center px-3.5 py-2.5">
+                        <span className="text-[11px] font-extrabold text-ink dark:text-ink-inv flex items-center gap-2 min-w-0">
+                          <span className={`w-5 h-5 rounded-md text-[9px] font-extrabold flex items-center justify-center shrink-0 ${i === 0 ? 'bg-flame-500 text-white' : 'bg-paper dark:bg-white/5 text-ink-faint'}`}>{i + 1}</span>
+                          <span className="truncate">{name}</span>
+                        </span>
+                        <span className="text-[10.5px] font-extrabold text-ink-faint shrink-0">{qty}x</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* kehadiran */}
+                <div>
+                  <p className="kicker mb-1">Kehadiran Hari Ini</p>
+                  <div className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl p-3.5 flex items-center justify-between">
+                    <p className="text-[11px] font-bold text-ink-faint">{present} dari {staff.length} karyawan hadir · {stations.filter(s => s.branchId === detail.unit.cid && s.active).length} station aktif</p>
+                    <div className="w-20 h-1.5 rounded-full bg-paper dark:bg-white/5 overflow-hidden shrink-0">
+                      <span className="block h-full rounded-full bg-leaf-500 transition-all duration-500" style={{ width: `${staff.length ? Math.min(100, (present / staff.length) * 100) : 0}%` }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="shrink-0 border-t border-line dark:border-line-dark p-4 bg-surface dark:bg-surface-dark">
+                <button onClick={() => setDetail(null)} className="w-full py-3 rounded-2xl bg-paper dark:bg-white/10 border border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/80 font-extrabold text-xs press">Tutup</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

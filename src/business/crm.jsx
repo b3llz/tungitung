@@ -17,6 +17,7 @@ import {
   formatIDR, useTenantCol, trustedTime, auditLog, dateKeyOf,
 } from '../core.jsx';
 import { canDo } from '../welp-core/rbac.js';
+import { countsAsSale, netTotalOf } from '../welp-core/tx.js';   // v21
 import { Button, Card, PageTitle, Badge, EmptyState, Modal, ConfirmDialog, Select } from '../ui';
 
 const fmtDT = (ms) => new Date(ms).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -38,13 +39,15 @@ export const CustomersTab = ({ licenseInfo, triggerAlert, perms }) => {
   const canDelete = canDo(perms, 'crm.delete');
 
   /* Peta belanja per nama pembeli (case-insensitive, trim).
-     pos_history item: { buyer, total, date, items?... } */
+     pos_history item: { buyer, total, date, items?... }
+     v21: void tidak dihitung; refund dikurangkan (net). */
   const spendByName = useMemo(() => {
     const map = new Map();
     (history || []).forEach(o => {
+      if (!countsAsSale(o)) return;
       const name = String(o.buyer || o.buyerName || '').trim().toLowerCase();
       if (!name || name === 'umum') return;
-      const total = Number(o.total || 0);
+      const total = netTotalOf(o);
       const cur = map.get(name) || { count: 0, total: 0, last: 0 };
       cur.count += 1;
       cur.total += total;

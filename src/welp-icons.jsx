@@ -640,6 +640,9 @@ const U = ({ className = 'w-5 h-5', children, ...rest }) => (
 
 export const X = (p) => <U {...p}><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /></U>;
 export const Check = (p) => <U {...p}><path d="M5 12.8 10 17.5 19 7" /></U>;
+// v21 — ikon domain finansial (void & refund)
+export const Ban = (p) => <U {...p}><circle cx="12" cy="12" r="8.5" /><path d="M6 6l12 12" /></U>;
+export const Undo2 = (p) => <U {...p}><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></U>;
 export const Plus = (p) => <U {...p}><path d="M12 5.5v13M5.5 12h13" /></U>;
 export const Minus = (p) => <U {...p}><path d="M5.5 12h13" /></U>;
 export const MinusCircle = (p) => <U {...p}><circle cx="12" cy="12" r="8.5" /><path d="M8.5 12h7" /></U>;

@@ -10,12 +10,27 @@ import {
 } from './welp-icons.jsx';
 import { safeParse, formatIDR, dbSet, dbSetDoc, useDbSync } from './core.jsx';
 import { Button, Card, PageTitle, NumericInput, Select, Badge, EmptyState } from './ui';
+// v21 — domain transaksi & komponen finansial bersama
+import {
+  TX_STATE, txStateOf, countsAsSale, netTotalOf, refundedAmountOf,
+  canVoid as canVoidTx, canRefund as canRefundTx,
+} from './welp-core/tx.js';
+import { TxStateBadge, VoidModal, RefundModal, RefundCompleteModal } from './txactions.jsx';
+import { ReceiptModal } from './pos.jsx';
+import { modifiersLabelByGroup } from './welp-core/modifier.js';   // v21.1
 
-/* ================= RIWAYAT TRANSAKSI ================= */
-export const HistoryTab = ({ activeTab }) => {
+/* ================= RIWAYAT TRANSAKSI =================
+   v21: status kanonik (state machine), filter status,
+   VOID & REFUND berizin + audit, sinkronisasi offline. */
+export const HistoryTab = ({ activeTab, licenseInfo, triggerAlert }) => {
   const [searchOrder, setSearchOrder] = useState('');
   const [selectedTx, setSelectedTx] = useState(null);
   const [txs, setTxs] = useState([]);
+  const [stateFilter, setStateFilter] = useState('ALL');
+  const [showVoid, setShowVoid] = useState(null);
+  const [showRefund, setShowRefund] = useState(null);
+  const [showRefundDone, setShowRefundDone] = useState(null);   // {order, refund}
+  const [showReceiptTx, setShowReceiptTx] = useState(null);
 
   useEffect(() => {
     if (activeTab === 'history') setTxs(safeParse('pos_history_db', []));
@@ -23,10 +38,28 @@ export const HistoryTab = ({ activeTab }) => {
   useDbSync(() => setTxs(safeParse('pos_history_db', [])));
 
   const totalHariIni = txs
-    .filter(t2 => new Date(t2.date).toDateString() === new Date().toDateString())
-    .reduce((sum, t2) => sum + t2.total, 0);
+    .filter(t2 => new Date(t2.date).toDateString() === new Date().toDateString() && countsAsSale(t2))
+    .reduce((sum, t2) => sum + netTotalOf(t2), 0);
 
-  const filteredTxs = txs.filter(t2 => t2.id.toLowerCase().includes(searchOrder.toLowerCase()) || (t2.buyer && t2.buyer.toLowerCase().includes(searchOrder.toLowerCase())));
+  const filteredTxs = txs
+    .filter(t2 => {
+      const q = searchOrder.toLowerCase();
+      const matchQ = !q || String(t2.id).toLowerCase().includes(q) || (t2.buyer && t2.buyer.toLowerCase().includes(q));
+      const st = txStateOf(t2);
+      const matchF = stateFilter === 'ALL'
+        || (stateFilter === 'LUNAS' && [TX_STATE.PAYMENT_CONFIRMED, TX_STATE.SETTLEMENT_PENDING, TX_STATE.SETTLED].includes(st))
+        || (stateFilter === 'PENDING' && st === TX_STATE.PAYMENT_PENDING)
+        || (stateFilter === 'VOID' && st === TX_STATE.VOIDED)
+        || (stateFilter === 'REFUND' && [TX_STATE.REFUND_PENDING, TX_STATE.REFUND_PROCESSING, TX_STATE.PARTIALLY_REFUNDED, TX_STATE.REFUNDED].includes(st));
+      return matchQ && matchF;
+    })
+    .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))
+    .slice(0, 200);
+
+  const FILTERS = [
+    ['ALL', 'Semua'], ['LUNAS', 'Lunas'], ['PENDING', 'Menunggu'],
+    ['VOID', 'Void'], ['REFUND', 'Refund'],
+  ];
 
   return (
     <div className="max-w-3xl mx-auto w-full pb-24 space-y-4">
@@ -35,56 +68,75 @@ export const HistoryTab = ({ activeTab }) => {
       <div className="card !rounded-3xl overflow-hidden">
         <div className="bg-chrome-deep px-5 py-5 flex justify-between items-center relative overflow-hidden">
           <div>
-            <p className="text-apricot/80 text-[10px] font-extrabold uppercase tracking-[0.2em]">Omzet Hari Ini</p>
+            <p className="text-apricot/80 text-[10px] font-extrabold uppercase tracking-[0.2em]">Penjualan Bersih Hari Ini</p>
             <h3 className="text-2xl font-extrabold text-white money tracking-tight mt-0.5">{formatIDR(totalHariIni)}</h3>
+            <p className="text-[9.5px] text-white/50 font-bold mt-1">Sudah dikurangi refund & tidak menghitung void</p>
           </div>
           <Uang className="w-12 h-12 text-apricot/40" />
         </div>
       </div>
 
-      <div className="relative">
-        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none"><Search className="w-4 h-4 text-ink-faint" /></div>
-        <input className="field-lg pl-10" placeholder="Cari Nomor Order / Nama Pembeli..." value={searchOrder} onChange={e => setSearchOrder(e.target.value)} />
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
+          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none"><Search className="w-4 h-4 text-ink-faint" /></div>
+          <input className="field-lg pl-10" placeholder="Cari Nomor Order / Nama Pembeli..." value={searchOrder} onChange={e => setSearchOrder(e.target.value)} />
+        </div>
+        <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+          {FILTERS.map(([k, lbl]) => (
+            <button key={k} onClick={() => setStateFilter(k)}
+              className={`px-3.5 py-2 rounded-xl text-[11px] font-extrabold whitespace-nowrap border transition ${stateFilter === k ? 'bg-flame-600 text-white border-flame-600 shadow-card' : 'bg-surface dark:bg-surface-dark text-ink-faint border-line dark:border-line-dark'}`}>{lbl}</button>
+          ))}
+        </div>
       </div>
 
       <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
-        {filteredTxs.length === 0 ? <EmptyState mascot={txs.length === 0 ? "kerja" : "bingung"} title={txs.length === 0 ? "Belum ada transaksi" : "Tidak ditemukan"} desc={txs.length === 0 ? "Setiap transaksi kasir akan tercatat otomatis di sini, lengkap dengan detail item dan pembayaran." : "Coba kata kunci lain, misalnya nomor order atau nama pembeli."} /> :
-          filteredTxs.map(t2 => (
-            <div key={t2.id} onClick={() => setSelectedTx(t2)} className="card p-4 flex justify-between items-center hover:border-flame-300 transition cursor-pointer press">
-              <div className="flex gap-3.5 items-center">
-                <div className="w-10 h-10 rounded-xl bg-paper dark:bg-white/5 flex items-center justify-center text-ink-faint shrink-0">
-                  {t2.paymentMethod === 'Cash' ? <Uang className="w-5 h-5" /> : <Qris className="w-5 h-5" />}
+        {filteredTxs.length === 0 ? <EmptyState mascot={txs.length === 0 ? "kerja" : "bingung"} title={txs.length === 0 ? "Belum ada transaksi" : "Tidak ditemukan"} desc={txs.length === 0 ? "Setiap transaksi kasir akan tercatat otomatis di sini, lengkap dengan detail item dan pembayaran." : "Coba kata kunci atau filter status lain."} /> :
+          filteredTxs.map(t2 => {
+            const st = txStateOf(t2);
+            const refunded = refundedAmountOf(t2);
+            return (
+              <div key={t2.id} onClick={() => setSelectedTx(t2)} className="card p-4 flex justify-between items-center hover:border-flame-300 transition cursor-pointer press">
+                <div className="flex gap-3.5 items-center min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-paper dark:bg-white/5 flex items-center justify-center text-ink-faint shrink-0">
+                    {t2.paymentMethod === 'Cash' ? <Uang className="w-5 h-5" /> : <Qris className="w-5 h-5" />}
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-extrabold text-[13px] text-ink dark:text-ink-inv truncate">{t2.buyer || 'Tanpa Nama'}</h4>
+                    <p className="text-[10px] text-ink-faint font-mono mt-0.5 truncate">#{String(t2.id).slice(-8)} · {new Date(t2.date).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                    <div className="mt-1"><TxStateBadge order={t2} /></div>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{t2.buyer || 'Tanpa Nama'}</h4>
-                  <p className="text-[10px] text-ink-faint font-mono mt-0.5">{t2.id} pada {new Date(t2.date).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                <div className="text-right shrink-0">
+                  <p className={`font-extrabold text-base money ${st === TX_STATE.VOIDED || st === TX_STATE.REFUNDED ? 'text-ink-faint line-through' : 'text-ink dark:text-ink-inv'}`}>{formatIDR(t2.total)}</p>
+                  {refunded > 0 && <p className="text-[9.5px] font-extrabold text-brick money">- {formatIDR(refunded)} refund</p>}
+                  <p className="text-[9px] font-bold text-ink-faint bg-paper dark:bg-white/5 px-2 py-0.5 rounded inline-block mt-1">{t2.items?.length || 0} Item</p>
                 </div>
               </div>
-              <div className="text-right">
-                <p className="font-extrabold text-base text-ink dark:text-ink-inv money">{formatIDR(t2.total)}</p>
-                <p className="text-[9px] font-bold text-ink-faint bg-paper dark:bg-white/5 px-2 py-0.5 rounded inline-block mt-1">{t2.items.length} Item</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
       </div>
 
+      {/* ===== DETAIL TRANSAKSI ===== */}
       {selectedTx && (
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-4 bg-chrome-deep/70 backdrop-blur-sm animate-fade-in" onClick={() => setSelectedTx(null)}>
-          <div className="bg-surface dark:bg-surface-dark w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-5 shadow-pop animate-pop" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-start mb-5">
+          <div className="bg-surface dark:bg-surface-dark w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl p-5 shadow-pop animate-pop max-h-[92vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-4">
               <div>
                 <p className="kicker">Detail Order</p>
                 <h3 className="font-extrabold text-lg text-ink dark:text-ink-inv tracking-tight mt-0.5">{selectedTx.buyer || 'Tanpa Nama'}</h3>
-                <p className="text-[10px] text-ink-faint font-mono mt-0.5">{selectedTx.id}</p>
+                <p className="text-[10px] text-ink-faint font-mono mt-0.5">#{String(selectedTx.id).slice(-8)}</p>
               </div>
-              <Badge tone="green">Lunas</Badge>
+              <TxStateBadge order={selectedTx} />
             </div>
 
             <div className="bg-paper dark:bg-white/[.03] p-4 rounded-2xl space-y-3 border border-line dark:border-line-dark">
-              {selectedTx.items.map((i, x) => (
+              {selectedTx.items?.map((i, x) => (
                 <div key={x} className="flex justify-between text-xs">
                   <div>
                     <span className="font-extrabold text-ink-soft dark:text-ink-inv/80 block">{i.name}</span>
+                    {(i.modifiers || []).length > 0 && modifiersLabelByGroup(i.modifiers).map((lbl, mi) => (
+                      <span key={mi} className="text-[9px] font-bold text-flame-700/80 dark:text-apricot/80 block">+ {lbl}</span>
+                    ))}
                     <span className="text-[10px] text-ink-faint money">{i.qty} x {formatIDR(i.price)}</span>
                   </div>
                   <span className="font-extrabold text-ink dark:text-ink-inv money">{formatIDR(i.price * i.qty)}</span>
@@ -94,23 +146,78 @@ export const HistoryTab = ({ activeTab }) => {
                 <span>Total Bayar</span>
                 <span className="money">{formatIDR(selectedTx.total)}</span>
               </div>
+              {refundedAmountOf(selectedTx) > 0 && (
+                <div className="flex justify-between text-xs font-extrabold text-brick">
+                  <span>Sudah direfund</span><span className="money">- {formatIDR(refundedAmountOf(selectedTx))}</span>
+                </div>
+              )}
+              {(selectedTx.refunds || []).map(r => (
+                <div key={r.refundId} className="flex justify-between items-center gap-2 text-[10px] font-bold text-ink-faint">
+                  <span>Refund {r.method} · {r.status === 'REFUNDED' ? `selesai${r.providerRef ? ` (ref ${r.providerRef})` : ''}` : r.status === 'REFUND_PROCESSING' ? 'diproses' : r.status}{r.reason ? ` — ${r.reason}` : ''}</span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span className="money">{formatIDR(r.amount)}</span>
+                    {r.status === 'REFUND_PROCESSING' && r.status !== 'REFUNDED' && (
+                      <button onClick={() => setShowRefundDone({ order: selectedTx, refund: r })}
+                        className="px-2 py-1 rounded-lg bg-flame-50 dark:bg-flame-900/25 text-flame-700 dark:text-apricot text-[9px] font-extrabold press">Tandai Selesai</button>
+                    )}
+                  </span>
+                </div>
+              ))}
+              {selectedTx.voidInfo && (
+                <p className="text-[10.5px] font-bold text-brick leading-relaxed">Dibatalkan (void) oleh {selectedTx.voidInfo.requestedBy || '-'} — {selectedTx.voidInfo.reason}</p>
+              )}
+              {/* v21.1 — paymentReference + jejak event (Payment Core) */}
+              {(selectedTx.payments || []).some(pp => pp.paymentReference) && (
+                <div className="text-[9px] font-mono text-ink-faint/90 leading-relaxed">
+                  Ref: {(selectedTx.payments.find(pp => pp.paymentReference) || {}).paymentReference}
+                  {(selectedTx.payments.some(pp => pp.eventId)) && (
+                    <span className="block">Event: {(selectedTx.payments.find(pp => pp.eventId) || {}).eventId} · {(selectedTx.payments.find(pp => pp.eventId) || {}).matchedBy || ''}</span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-xs mt-4">
               <div className="p-3 border border-line dark:border-line-dark rounded-xl">
                 <p className="kicker mb-1">Metode</p>
-                <p className="font-extrabold text-ink dark:text-ink-inv">{selectedTx.paymentMethod}</p>
+                <p className="font-extrabold text-ink dark:text-ink-inv">{selectedTx.paymentMethod || '-'}</p>
               </div>
               <div className="p-3 border border-line dark:border-line-dark rounded-xl">
                 <p className="kicker mb-1">Waktu</p>
                 <p className="font-extrabold text-ink dark:text-ink-inv">{new Date(selectedTx.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
               </div>
+              <div className="p-3 border border-line dark:border-line-dark rounded-xl">
+                <p className="kicker mb-1">Kasir</p>
+                <p className="font-extrabold text-ink dark:text-ink-inv truncate">{selectedTx.employeeName || '-'}</p>
+              </div>
+              <div className="p-3 border border-line dark:border-line-dark rounded-xl">
+                <p className="kicker mb-1">Cabang</p>
+                <p className="font-extrabold text-ink dark:text-ink-inv truncate">{selectedTx.branchId || 'PUSAT'}</p>
+              </div>
             </div>
 
-            <button onClick={() => setSelectedTx(null)} className="mt-5 w-full py-3 bg-chrome-deep dark:bg-flame-500 text-white dark:text-white rounded-2xl font-extrabold text-sm press">Tutup</button>
+            <div className="mt-4 space-y-2">
+              {selectedTx.status === 'paid' && (
+                <button onClick={() => setShowReceiptTx(selectedTx)} className="w-full py-3 bg-chrome-deep dark:bg-flame-500 text-white dark:text-white rounded-2xl font-extrabold text-sm press">Lihat Struk</button>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => { setShowVoid(selectedTx); setSelectedTx(null); }} disabled={!canVoidTx(selectedTx)}
+                  className="py-3 rounded-xl bg-brick-soft dark:bg-brick/10 border border-brick/25 text-brick-deep dark:text-brick font-extrabold text-xs disabled:opacity-40 press">Void</button>
+                <button onClick={() => { setShowRefund(selectedTx); setSelectedTx(null); }} disabled={!canRefundTx(selectedTx)}
+                  className="py-3 rounded-xl bg-surface dark:bg-surface-dark border border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/80 font-extrabold text-xs disabled:opacity-40 press">Refund</button>
+              </div>
+              <p className="text-[9.5px] text-ink-faint font-bold text-center">Aksi void/refund mengikuti izin role Anda & tercatat permanen di audit log.</p>
+              <button onClick={() => setSelectedTx(null)} className="w-full py-2.5 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft transition">Tutup</button>
+            </div>
           </div>
         </div>
       )}
+
+      {showVoid && <VoidModal order={showVoid} licenseInfo={licenseInfo} triggerAlert={triggerAlert} onClose={() => setShowVoid(null)} onDone={() => setTxs(safeParse('pos_history_db', []))} />}
+      {showRefund && <RefundModal order={showRefund} licenseInfo={licenseInfo} triggerAlert={triggerAlert} onClose={() => setShowRefund(null)} onDone={() => setTxs(safeParse('pos_history_db', []))} />}
+      {showRefundDone && <RefundCompleteModal order={showRefundDone.order} refund={showRefundDone.refund} licenseInfo={licenseInfo} triggerAlert={triggerAlert}
+        onClose={() => setShowRefundDone(null)} onDone={() => setTxs(safeParse('pos_history_db', []))} />}
+      {showReceiptTx && <ReceiptModal order={showReceiptTx} profile={safeParse('store_profile', {})} onClose={() => setShowReceiptTx(null)} />}
     </div>
   );
 };

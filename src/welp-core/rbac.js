@@ -118,6 +118,32 @@ export const PERM_DOMAINS = [
     desc: 'Batalkan / refund transaksi kasir',
     actions: ['perform'],
   },
+  // v21 — domain finansial kasir (siklus transaksi penuh)
+  {
+    key: 'transaction', label: 'Transaksi Kasir',
+    desc: 'Lihat, buat, void & refund transaksi penjualan',
+    actions: ['view', 'create', 'void', 'refund'],
+  },
+  {
+    key: 'payment', label: 'Pembayaran',
+    desc: 'Pembayaran kasir: intent QRIS, event, konfirmasi ambigu',
+    actions: ['view', 'confirm', 'manage'],   // v21.1: confirm = review manual event ambigu
+  },
+  {
+    key: 'settlement', label: 'Settlement',
+    desc: 'Settlement dana per metode pembayaran (gross, MDR/fee, net)',
+    actions: ['view', 'manage'],
+  },
+  {
+    key: 'reconciliation', label: 'Rekonsiliasi',
+    desc: 'Rekonsiliasi penjualan vs settlement (status & alasan selisih)',
+    actions: ['view'],
+  },
+  {
+    key: 'shift', label: 'Shift & Kas',
+    desc: 'Buka/tutup shift, uang masuk/keluar, hitung selisih kas',
+    actions: ['open', 'close', 'view'],
+  },
 ];
 
 // Semua action yang dikenal (flattened).
@@ -131,7 +157,10 @@ export const ALL_PERM_KEYS = PERM_DOMAINS.flatMap(d => d.actions.map(a => `${d.k
 // guard halaman granular tetap jalan tanpa migrasi data.
 export const LEGACY_EXPANSION = {
   'dashboard.view': ['dashboard.view'],
-  'pos.use': ['pos.use', 'pos.view'],
+  // v21: memakai POS berarti boleh membuat transaksi, melihat pembayaran,
+  // dan mengelola shift kasir sendiri (open/close) — expansion otomatis
+  // membuat matrix lama tetap bermakna tanpa migrasi data.
+  'pos.use': ['pos.use', 'pos.view', 'transaction.view', 'transaction.create', 'payment.view', 'shift.open', 'shift.close', 'shift.view'],
   'product.manage': ['product.view', 'product.create', 'product.edit', 'product.delete', 'product.manage', 'product.export'],
   'inventory.manage': ['inventory.view', 'inventory.create', 'inventory.edit', 'inventory.delete', 'inventory.adjust', 'inventory.manage', 'inventory.export'],
   'purchasing.manage': ['purchasing.view', 'purchasing.create', 'purchasing.edit', 'purchasing.delete', 'purchasing.manage', 'purchasing.export'],
@@ -143,7 +172,8 @@ export const LEGACY_EXPANSION = {
   'branch.manage': ['branch.view', 'branch.create', 'branch.edit', 'branch.delete', 'branch.manage'],
   'settings.manage': ['settings.view', 'settings.manage'],
   'role.manage': ['roles.view', 'roles.manage'],
-  'refund.perform': ['refund.perform'],
+  // v21: yang boleh refund, boleh pula void (batal sebelum settlement).
+  'refund.perform': ['refund.perform', 'transaction.refund', 'transaction.void'],
 };
 
 // Key legacy (dipertahankan agar matrix lama tetap valid).
@@ -171,6 +201,8 @@ export const ROLE_PRESETS_V20 = {
     'org.view',
     'approval.view', 'approval.approve',
     'refund.perform',
+    'transaction.view', 'transaction.void', 'transaction.refund',
+    'payment.view', 'payment.confirm', 'settlement.view', 'reconciliation.view',
   ],
   supervisor: [
     'dashboard.view', 'pos.view', 'pos.use',
@@ -179,6 +211,8 @@ export const ROLE_PRESETS_V20 = {
     'report.view',
     'attendance.view', 'attendance.manage', 'attendance.approve',
     'refund.perform',
+    'transaction.view', 'transaction.void', 'transaction.refund',
+    'payment.view', 'settlement.view', 'reconciliation.view',
   ],
   admin: G.filter(k => k !== 'roles.manage'),
   hr: [
@@ -194,12 +228,15 @@ export const ROLE_PRESETS_V20 = {
     'finance.view', 'finance.create', 'finance.edit', 'finance.manage', 'finance.export',
     'payroll.view', 'payroll.approve',
     'approval.view', 'approval.approve',
+    'transaction.view', 'payment.view', 'payment.confirm', 'payment.manage',
+    'settlement.view', 'settlement.manage', 'reconciliation.view',
   ],
   accounting: [
     'dashboard.view', 'report.view', 'report.export',
     'finance.view', 'finance.manage', 'finance.export',
     'purchasing.view',
     'payroll.view',
+    'transaction.view', 'payment.view', 'settlement.view', 'reconciliation.view',
   ],
   purchasing: [
     'dashboard.view',
@@ -230,6 +267,8 @@ export const ROLE_PRESETS_V20 = {
     'org.view',
     'approval.view', 'approval.approve',
     'audit.view',
+    'transaction.view', 'transaction.void', 'transaction.refund',
+    'payment.view', 'settlement.view', 'reconciliation.view',
   ],
   areasupervisor: [
     'dashboard.view', 'pos.view', 'pos.use',
@@ -248,6 +287,7 @@ export const ROLE_PRESETS_V20 = {
     'payroll.view',
     'employee.view',
     'refund.perform',
+    'transaction.view', 'payment.view', 'payment.confirm', 'settlement.view', 'reconciliation.view',
   ],
   auditor: [
     'dashboard.view', 'report.view', 'report.export',
@@ -257,8 +297,13 @@ export const ROLE_PRESETS_V20 = {
     'payroll.view',
     'inventory.view',
     'purchasing.view',
+    'transaction.view', 'payment.view', 'settlement.view', 'reconciliation.view',
   ],
-  kasir: ['dashboard.view', 'pos.view', 'pos.use', 'crm.view', 'crm.create'],
+  // v21.1: konfirmasi manual pembayaran ambigu butuh payment.confirm;
+  // kasir TIDAK mendapatkannya (eskalsi ke manager/finance/owner).
+  kasir: ['dashboard.view', 'pos.view', 'pos.use', 'crm.view', 'crm.create',
+    'transaction.view', 'transaction.create', 'payment.view',
+    'shift.open', 'shift.close', 'shift.view'],
   employee: ['employee.view'],
 };
 
@@ -480,6 +525,7 @@ export const NAV_PERMS_V20 = {
   organization: 'org.view',   // lihat struktur; aksi tulis dicek org.manage di halaman
   approval: 'approval.view',
   audit: 'audit.view',
+  finance2: 'settlement.view',   // v21: Keuangan (Settlement/Rekonsiliasi/Kas & Shift)
   roles: 'roles.manage',
   perusahaan: 'settings.manage',
   profile: 'settings.manage',

@@ -12,16 +12,34 @@ import {
   Toko, WaktuReal, LayarBuddy, Search, Pindai, Plus, Trash2,
   Keranjang, RefreshCw, Selesai, Check, X, Edit3, StrukCetak,
   Uang, Qris, Dompet, PaketBuddy, OrangBuddy, RoketBuddy, QrDinamis,
-  MinusCircle, ChevronDown, CategoryIcon, HapusBuddy, Tim, PerisaiBuddy
+  MinusCircle, ChevronDown, CategoryIcon, HapusBuddy, Tim, PerisaiBuddy,
+  Ban, Undo2
 } from './welp-icons.jsx';
 import {
   safeParse, formatIDR, isPro, computeOrderTotals, getBizConfig,
-  getPaymentIcon, useQr, buildDynamicQris, t, BRANCH_ID, db,
+  getPaymentIcon, useQr, buildDynamicQris, buildIntentQris, t, BRANCH_ID, db,
   auditLog, todayKey, normShifts, shiftsForBranch, shiftById, shiftOfMs,
   verifyCred, credIsLegacy, upgradeCred, pinGate, pinGateMsg,   // v15 F0
-  dbSet, dbSetDoc   // v15 F1
+  dbSet, dbSetDoc, getDeviceId,   // v15 F1 + v21
+  stockTrackingOn,   // v21.1 — inventory optional
 } from './core.jsx';
 import { Button, Card, Badge, EmptyState } from './ui';
+// v21 — domain transaksi, sync engine, dan komponen finansial bersama
+import {
+  TX_STATE, txStateOf, normalizePayments, newClientTxId, newPaymentId,
+  netTotalOf, refundedAmountOf, dateKeyOfMs, canVoid as canVoidTx, canRefund as canRefundTx,
+} from './welp-core/tx.js';
+import { commitFinanceDoc } from './welp-core/sync.js';
+// v21.1 — Modifier Engine + WELP Payment Core
+import {
+  productMode, activeGroupsForProduct, needsModifierSheet, defaultSelection,
+  validateSelection, lineUnitPrice, lineModifiersPayload, cartLineKey, modifiersLabelByGroup,
+} from './welp-core/modifier.js';
+import {
+  MATCH_STATUS, MATCH_STATUS_META, newPaymentReference, buildSimulatedEvent, intentExpiryOf,
+} from './welp-core/payment.js';
+import { ingestPaymentEvent, paymentRecWithIntent } from './welp-core/paymentOps.js';
+import { TxStateBadge, SyncPill, ShiftPanel, VoidModal, RefundModal, permsOfSession, commitOrder } from './txactions.jsx';
 
 // v15.3: QR pembayaran di-generate lokal (data URL, tanpa layanan luar)
 // agar checkout QRIS tidak bergantung kecepatan layanan pihak ketiga.
@@ -123,7 +141,14 @@ export const ReceiptModal = ({ order, profile, onClose }) => {
           <div className="py-3 space-y-2">
             {order.items.map((i, x) => (
               <div key={x} className="grid grid-cols-[1fr_auto] gap-3">
-                <div className="min-w-0"><p className="font-bold text-[10.5px] leading-snug break-words">{i.name}</p><p className="text-[9px] text-slate-500 mt-0.5">{i.qty} × {formatIDR(i.price)}</p></div>
+                <div className="min-w-0">
+                  <p className="font-bold text-[10.5px] leading-snug break-words">{i.name}</p>
+                  {/* v21.1 — modifier tersimpan di line item & tampil di struk */}
+                  {(i.modifiers || []).length > 0 && modifiersLabelByGroup(i.modifiers).map((lbl, mi) => (
+                    <p key={mi} className="text-[8.5px] text-slate-500 font-semibold leading-tight">+ {lbl}</p>
+                  ))}
+                  <p className="text-[9px] text-slate-500 mt-0.5">{i.qty} × {formatIDR(i.price)}</p>
+                </div>
                 <p className="font-bold text-[10.5px] text-right">{formatIDR(i.price * i.qty)}</p>
               </div>
             ))}
@@ -141,6 +166,12 @@ export const ReceiptModal = ({ order, profile, onClose }) => {
             <div><p className="text-[7.5px] uppercase tracking-[.16em] font-black text-slate-400">Pembayaran</p><p className="font-black text-[11px] mt-0.5">{method}</p></div>
             {isCash && <div className="text-right text-[9px]"><p>Bayar {formatIDR(order.cashTendered || order.total)}</p><p className="font-black">Kembali {formatIDR(order.change || 0)}</p></div>}
           </div>
+          {/* v21.1 WELP Payment Core — paymentReference unik (bukan nominal) */}
+          {(order.payments || []).some(p => p.paymentReference) && (
+            <div className="py-2 text-[8px] text-slate-400 font-mono break-all">
+              Ref: {(order.payments.find(p => p.paymentReference) || {}).paymentReference}
+            </div>
+          )}
 
           <div className="pt-4 text-center">
             <div className="receipt-code mx-auto mb-2" aria-label={`Kode transaksi ${code}`}>
@@ -175,11 +206,14 @@ const QUICK_ADDS = [
   { label: '+100rb', val: 100000 },
 ];
 
-export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile, isLoading, orderType, setOrderType, tableNo, setTableNo, notes, setNotes, cashTendered, setCashTendered, isSelfOrder = false }) => {
-  const [splitCash, setSplitCash] = useState(0);
+export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile, isLoading, orderType, setOrderType, tableNo, setTableNo, notes, setNotes, cashTendered, setCashTendered, isSelfOrder = false, qrisReference = null }) => {
   const bill = computeOrderTotals(cart);
   const grandTotal = bill.total;
   const bizMode = localStorage.getItem('biz_mode') || 'retail';
+  // v21 payment-first: Tunai/QRIS utama, sisanya di balik "Lainnya".
+  const [showOther, setShowOther] = useState(false);      // sub-daftar metode lain
+  const [showItems, setShowItems] = useState(cart.length <= 4);   // daftar item collapsible
+  const [showOpts, setShowOpts] = useState(false);        // opsi pesanan (progressive disclosure)
 
   // sumber tunggal nominal tunai: string digit → number di state induk.
   const [cashStr, setCashStr] = useState('');
@@ -224,99 +258,90 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
   const canPay = cart.length > 0 && !isLoading && !!paymentMethod && !(paymentMethod === 'Cash' && cashTendered < grandTotal);
   const cashEnough = cashTendered >= grandTotal && grandTotal > 0;
 
+  // v21.1 — QR dinamis + paymentReference (tag 62/07) utk matching engine.
+  // Reference unik per sesi keranjang — nominal sama antar order TIDAK
+  // menghasilkan QR yang sama.
+  const dynQris = paymentMethod === 'QRIS' && profile.payment?.qrisPayload ? buildIntentQris(profile.payment.qrisPayload, grandTotal, qrisReference) : null;
+  const otherMethods = isSelfOrder
+    ? [...(profile.payment?.ewallets?.map(w => w.type) || []), ...(profile.payment?.bank?.map(b => b.bank) || [])]
+    : [...(profile.payment?.ewallets?.map(w => w.type) || []), ...(profile.payment?.bank?.map(b => b.bank) || []), 'Split Bill'];
+  const hasOpts = !!(buyerName || tableNo || notes || (bizMode === 'fnb' && orderType === 'Dine-in'));
+  const payBtnLabel = !paymentMethod ? 'Pilih Metode Pembayaran'
+    : (paymentMethod === 'Cash' && !isSelfOrder && cashEnough) ? `BAYAR · kembalian ${formatIDR(cashTendered - grandTotal)}`
+      : `BAYAR · ${formatIDR(grandTotal)}`;
+
   // palet Quick Cashier Mode (light / dark) — angka netral, aksi oranye
   const keyCls = 'py-3.5 sm:py-4 rounded-xl text-lg sm:text-xl font-extrabold select-none transition-all active:scale-95 press border bg-white dark:bg-[#272A2E] text-[#1D1D1B] dark:text-[#F5F5F2] border-[#E1E1DD] dark:border-[#34383D] hover:bg-[#F1F1EE] dark:hover:bg-[#30343A] active:bg-[#E7E7E3] dark:active:bg-[#383C42]';
   const backCls = 'bg-[#FFF6E8] dark:bg-[#3A3021] text-[#A86200] dark:text-[#F2BD6B] border-[#F0E4D0] dark:border-[#4A4030] hover:bg-[#FDEED3] dark:hover:bg-[#463B29]';
   const chipCls = 'shrink-0 px-3 py-1.5 rounded-full text-[10.5px] font-extrabold border transition-all active:scale-95 press bg-white dark:bg-[#272A2E] text-[#1D1D1B]/70 dark:text-[#F5F5F2]/70 border-[#E1E1DD] dark:border-[#34383D] hover:border-flame-400 active:bg-flame-50 dark:active:bg-flame-900/40 active:text-flame-600 dark:active:text-[#FF9A5C]';
+  const segCls = (on) => `flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-extrabold transition-all press ${on ? 'bg-flame-600 text-white shadow-card' : 'text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv'}`;
 
   return (
     <div className="fixed inset-0 z-[100] bg-chrome-deep/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4 animate-fade-in" onClick={() => setShowCart(false)}>
-      <div className="bg-surface dark:bg-surface-dark w-full sm:w-[480px] rounded-t-3xl sm:rounded-3xl shadow-pop relative flex flex-col max-h-[92vh] overflow-hidden animate-pop"
+      <div className="bg-surface dark:bg-surface-dark w-full sm:w-[480px] rounded-t-3xl sm:rounded-3xl shadow-pop relative flex flex-col max-h-[94vh] overflow-hidden animate-pop"
         onClick={e => e.stopPropagation()}>
 
-        <div className="p-4 border-b border-line/70 dark:border-line-dark/70 flex justify-between items-center shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-flame-50 dark:bg-flame-900/20 text-flame-600 dark:text-apricot flex items-center justify-center"><Keranjang className="w-4.5 h-4.5" /></div>
-            <div>
-              <p className="kicker">Checkout</p>
-              <p className="font-extrabold text-ink dark:text-ink-inv text-sm leading-none mt-0.5">{cart.length} item, {formatIDR(grandTotal)}</p>
+        {/* ===== HEADER: identitas checkout + TOTAL (fokus utama) ===== */}
+        <div className="px-4 pt-4 pb-3 bg-chrome-deep text-ink-inv shrink-0">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-2xl bg-white/10 flex items-center justify-center"><Keranjang className="w-4.5 h-4.5 text-apricot" /></div>
+              <div>
+                <p className="text-apricot/80 text-[9px] font-extrabold uppercase tracking-[0.2em]">Checkout</p>
+                <p className="font-extrabold text-xs leading-none mt-0.5">{cart.length} item siap dibayar</p>
+              </div>
             </div>
+            <button onClick={() => setShowCart(false)} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition"><X className="w-4 h-4" /></button>
           </div>
-          <button onClick={() => setShowCart(false)} className="w-9 h-9 rounded-xl bg-paper dark:bg-white/5 flex items-center justify-center text-ink-faint hover:text-brick transition"><X className="w-4 h-4" /></button>
+          <div key={grandTotal} className="mt-3 flex items-end justify-between animate-pop">
+            <span className="text-[9px] font-extrabold uppercase tracking-[0.22em] text-white/50">Total Tagihan</span>
+            <span className="text-[30px] leading-none font-extrabold money tracking-tight">{formatIDR(grandTotal)}</span>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2.5 bg-paper/60 dark:bg-white/[.02]">
-          {cart.map(i => (
-            <div key={i.id} className="flex gap-3 items-center bg-surface dark:bg-surface-dark p-2 pr-3 rounded-xl border border-line dark:border-line-dark">
-              <div className="w-11 h-11 bg-paper dark:bg-white/5 rounded-lg overflow-hidden shrink-0 flex items-center justify-center">
-                {i.image ? <img src={i.image} className="w-full h-full object-cover" /> : <span className="font-extrabold text-ink-faint">{i.name?.[0] || '?'}</span>}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-extrabold text-[13px] truncate text-ink dark:text-ink-inv">{i.name}</p>
-                <p className="text-[11px] font-extrabold text-ink-faint money">{formatIDR(i.price)}</p>
-              </div>
-              <div className="flex items-center gap-1.5 bg-paper dark:bg-white/5 p-1 rounded-lg border border-line dark:border-line-dark">
-                <button onClick={() => updateQty(i.id, -1)} className="w-7 h-7 bg-surface dark:bg-surface-dark rounded-md shadow-sm text-xs font-extrabold hover:text-brick transition">−</button>
-                <span className="text-xs font-extrabold w-4 text-center text-ink dark:text-ink-inv">{i.qty}</span>
-                <button onClick={() => updateQty(i.id, 1)} className="w-7 h-7 bg-surface dark:bg-surface-dark rounded-md shadow-sm text-xs font-extrabold hover:text-flame-600 dark:hover:text-apricot transition">+</button>
-              </div>
-              <button onClick={() => removeFromCart(i.id)} className="text-ink-faint hover:text-brick transition px-0.5"><Trash2 className="w-4 h-4" /></button>
-            </div>
-          ))}
-
-          <div className="pt-2 space-y-2.5">
+        {/* ===== METODE PEMBAYARAN: Tunai · QRIS · Lainnya ===== */}
+        <div className="px-4 py-3 border-b border-line/70 dark:border-line-dark/70 shrink-0 bg-surface dark:bg-surface-dark">
+          <div className="flex gap-1.5 bg-paper dark:bg-white/[.04] p-1 rounded-2xl border border-line dark:border-line-dark">
             {!isSelfOrder && (
-              <input className="field" placeholder="Nama Pelanggan (Opsional)" value={buyerName} onChange={e => setBuyerName(e.target.value)} />
+              <button onClick={() => setPaymentMethod('Cash')} className={segCls(paymentMethod === 'Cash')}>
+                <Uang className="w-4 h-4" /> Tunai
+              </button>
             )}
-            {bizMode === 'fnb' && !isSelfOrder && (
-              <div className="flex gap-2">
-                <div className="flex bg-surface dark:bg-surface-dark border border-line dark:border-line-dark p-1 rounded-xl w-1/2 shrink-0">
-                  {['Dine-in', 'Takeaway'].map(ot => (
-                    <button key={ot} onClick={() => setOrderType(ot)}
-                      className={`flex-1 text-[10px] font-extrabold rounded-lg py-2 transition ${orderType === ot ? 'bg-chrome-deep text-white' : 'text-ink-faint'}`}>{ot}</button>
-                  ))}
-                </div>
-                {orderType === 'Dine-in' && (
-                  <input type="number" placeholder="No Meja" value={tableNo} onChange={e => setTableNo(e.target.value)} className="field flex-1 min-w-0" />
-                )}
-              </div>
-            )}
-            <input type="text" placeholder="Catatan Pesanan (Opsional)..." value={notes} onChange={e => setNotes(e.target.value)} className="field" />
+            <button onClick={() => setPaymentMethod('QRIS')} className={segCls(paymentMethod === 'QRIS')}>
+              <Qris className="w-4 h-4" /> QRIS
+            </button>
+            <button onClick={() => { setShowOther(v => !v); }} className={`${segCls(paymentMethod !== '' && paymentMethod !== 'Cash' && paymentMethod !== 'QRIS')} ${paymentMethod && paymentMethod !== 'Cash' && paymentMethod !== 'QRIS' ? '' : ''}`}>
+              Lainnya <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showOther ? 'rotate-180' : ''}`} />
+            </button>
           </div>
-
-          <div className="space-y-2 pt-1">
-            <p className="kicker">{t('payMethod')}</p>
-            <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
-              {(isSelfOrder ? ['QRIS', ...(profile.payment?.ewallets?.map(w => w.type) || []), ...(profile.payment?.bank?.map(b => b.bank) || [])] : ['Cash', 'QRIS', 'Split Bill', ...(profile.payment?.ewallets?.map(w => w.type) || []), ...(profile.payment?.bank?.map(b => b.bank) || [])]).map(m => (
-                <button key={m} onClick={() => setPaymentMethod(m)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl border shrink-0 transition-all ${paymentMethod === m
+          {showOther && (
+            <div className="flex gap-2 overflow-x-auto pb-0.5 pt-2 custom-scrollbar no-scrollbar animate-rise">
+              {otherMethods.length === 0 && <p className="text-[10px] font-bold text-ink-faint px-1">Belum ada metode lain. Tambahkan e-wallet/bank di menu Metode Pembayaran.</p>}
+              {otherMethods.map(m => (
+                <button key={m} onClick={() => { setPaymentMethod(m); setShowOther(false); }}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border shrink-0 transition-all press ${paymentMethod === m
                     ? 'bg-flame-600 border-flame-600 text-white shadow-card'
                     : 'bg-surface dark:bg-surface-dark border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/70'}`}>
-                  {getPaymentIcon(m)} <span className="text-xs font-extrabold">{m}</span>
+                  {getPaymentIcon(m)} <span className="text-[11px] font-extrabold">{m}</span>
                 </button>
               ))}
             </div>
-          </div>
+          )}
+        </div>
 
-          <div className="space-y-1.5 pt-3 border-t border-dashed border-line dark:border-line-dark">
-            <div className="flex justify-between text-xs font-bold text-ink-faint"><span>{t('subtotal')}</span><span className="money">{formatIDR(bill.subtotal)}</span></div>
-            {bill.discountAmt > 0 && <div className="flex justify-between text-xs font-extrabold text-flame-700 dark:text-apricot"><span>{t('disc')} ({bill.discPercent}%)</span><span className="money">- {formatIDR(bill.discountAmt)}</span></div>}
-            {bill.taxAmt > 0 && <div className="flex justify-between text-xs font-bold text-ink-faint"><span>{t('tax')} ({bill.taxPercent}%)</span><span className="money">{formatIDR(bill.taxAmt)}</span></div>}
-            {bill.serviceAmt > 0 && <div className="flex justify-between text-xs font-bold text-ink-faint"><span>{t('service')} ({bill.servicePercent}%)</span><span className="money">{formatIDR(bill.serviceAmt)}</span></div>}
-          </div>
+        {/* ===== KONTEN SESUAI METODE (scroll) ===== */}
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-paper/60 dark:bg-white/[.02]">
 
-          {/* ============ QUICK CASHIER MODE (Cash/Tunai) ============ */}
+          {/* --- TUNAI: Quick Cashier Mode (keypad, Uang Pas, kembalian) --- */}
           {paymentMethod === 'Cash' && !isSelfOrder && (
-            <div className="rounded-2xl overflow-hidden border border-[#E1E1DD] dark:border-[#34383D] bg-[#F6F6F4] dark:bg-[#151719] animate-fade-in">
+            <div className="m-3 rounded-2xl overflow-hidden border border-[#E1E1DD] dark:border-[#34383D] bg-[#F6F6F4] dark:bg-[#151719] animate-fade-in">
               <div className="px-3.5 pt-3 pb-3 bg-[#ECEDEA] dark:bg-[#1D2023] border-b border-[#E1E1DD] dark:border-[#34383D]">
                 <div className="flex items-center justify-between">
-                  <p className="text-[9px] font-extrabold uppercase tracking-[0.18em] text-[#1D1D1B]/55 dark:text-[#F5F5F2]/50">Quick Cashier Mode</p>
+                  <p className="text-[9px] font-extrabold uppercase tracking-[0.18em] text-[#1D1D1B]/55 dark:text-[#F5F5F2]/50">Uang Diterima</p>
                   <p className="text-[10.5px] font-extrabold text-flame-700 dark:text-apricot">Total {formatIDR(grandTotal)}</p>
                 </div>
-                {/* nominal dimasukkan — fokus utama */}
                 <div className={`mt-2.5 rounded-xl px-4 py-2.5 text-center border ${cashEnough ? 'bg-[#FFF0E5] dark:bg-[#3A281F] border-flame-200 dark:border-flame-900/60' : 'bg-[#F6F6F4] dark:bg-[#151719] border-[#E1E1DD] dark:border-[#34383D]'}`}>
-                  <p className="text-[9px] font-extrabold uppercase tracking-[0.2em] text-[#1D1D1B]/50 dark:text-[#F5F5F2]/45">Dibayar Tunai</p>
-                  <p className={`text-[26px] font-extrabold money leading-none mt-1 ${cashEnough ? 'text-flame-700 dark:text-apricot' : 'text-[#1D1D1B] dark:text-[#F5F5F2]'}`}>{formatIDR(cashTendered)}</p>
+                  <p className={`text-[26px] font-extrabold money leading-none ${cashEnough ? 'text-flame-700 dark:text-apricot' : 'text-[#1D1D1B] dark:text-[#F5F5F2]'}`}>{formatIDR(cashTendered)}</p>
                   <div className="mt-1.5 min-h-[17px]">
                     {cashEnough ? (
                       <p className="text-[11.5px] font-extrabold text-flame-700 dark:text-apricot">Kembalian {formatIDR(cashTendered - grandTotal)}</p>
@@ -327,7 +352,6 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
                     )}
                   </div>
                 </div>
-                {/* tombol cepat — sederhana, tidak mengalahkan BAYAR */}
                 <div className="flex gap-1.5 mt-2.5 overflow-x-auto no-scrollbar pb-0.5">
                   <button onClick={setExact} className={`${chipCls} ${cashTendered === grandTotal && grandTotal > 0 ? '!bg-flame-50 dark:!bg-flame-900/40 !text-flame-600 dark:!text-apricot !border-flame-300 dark:!border-[#5A3A22]' : ''}`}>
                     <Selesai className="w-3 h-3 inline -mt-0.5" /> Uang Pas
@@ -337,8 +361,6 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
                   ))}
                 </div>
               </div>
-
-              {/* keypad: angka netral, C merah lembut, backspace amber */}
               <div className="p-3 bg-[#ECEDEA] dark:bg-[#1D2023] grid grid-cols-3 gap-2">
                 {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(n => (
                   <button key={n} onClick={() => pressDigit(n)} className={keyCls} aria-label={n}>{n}</button>
@@ -348,41 +370,136 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
                 <button onClick={pressBack} className={`${keyCls} ${backCls}`} aria-label="Hapus satu angka"><HapusBuddy className="w-5 h-5 mx-auto" /></button>
                 <button onClick={press00} className={`${keyCls} col-span-3 !py-3 text-base`} aria-label="Tambah dua nol">00</button>
               </div>
+            </div>
+          )}
 
-              {/* BAYAR — action utama, paling menonjol */}
-              <div className="p-3 pt-0 bg-[#ECEDEA] dark:bg-[#1D2023]">
-                <button onClick={handleCheckout} disabled={!canPay}
-                  className={`w-full py-4 rounded-xl font-extrabold text-base transition-all active:scale-[.98] flex items-center justify-center gap-2 press ${canPay
-                    ? 'bg-[#F26A21] dark:bg-[#F4772E] text-white shadow-card hover:brightness-105'
-                    : 'bg-[#E1E1DD] dark:bg-[#34383D] text-[#1D1D1B]/35 dark:text-[#F5F5F2]/30 cursor-not-allowed'}`}>
-                  {isLoading ? <><RefreshCw className="w-5 h-5 animate-spin" /> Memproses...</> : cashEnough
-                    ? <><Selesai className="w-5 h-5" /> BAYAR (kembalian {formatIDR(cashTendered - grandTotal)})</>
-                    : <><Selesai className="w-5 h-5" /> BAYAR</>}
-                </button>
-                {!cashEnough && cashTendered > 0 && <p className="text-center text-[10px] font-bold text-[#C83B3B] dark:text-[#FF8B8B] mt-2">Nominal belum cukup. Tambah lewat keypad atau pilih Uang Pas.</p>}
+          {/* --- QRIS: QR dinamis/statis inline, pelanggan tinggal scan --- */}
+          {paymentMethod === 'QRIS' && (
+            <div className="m-3 p-4 rounded-2xl bg-surface dark:bg-surface-dark border border-line dark:border-line-dark flex flex-col items-center animate-fade-in">
+              {dynQris ? (
+                <>
+                  <div className="relative bg-white p-2 rounded-2xl border-2 border-flame-200 shadow-card">
+                    <QrPay text={dynQris} size={280} cls="w-40 h-40" alt="QRIS Dinamis" />
+                    <span className="absolute -top-2.5 -right-2 flex items-center gap-1 bg-flame-600 text-white text-[8px] font-extrabold px-2 py-1 rounded-full shadow-card"><QrDinamis className="w-3 h-3" /> DINAMIS</span>
+                  </div>
+                  <p className="text-base mt-2.5 text-flame-700 dark:text-apricot font-extrabold money">{formatIDR(grandTotal)}</p>
+                  <p className="text-[10px] mt-0.5 text-ink-faint font-bold text-center">Pelanggan scan — nominal terisi otomatis.<br />Setelah dibayar, tekan BAYAR untuk menutup transaksi.</p>
+                </>
+              ) : profile.payment?.qris ? (
+                <>
+                  <img src={profile.payment.qris} className="w-44 h-44 object-contain bg-white p-2 rounded-xl border" alt="QRIS Toko" />
+                  <p className="text-[11px] mt-2 text-ink-faint font-bold text-center">QRIS statis. Pelanggan scan lalu isi nominal<br />{formatIDR(grandTotal || 0)} secara manual.</p>
+                </>
+              ) : (
+                <p className="text-xs text-ink-faint font-bold py-4">Belum ada QRIS. Atur dulu di menu Metode Pembayaran.</p>
+              )}
+            </div>
+          )}
+
+          {/* --- METODE LAIN: tampilkan nomor tujuan / info --- */}
+          {paymentMethod && paymentMethod !== 'Cash' && paymentMethod !== 'QRIS' && (
+            <div className="m-3 p-4 rounded-2xl bg-surface dark:bg-surface-dark border border-line dark:border-line-dark text-center animate-fade-in">
+              <p className="font-extrabold text-ink-soft dark:text-ink-inv/80 text-sm">{paymentMethod}</p>
+              {(() => {
+                const w = profile.payment?.ewallets?.find(x => x.type === paymentMethod);
+                const b = profile.payment?.bank?.find(x => x.bank === paymentMethod);
+                return (w?.number || b?.number)
+                  ? <p className="text-xl font-extrabold mt-1 select-all text-ink dark:text-ink-inv money">{w?.number || b?.number}</p>
+                  : <p className="text-[11px] text-ink-faint font-bold mt-1">Terima pembayaran {paymentMethod} sebesar {formatIDR(grandTotal)}, lalu tekan BAYAR.</p>;
+              })()}
+            </div>
+          )}
+
+          {!paymentMethod && (
+            <p className="m-3 px-4 py-5 rounded-2xl border border-dashed border-line dark:border-line-dark text-center text-[11px] font-bold text-ink-faint animate-fade-in">
+              Pilih metode pembayaran di atas. Tunai & QRIS paling cepat; metode lain tersedia di <span className="text-ink-soft dark:text-ink-inv/70">Lainnya</span>.
+            </p>
+          )}
+
+          {/* --- ITEM PESANAN (collapsible) --- */}
+          <div className="mx-3 mb-3 rounded-2xl bg-surface dark:bg-surface-dark border border-line dark:border-line-dark overflow-hidden">
+            <button onClick={() => setShowItems(v => !v)} className="w-full px-4 py-3 flex justify-between items-center press">
+              <span className="text-[10px] font-extrabold uppercase tracking-widest text-ink-faint">Item Pesanan ({cart.length})</span>
+              <span className="flex items-center gap-2 text-xs font-extrabold text-ink-soft dark:text-ink-inv/70 money">{formatIDR(bill.subtotal)} <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showItems ? 'rotate-180' : ''}`} /></span>
+            </button>
+            {showItems && (
+              <div className="px-4 pb-3 space-y-2 animate-rise">
+                {cart.map(i => (
+                  <div key={i.lineId || i.id} className="flex gap-3 items-center bg-paper dark:bg-white/[.04] p-2 pr-3 rounded-xl border border-line/70 dark:border-line-dark/70 animate-slide-in-right">
+                    <div className="w-10 h-10 bg-paper dark:bg-white/5 rounded-lg overflow-hidden shrink-0 flex items-center justify-center">
+                      {i.image ? <img src={i.image} className="w-full h-full object-cover" /> : <span className="font-extrabold text-ink-faint">{i.name?.[0] || '?'}</span>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-extrabold text-[12px] truncate text-ink dark:text-ink-inv">{i.name}</p>
+                      {(i.modifiers || []).length > 0 && modifiersLabelByGroup(i.modifiers).map((lbl, mi) => (
+                        <p key={mi} className="text-[9px] font-bold text-flame-700/80 dark:text-apricot/80 truncate">+ {lbl}</p>
+                      ))}
+                      <p className="text-[10.5px] font-extrabold text-ink-faint money">{formatIDR(i.price)}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-surface dark:bg-surface-dark p-1 rounded-lg border border-line dark:border-line-dark">
+                      <button onClick={() => updateQty(i.lineId || i.id, -1)} className="w-7 h-7 bg-surface dark:bg-surface-dark rounded-md shadow-sm text-xs font-extrabold hover:text-brick transition">−</button>
+                      <span key={i.qty} className="text-xs font-extrabold w-4 text-center text-ink dark:text-ink-inv animate-num">{i.qty}</span>
+                      <button onClick={() => updateQty(i.lineId || i.id, 1)} className="w-7 h-7 bg-surface dark:bg-surface-dark rounded-md shadow-sm text-xs font-extrabold hover:text-flame-600 dark:hover:text-apricot transition">+</button>
+                    </div>
+                    <button onClick={() => removeFromCart(i.lineId || i.id)} className="text-ink-faint hover:text-brick transition px-0.5"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                ))}
+                <div className="pt-2 space-y-1.5 border-t border-dashed border-line dark:border-line-dark">
+                  <div className="flex justify-between text-xs font-bold text-ink-faint"><span>{t('subtotal')}</span><span className="money">{formatIDR(bill.subtotal)}</span></div>
+                  {bill.discountAmt > 0 && <div className="flex justify-between text-xs font-extrabold text-flame-700 dark:text-apricot"><span>{t('disc')} ({bill.discPercent}%)</span><span className="money">- {formatIDR(bill.discountAmt)}</span></div>}
+                  {bill.taxAmt > 0 && <div className="flex justify-between text-xs font-bold text-ink-faint"><span>{t('tax')} ({bill.taxPercent}%)</span><span className="money">{formatIDR(bill.taxAmt)}</span></div>}
+                  {bill.serviceAmt > 0 && <div className="flex justify-between text-xs font-bold text-ink-faint"><span>{t('service')} ({bill.servicePercent}%)</span><span className="money">{formatIDR(bill.serviceAmt)}</span></div>}
+                </div>
               </div>
+            )}
+          </div>
+
+          {/* --- OPSI PESANAN (progressive disclosure) --- */}
+          {isSelfOrder ? (
+            <div className="mx-3 mb-3">
+              <input type="text" placeholder="Catatan Pesanan (Opsional)..." value={notes} onChange={e => setNotes(e.target.value)} className="field" />
+            </div>
+          ) : (
+            <div className="mx-3 mb-3 rounded-2xl bg-surface dark:bg-surface-dark border border-line dark:border-line-dark overflow-hidden">
+              <button onClick={() => setShowOpts(v => !v)} className="w-full px-4 py-3 flex justify-between items-center press">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-ink-faint flex items-center gap-1.5">Opsi Pesanan
+                  {hasOpts && <span className="w-1.5 h-1.5 rounded-full bg-flame-500" />}
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 text-ink-faint transition-transform ${showOpts ? 'rotate-180' : ''}`} />
+              </button>
+              {showOpts && (
+                <div className="px-4 pb-3.5 space-y-2.5 animate-rise">
+                  <input className="field" placeholder="Nama Pelanggan (Opsional)" value={buyerName} onChange={e => setBuyerName(e.target.value)} />
+                  {bizMode === 'fnb' && (
+                    <div className="flex gap-2">
+                      <div className="flex bg-paper dark:bg-white/[.04] border border-line dark:border-line-dark p-1 rounded-xl w-1/2 shrink-0">
+                        {['Dine-in', 'Takeaway'].map(ot => (
+                          <button key={ot} onClick={() => setOrderType(ot)}
+                            className={`flex-1 text-[10px] font-extrabold rounded-lg py-2 transition ${orderType === ot ? 'bg-chrome-deep text-white' : 'text-ink-faint'}`}>{ot}</button>
+                        ))}
+                      </div>
+                      {orderType === 'Dine-in' && (
+                        <input type="number" placeholder="No Meja" value={tableNo} onChange={e => setTableNo(e.target.value)} className="field flex-1 min-w-0" />
+                      )}
+                    </div>
+                  )}
+                  <input type="text" placeholder="Catatan Pesanan (Opsional)..." value={notes} onChange={e => setNotes(e.target.value)} className="field" />
+                </div>
+              )}
             </div>
           )}
         </div>
 
+        {/* ===== FOOTER: SATU tombol BAYAR (selalu terlihat) ===== */}
         <div className="p-4 bg-surface dark:bg-surface-dark border-t border-line/70 dark:border-line-dark/70 shrink-0">
-          <div className="flex justify-between items-end mb-3">
-            <span className="text-ink-faint text-xs font-extrabold uppercase tracking-widest">{t('total')}</span>
-            <span className="text-2xl font-extrabold text-ink dark:text-ink-inv money tracking-tight">{formatIDR(grandTotal)}</span>
-          </div>
-          {/* Cash: BAYAR sudah ada di keypad (Quick Cashier Mode) —
-              footer hanya ringkasan supaya tidak ada dua tombol bayar */}
-          {paymentMethod === 'Cash' && !isSelfOrder ? (
-            <p className="text-center text-[10.5px] font-bold text-ink-faint">
-              {cashEnough ? 'Semua siap. Tekan tombol BAYAR di keypad.' : 'Masukkan uang diterima di keypad tunai di atas.'}
-            </p>
-          ) : (
-            <button onClick={handleCheckout} disabled={!canPay}
-              className={`w-full py-4 rounded-xl font-extrabold text-sm transition-all active:scale-[.98] flex items-center justify-center gap-2 press ${canPay
-                ? 'bg-flame-600 hover:bg-flame-500 text-white shadow-card'
-                : 'bg-paper dark:bg-white/5 text-ink-faint'}`}>
-              {isLoading ? <><RefreshCw className="w-5 h-5 animate-spin" /> Memproses...</> : (!paymentMethod ? "Pilih Metode Pembayaran" : <><Selesai className="w-5 h-5" /> Proses Pesanan</>)}
-            </button>
+          <button onClick={handleCheckout} disabled={!canPay}
+            className={`w-full py-4 rounded-2xl font-extrabold text-base transition-all active:scale-[.98] flex items-center justify-center gap-2 press ${canPay
+              ? 'bg-[#F26A21] hover:bg-[#F4772E] dark:bg-flame-600 dark:hover:bg-flame-500 text-white shadow-card'
+              : 'bg-paper dark:bg-white/5 text-ink-faint cursor-not-allowed'}`}>
+            {isLoading ? <><RefreshCw className="w-5 h-5 animate-spin" /> Memproses...</> : <><Selesai className="w-5 h-5" /> {payBtnLabel}</>}
+          </button>
+          {paymentMethod === 'Cash' && !isSelfOrder && !cashEnough && cashTendered > 0 && (
+            <p className="text-center text-[10px] font-bold text-[#C83B3B] dark:text-[#FF8B8B] mt-2">Nominal belum cukup. Tambah lewat keypad atau pilih Uang Pas.</p>
           )}
         </div>
       </div>
@@ -518,6 +635,117 @@ const StationKasirGate = ({ licenseInfo, onClose, triggerAlert }) => {
 /* ============================================================
    POS TAB
    ============================================================ */
+/* ============================================================
+   MODIFIER SHEET (v21.1, spec #8) — CONFIGURABLE PRODUCT:
+   TAP → Modifier Sheet → Pilih → Tambah Cart.
+   • Anchor-aware spring (muncul dari konteks interaksi, bukan fade)
+   • Grup required/min/max divalidasi — tombol mati + alasan jelas
+   • Harga live: base + Σ priceDelta (lihat total SEBELUM tambah)
+   • Tidak ada SKU baru — line menyimpan modifiers[]
+   ============================================================ */
+export const ModifierSheet = ({ product, groups, onClose, onAdd }) => {
+  const active = activeGroupsForProduct(product, groups);
+  const [sel, setSel] = useState(() => defaultSelection(active));
+  const [qty, setQty] = useState(1);
+  const [errShake, setErrShake] = useState(false);
+  const validation = validateSelection(active, sel);
+  const unit = lineUnitPrice(product?.price ?? 0, active, sel);
+  const total = unit * qty;
+  const firstError = validation.errors[0];
+
+  const pick = (g, opt) => {
+    setSel(prev => {
+      const cur = selectedIds(prev, g.id);
+      if (!g.multi) return { ...prev, [g.id]: opt.id };           // single: ganti
+      const has = cur.includes(opt.id);
+      let next = has ? cur.filter(x => x !== opt.id) : [...cur, opt.id];
+      if (!has && g.max > 0 && next.length > g.max) next = next.slice(1);  // max: buang terlama
+      return { ...prev, [g.id]: next };
+    });
+  };
+  const selectedIds = (s, gid) => {
+    const v = s?.[gid];
+    if (v == null || v === '') return [];
+    return Array.isArray(v) ? v : [v];
+  };
+
+  if (!product) return null;
+  return (
+    <div className="fixed inset-0 z-[110] flex items-end justify-center bg-chrome-deep/70 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+      <div className="bg-surface dark:bg-surface-dark w-full sm:w-[460px] rounded-t-3xl sm:rounded-3xl shadow-pop flex flex-col max-h-[92vh] overflow-hidden animate-sheet"
+        onClick={e => e.stopPropagation()}>
+        {/* header */}
+        <div className="px-5 pt-4 pb-3 bg-chrome-deep text-ink-inv shrink-0">
+          <div className="flex justify-between items-start gap-3">
+            <div className="min-w-0">
+              <p className="text-apricot/80 text-[9px] font-extrabold uppercase tracking-[0.2em]">Pilih Varian</p>
+              <h3 className="font-extrabold text-base leading-tight mt-0.5 truncate">{product.name}</h3>
+            </div>
+            <button onClick={onClose} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition shrink-0"><X className="w-4 h-4" /></button>
+          </div>
+        </div>
+
+        {/* grup modifier */}
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-4 space-y-4 bg-paper/60 dark:bg-white/[.02]">
+          {active.map(g => {
+            const chosen = selectedIds(sel, g.id);
+            return (
+              <div key={g.id}>
+                <div className="flex items-center gap-2 mb-2">
+                  <h4 className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv">{g.name}</h4>
+                  <span className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded-md ${g.required ? 'bg-flame-50 dark:bg-flame-900/40 text-flame-600 dark:text-apricot' : 'bg-paper dark:bg-white/5 text-ink-faint'}`}>
+                    {g.required ? 'Wajib' : 'Opsional'}{g.multi ? (g.max > 0 ? ` · maks ${g.max}` : ' · boleh banyak') : ''}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {g.options.filter(o => o.active).map(o => {
+                    const on = chosen.includes(o.id);
+                    return (
+                      <button key={o.id} onClick={() => pick(g, o)}
+                        className={`px-3 py-2.5 rounded-xl border text-left transition-all press active:scale-[.97] ${on
+                          ? 'bg-flame-600 border-flame-600 text-white shadow-card'
+                          : 'bg-surface dark:bg-surface-dark border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/80 hover:border-flame-300'}`}>
+                        <span className="block text-[11.5px] font-extrabold leading-tight">{o.name}</span>
+                        {o.priceDelta !== 0 && <span className={`block text-[9.5px] font-bold mt-0.5 ${on ? 'text-white/80' : 'text-ink-faint'}`}>{o.priceDelta > 0 ? `+${formatIDR(o.priceDelta)}` : formatIDR(o.priceDelta)}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* footer: qty + total live + tambah */}
+        <div className={`p-4 border-t border-line dark:border-line-dark bg-surface dark:bg-surface-dark shrink-0 space-y-2.5 ${errShake ? 'animate-shake' : ''}`}>
+          {firstError && <p className="text-[10px] font-extrabold text-gold-deep dark:text-gold">{firstError.msg}</p>}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 bg-paper dark:bg-white/[.04] border border-line dark:border-line-dark rounded-xl p-1">
+              <button onClick={() => setQty(q => Math.max(1, q - 1))} className="w-8 h-8 rounded-lg font-extrabold text-ink-soft hover:text-brick transition">−</button>
+              <span key={qty} className="w-6 text-center text-sm font-extrabold text-ink dark:text-ink-inv animate-num">{qty}</span>
+              <button onClick={() => setQty(q => Math.min(99, q + 1))} className="w-8 h-8 rounded-lg font-extrabold text-flame-600 dark:text-apricot hover:bg-flame-50 dark:hover:bg-flame-900/40 transition">+</button>
+            </div>
+            <div className="flex-1 text-right min-w-0">
+              <p className="text-[9px] font-extrabold uppercase tracking-widest text-ink-faint">Total</p>
+              <p key={total} className="text-lg font-extrabold text-ink dark:text-ink-inv money leading-none animate-num">{formatIDR(total)}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (!validation.ok) { setErrShake(true); setTimeout(() => setErrShake(false), 350); return; }
+              onAdd(product, sel, active, qty, unit);
+            }}
+            className={`w-full py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 transition-all press ${validation.ok
+              ? 'bg-[#F26A21] hover:bg-[#F4772E] dark:bg-flame-600 dark:hover:bg-flame-500 text-white shadow-card active:scale-[.98]'
+              : 'bg-paper dark:bg-white/5 text-ink-faint cursor-not-allowed'}`}>
+            <Plus className="w-4.5 h-4.5" /> Tambah ke Keranjang
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab }) => {
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
@@ -538,6 +766,15 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
   const [priceTier, setPriceTier] = useState('retail');
   const [isLoading, setIsLoading] = useState(false);
   const [kasirGate, setKasirGate] = useState(false);   // POS Station: pilih kasir aktif
+  const [showVoid, setShowVoid] = useState(null);      // v21: modal void (transaksi lunas)
+  const [showRefund, setShowRefund] = useState(null);  // v21: modal refund
+  // v21.1 — Modifier Engine & WELP Payment Core
+  const [modGroups, setModGroups] = useState(() => safeParse('modifier_group_db', []));
+  const [modProduct, setModProduct] = useState(null);          // produk menunggu pilihan modifier
+  const [qrisReference, setQrisReference] = useState(null);    // paymentReference sesi keranjang
+  const qrisRefLive = useRef(null);                            // sinkron dgn state utk checkout
+  const trackStock = stockTrackingOn();                        // inventory optional (spec #9–11)
+  const posPerms = permsOfSession(licenseInfo);
 
   // LIVE CAMERA SCANNER STATE
   const [liveScanner, setLiveScanner] = useState({ show: false, mode: '' });
@@ -654,62 +891,208 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     dbSet(licenseInfo?.id, 'active_orders_db', ords);
   };
 
-  const addToCart = (p) => {
-    if (p.stock <= 0) return triggerAlert("Stok habis!", "error");
+  // v21.1: mirror grup modifier ikut segar saat sinkron antar-tab
+  useEffect(() => {
+    const h = () => setModGroups(safeParse('modifier_group_db', []));
+    window.addEventListener('welp_db_sync', h);
+    return () => window.removeEventListener('welp_db_sync', h);
+  }, []);
+  useEffect(() => { if (activeTab === 'pos') setModGroups(safeParse('modifier_group_db', [])); }, [activeTab]);
+
+  // v21.1 FLIGHT-TO-CART — spatial continuity (spec #32–34): produk
+  // TIDAK teleport; titik kecil terbang dari kartu produk ke keranjang.
+  // Compositor-only (transform), 380ms, hormati reduced-motion.
+  const flyToCart = (fromEl) => {
+    try {
+      if (!fromEl || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const a = fromEl.getBoundingClientRect();
+      const target = document.querySelector('[data-cart-anchor]');
+      const b = target ? target.getBoundingClientRect() : { left: window.innerWidth - 60, top: window.innerHeight - 90, width: 40, height: 40 };
+      const dot = document.createElement('span');
+      dot.style.cssText = `position:fixed;z-index:9999;left:${a.left + a.width / 2 - 9}px;top:${a.top + a.height / 2 - 9}px;width:18px;height:18px;border-radius:9999px;background:#F26A21;box-shadow:0 4px 14px rgba(242,106,33,.45);pointer-events:none;will-change:transform,opacity;transition:transform .38s cubic-bezier(.3,.9,.4,1),opacity .38s ease;`;
+      document.body.appendChild(dot);
+      requestAnimationFrame(() => {
+        const dx = b.left + b.width / 2 - (a.left + a.width / 2);
+        const dy = b.top + b.height / 2 - (a.top + a.height / 2);
+        dot.style.transform = `translate(${dx}px,${dy}px) scale(.35)`;
+        dot.style.opacity = '.25';
+      });
+      setTimeout(() => dot.remove(), 420);
+    } catch (e) { /* animasi gagal → abaikan, state tetap jalan */ }
+  };
+
+  // v21.1 — addToCart pintar (spec #5–8):
+  //   QUICK        → TAP → cart (tanpa modal)
+  //   CONFIGURABLE → TAP → Modifier Sheet → cart
+  //   Stock Tracking OFF → stok TIDAK memblok penjualan (spec #10)
+  const addToCart = (p, ev) => {
+    if (needsModifierSheet(p, modGroups)) { setModProduct(p); return; }
     let finalPrice = p.price;
     if (priceTier === 'grosir' && p.priceGrosir > 0) finalPrice = p.priceGrosir;
     if (priceTier === 'ojol' && p.priceOjol > 0) finalPrice = p.priceOjol;
-
+    const lineKey = cartLineKey(p.id, priceTier, []);
+    if (ev && ev.currentTarget) flyToCart(ev.currentTarget);
     setCart(prev => {
-      const exist = prev.find(i => i.id === p.id && i.price === finalPrice);
-      if (exist && exist.qty >= p.stock) return prev;
-      return exist ? prev.map(i => (i.id === p.id && i.price === finalPrice) ? { ...i, qty: i.qty + 1 } : i) : [...prev, { ...p, qty: 1, price: finalPrice }];
+      const exist = prev.find(i => i.lineId === lineKey);
+      const qtyInCart = exist ? exist.qty : 0;
+      if (trackStock && qtyInCart >= (p.stock || 0)) return prev;
+      return exist ? prev.map(i => (i.lineId === lineKey) ? { ...i, qty: i.qty + 1 } : i)
+        : [...prev, { ...p, qty: 1, price: finalPrice, basePrice: p.price, tier: priceTier, lineId: lineKey, lineKey, modifiers: [] }];
     });
   };
 
-  const updateQty = (id, d) => {
+  // Tambah dari ModifierSheet (validasi sudah lolos di sheet)
+  const addModToCart = (p, sel, groups, qty, unitPrice) => {
+    const mods = lineModifiersPayload(groups, sel);
+    const lineKey = cartLineKey(p.id, priceTier, mods);
+    setCart(prev => {
+      const exist = prev.find(i => i.lineId === lineKey);
+      if (exist) return prev.map(i => (i.lineId === lineKey) ? { ...i, qty: Math.min(99, i.qty + qty) } : i);
+      return [...prev, {
+        ...p, qty, price: unitPrice, basePrice: p.price, tier: priceTier,
+        lineId: lineKey, lineKey, modifiers: mods,
+      }];
+    });
+    setModProduct(null);
+    triggerAlert(`${p.name} masuk keranjang`, 'success');
+  };
+
+  // Semua operasi qty memakai lineId (produk yg sama dgn modifier beda
+  // = baris beda). Stok hanya menjadi batas saat tracking ON.
+  const updateQty = (lineId, d) => {
     setCart(prev => prev.map(i => {
-      if (i.id !== id) return i;
+      if ((i.lineId || i.id) !== lineId) return i;
       const newQty = Math.max(1, i.qty + d);
-      const prod = products.find(p => p.id === id);
-      if (prod && newQty > prod.stock) return i;
+      const prod = products.find(p => p.id === i.id);
+      if (trackStock && prod && newQty > prod.stock) return i;
       return { ...i, qty: newQty };
     }));
   };
 
-  const removeFromCart = (id) => setCart(prev => prev.filter(i => i.id !== id));
+  const removeFromCart = (lineId) => setCart(prev => prev.filter(i => (i.lineId || i.id) !== lineId));
+
+  // v21 IDEMPOTENCY (dua lapis):
+  //  1. lastSaleSigRef — LATCH SINKRON: fast-path tunai selesai tanpa await,
+  //     sehingga double-fire dalam tick yang sama tidak tertahan isLoading.
+  //     Latch dibuka kembali saat keranjang benar-benar dikosongkan (commit).
+  //  2. clientTransactionId — kunci idempotensi server: retry sync/offline
+  //     menulis dokumen Firestore yang SAMA (doc id = ctx).
+  const cartTxRef = useRef(null);
+  const lastSaleSigRef = useRef(null);
+  // v21.1: signature menyertakan lineKey (produk+modifier) — dua keranjang
+  // berbeda KOMBINASI tidak mungkin dianggap sama (idempotensi tetap ketat).
+  const cartSignature = () => cart.map(i => `${i.lineKey || i.id}:${i.qty}:${i.price}`).sort().join('|');
+  // Latch terbuka lagi saat keranjang sudah benar-benar dikosongkan setelah sale.
+  useEffect(() => { if (cart.length === 0) lastSaleSigRef.current = null; }, [cart]);
+
+  // Finalisasi pembayaran (dipakai fast-path tunai & konfirmasi manual):
+  // payment → CONFIRMED, tulis ke riwayat via outbox idempoten + audit.
+  const finalizePaidOrder = (order) => {
+    const paidAt = new Date().toISOString();
+    const payments = normalizePayments(order).map(p => p.status === 'CONFIRMED' ? p
+      : { ...p, status: 'CONFIRMED', paidAt, confirmedAt: Date.now() });
+    const paid = {
+      ...order, status: 'paid', paidAt, payments,
+      txState: TX_STATE.PAYMENT_CONFIRMED,
+      settlementStatus: order.settlementStatus || null,
+      syncStatus: 'PENDING',
+    };
+    commitOrder(licenseInfo, paid);
+    // v21.1: proyeksi intent ikut CONFIRMED (server matching membaca ini)
+    payments.forEach(p => {
+      if (p.paymentReference) commitFinanceDoc({
+        tenantId: licenseInfo?.id, localKey: 'payment_intent_db',
+        docId: p.paymentReference,
+        data: { intentId: p.intentId || p.paymentId, paymentId: p.paymentId, paymentReference: p.paymentReference, orderId: paid.clientTransactionId || paid.id, clientTransactionId: paid.clientTransactionId || paid.id, amount: p.amount, method: p.method, branchId: paid.branchId || null, status: 'CONFIRMED', confirmedAt: Date.now(), providerRef: p.providerRef || null, eventId: p.eventId || null, syncStatus: 'PENDING' },
+      });
+    });
+    // v15 F1/B2b: status PAID ikut ke dokumen self_orders bila dari meja
+    if (order.cid && licenseInfo?.id && db) {
+      setDoc(doc(db, 'tenants', licenseInfo.id, 'self_orders', order.cid),
+        { status: 'paid', paidAt: Date.now(), paidBy: licenseInfo.employeeName || 'kasir' },
+        { merge: true }).catch(() => { });
+    }
+    auditLog(licenseInfo, 'TRANSAKSI_LUNAS', { target: order.id, clientTxId: order.clientTransactionId || order.id, total: order.total, method: order.paymentMethod });
+    return paid;
+  };
+
+  const resetCartState = () => {
+    setCart([]); setBuyerName(''); setNotes(''); setCashTendered(0);
+    setPaymentMethod(''); setTableNo('');
+    cartTxRef.current = null;
+    // v21.1: reference QRIS habis bersama sesi keranjang (nominal sama
+    // berikutnya = reference baru = QR baru = intent baru).
+    qrisRefLive.current = null; setQrisReference(null);
+  };
 
   const handleCheckout = async () => {
     if (cart.length === 0) return triggerAlert("Keranjang masih kosong!", "error");
     if (isLoading) return;
+    const sig = cartSignature();
+    // Double-fire sinkron: keranjang yang PERSIS sama baru saja diproses.
+    if (lastSaleSigRef.current === sig) return;
+    if (!paymentMethod) return triggerAlert("Pilih metode pembayaran dulu.", "error");
+    const bill = computeOrderTotals(cart);
+    if (paymentMethod === 'Cash' && cashTendered < bill.total) return triggerAlert("Nominal tunai belum cukup.", "error");
+    lastSaleSigRef.current = sig;   // kunci SEKARANG — sebelum efek apa pun
     setIsLoading(true);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const bill = computeOrderTotals(cart);
+      // (v21: delay artifisial 500ms DIHAPUS — kasir harus ngebut.)
+      const ctx = (cartTxRef.current && cartTxRef.current.sig === sig)
+        ? cartTxRef.current.ctx : newClientTxId();
+      cartTxRef.current = { sig, ctx };
+
       // Snapshot HPP saat penjualan (hppAtSale) — fondasi laporan laba nyata.
       const orderItems = cart.map(i => ({
         ...i,
         hppAtSale: (typeof i.hppAtSale === 'number' ? i.hppAtSale : (typeof i.hpp === 'number' ? i.hpp : null))
       }));
+      const now = Date.now();
+      // Payment record kanonik — status final ditentukan saat konfirmasi.
+      // v21.1 WELP PAYMENT CORE: QRIS mendapat PaymentIntent dengan
+      // paymentReference UNIK (spec #18) — nominal bukan identitas.
+      const isQris = paymentMethod === 'QRIS';
+      const qrisRef = isQris ? (qrisRefLive.current || newPaymentReference()) : null;
+      if (isQris && !qrisRefLive.current) qrisRefLive.current = qrisRef;
+      const basePaymentRec = {
+        paymentId: newPaymentId(), method: paymentMethod, amount: bill.total,
+        status: 'PENDING', paidAt: null, confirmedAt: null, providerRef: null,
+        cashTendered: paymentMethod === 'Cash' ? cashTendered : null,
+        change: paymentMethod === 'Cash' ? Math.max(0, cashTendered - bill.total) : null,
+      };
+      const paymentRec = isQris
+        ? paymentRecWithIntent({ paymentRec: { ...basePaymentRec, paymentReference: qrisRef }, merchantId: profile?.payment?.qrisMeta?.merchantId || null, createdAtMs: now })
+        : basePaymentRec;
       const newOrder = {
-        id: `ord_${Date.now()}`, date: new Date().toISOString(), buyer: buyerName || 'Tanpa Nama',
-        paymentMethod: paymentMethod, items: orderItems,
+        // v21: id = clientTransactionId — SATU identitas utk tampilan, mirror
+        // lokal, dan doc Firestore. Double-tap/retry menulis dokumen yang
+        // SAMA → mustahil jadi dua transaksi.
+        id: ctx,
+        clientTransactionId: ctx,
+        date: new Date(now).toISOString(), createdAtMs: now,
+        buyer: buyerName || 'Tanpa Nama',
+        paymentMethod,                                 // kompatibilitas pembaca lama
+        payments: [paymentRec],                        // model pembayaran baru
+        items: orderItems,
         subtotal: bill.subtotal, discountAmt: bill.discountAmt, taxAmt: bill.taxAmt, serviceAmt: bill.serviceAmt,
         taxPercent: bill.taxPercent, servicePercent: bill.servicePercent, discPercent: bill.discPercent,
         total: bill.total, cashTendered: paymentMethod === 'Cash' ? cashTendered : 0,
         change: paymentMethod === 'Cash' ? Math.max(0, cashTendered - bill.total) : 0,
         orderType: orderType, tableNo: tableNo, notes: notes,
-        status: 'pending', branchId: licenseInfo?.branchId || BRANCH_ID,
+        status: 'pending', txState: TX_STATE.PAYMENT_PENDING,
+        syncStatus: 'PENDING',
+        branchId: licenseInfo?.branchId || BRANCH_ID,
         // jejak perangkat & manusia: transaksi tercatat pada POS Station
         // tertentu dan dilakukan oleh karyawan tertentu.
         stationCode: licenseInfo?.stationCode || null,
         employeeId: licenseInfo?.employeeId || null,
         employeeName: licenseInfo?.employeeName || null,
+        deviceId: getDeviceId(),
         shiftId: licenseInfo?.shiftId || `${licenseInfo?.stationCode || licenseInfo?.branchId || 'PUSAT'}-${todayKey()}`,
         shiftNama: licenseInfo?.shiftNama || null
       };
-      auditLog(licenseInfo, 'TRANSAKSI_BARU', { target: newOrder.id, total: bill.total, method: paymentMethod, items: cart.length });
+      auditLog(licenseInfo, 'TRANSAKSI_BARU', { target: newOrder.id, clientTxId: ctx, total: bill.total, method: paymentMethod, items: cart.length });
 
       const updatedProducts = [...products];
       const rawMaterialsDb = safeParse('raw_material_db', []);
@@ -718,7 +1101,9 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       // Catat pemakaian bahan baku per item agar bisa dikembalikan saat batal/edit.
       const materialUsageByItem = {};
 
-      cart.forEach(cartItem => {
+      // v21.1 (spec #10–11): Stock Tracking OFF → TIDAK ada forced stock
+      // decrement (produk & bahan baku). Crew tidak dipaksa mengelola stok.
+      if (trackStock) cart.forEach(cartItem => {
         const prodIdx = updatedProducts.findIndex(p => p.id === cartItem.id);
         if (prodIdx >= 0) updatedProducts[prodIdx].stock = Math.max(0, updatedProducts[prodIdx].stock - cartItem.qty);
         // Cocokkan resep via productId (stabil); fallback nama untuk resep lama.
@@ -745,33 +1130,79 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       newOrder.materialUsage = materialUsageByItem;
 
       setProducts(updatedProducts);
-      dbSet(licenseInfo?.id, 'product_stock_db', updatedProducts);
-      dbSet(licenseInfo?.id, 'raw_material_db', updatedRawMaterials);
-      saveActiveOrders([newOrder, ...activeOrders]);
+      if (trackStock) {
+        dbSet(licenseInfo?.id, 'product_stock_db', updatedProducts);
+        dbSet(licenseInfo?.id, 'raw_material_db', updatedRawMaterials);
+      }
 
-      setCart([]); setBuyerName(''); setNotes(''); setCashTendered(0); setPaymentMethod('');
-      triggerAlert("Transaksi Berhasil! Stok Etalase dan Bahan Baku Gudang diperbarui.");
-      setShowCart(false);
-      setViewMode('status');
+      // v21.1: proyeksi PaymentIntent ke Firestore utk matching server
+      // (endpoint welpPaymentEvents membaca koleksi payment_intents).
+      if (isQris && paymentRec.paymentReference) {
+        commitFinanceDoc({
+          tenantId: licenseInfo?.id, localKey: 'payment_intent_db',
+          docId: paymentRec.paymentReference,
+          data: {
+            intentId: paymentRec.intentId, paymentId: paymentRec.paymentId,
+            paymentReference: paymentRec.paymentReference,
+            orderId: newOrder.id, clientTransactionId: newOrder.id,
+            amount: bill.total, method: 'QRIS', status: 'PENDING',
+            branchId: newOrder.branchId, stationCode: newOrder.stationCode,
+            merchantId: paymentRec.merchantId || null,
+            createdAt: now, expiresAt: paymentRec.expiresAt || intentExpiryOf(now),
+            providerRef: null, eventId: null, syncStatus: 'PENDING',
+          },
+        });
+      }
+
+      if (paymentMethod === 'Cash' && cashTendered >= bill.total) {
+        // ============ FAST-PATH TUNAI ============
+        // Uang diterima tuntas saat checkout → langsung LUNAS + struk.
+        // SCAN/KLIK → BAYAR → SELESAI (tanpa layar antara).
+        const paid = finalizePaidOrder(newOrder);
+        resetCartState();
+        setShowCart(false);
+        setShowReceipt(paid);
+        triggerAlert(`Lunas! Kembalian ${formatIDR(paid.change || 0)}.`, 'success');
+      } else {
+        // QRIS / e-wallet / split → pesanan pending, layar pembayaran
+        // langsung terbuka (QR tampil) untuk konfirmasi kasir.
+        saveActiveOrders([newOrder, ...activeOrders]);
+        resetCartState();
+        setShowCart(false);
+        setSelectedOrder(newOrder);
+      }
     } catch (error) { triggerAlert("Terjadi kesalahan: " + error.message, "error"); }
     finally { setIsLoading(false); }
   };
 
   const confirmPayment = (order) => {
-    const history = safeParse('pos_history_db', []);
-    const completedOrder = { ...order, status: 'paid', paidAt: new Date().toISOString() };
-    dbSet(licenseInfo?.id, 'pos_history_db', [...history, completedOrder]);
-    saveActiveOrders(activeOrders.map(o => o.id === order.id ? completedOrder : o));
-    // v15 F1/B2b: status PAID ikut ditulis ke dokumen self_orders Firestore
-    // bila pesanan berasal dari self-order meja — HP pelanggan melihat
-    // status berubah realtime ( Siklus pesanan tidak putus lagi).
-    if (order.cid && licenseInfo?.id && db) {
-      setDoc(doc(db, 'tenants', licenseInfo.id, 'self_orders', order.cid),
-        { status: 'paid', paidAt: Date.now(), paidBy: licenseInfo.employeeName || 'kasir' },
-        { merge: true }).catch(() => { });
+    const paid = finalizePaidOrder(order);
+    saveActiveOrders(activeOrders.filter(o => o.id !== order.id));
+    setSelectedOrder(paid);
+  };
+
+  // v21.1 PWA PAYMENT EVENT SIMULATOR di titik jual (spec #25):
+  // menembakkan event uji ke matching engine dgn intent NYATA order ini.
+  // Jalur sama dgn endpoint backend → arsitektur identik, tanpa fake path.
+  const simulatePaymentForOrder = (order) => {
+    const pay = (order.payments || []).find(p => p.paymentReference);
+    if (!pay) return triggerAlert('Order ini tidak punya PaymentIntent (QRIS).', 'error');
+    const intent = { paymentReference: pay.paymentReference, amount: pay.amount, method: pay.method || 'QRIS' };
+    const rawEvent = buildSimulatedEvent({ intent, variant: 'exact' });
+    const orders = [...activeOrders, ...safeParse('pos_history_db', [])];
+    const res = ingestPaymentEvent({
+      tenantId: licenseInfo?.id, rawEvent, orders,
+      actor: licenseInfo?.employeeName || licenseInfo?.tenant || 'kasir',
+      actorRole: licenseInfo?.currentUserRole || 'owner', licenseInfo,
+    });
+    if (res.status === MATCH_STATUS.CONFIRMED) {
+      const merged = { ...order, ...(res.order || {}) };
+      saveActiveOrders(activeOrders.filter(o => o.id !== order.id));
+      setSelectedOrder(merged);
+      triggerAlert(`Event cocok (paymentReference) → LUNAS otomatis via Payment Core.`, 'success');
+    } else {
+      triggerAlert(`Simulasi: ${MATCH_STATUS_META[res.status]?.label || res.status} — ${res.reason || ''}`, res.status === MATCH_STATUS.DUPLICATE ? 'success' : 'error');
     }
-    auditLog(licenseInfo, 'TRANSAKSI_LUNAS', { target: order.id, total: order.total, method: order.paymentMethod });
-    setSelectedOrder(completedOrder);
   };
 
   // Kembalikan stok bahan baku berdasarkan materialUsage saat batal/edit.
@@ -788,13 +1219,17 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
 
   const cancelOrder = (order) => {
     if (confirm("Batalkan pesanan? Stok akan dikembalikan.")) {
-      const newStock = products.map(p => {
-        const inOrder = order.items.find(i => i.id === p.id);
-        return inOrder ? { ...p, stock: p.stock + inOrder.qty } : p;
-      });
-      setProducts(newStock);
-      dbSet(licenseInfo?.id, 'product_stock_db', newStock);
-      restoreMaterialUsage(order);
+      // v21.1: stok hanya dikembalikan saat tracking ON (pesanan saat OFF
+      // tidak pernah menurunkan stok — restore juga tidak dilakukan).
+      if (trackStock) {
+        const newStock = products.map(p => {
+          const inOrder = order.items.find(i => i.id === p.id);
+          return inOrder ? { ...p, stock: p.stock + inOrder.qty } : p;
+        });
+        setProducts(newStock);
+        dbSet(licenseInfo?.id, 'product_stock_db', newStock);
+        restoreMaterialUsage(order);
+      }
       saveActiveOrders(activeOrders.filter(o => o.id !== order.id));
       // v15 F1/B2b: status DIBATALKAN ikut ke Firestore utk self-order
       if (order.cid && licenseInfo?.id && db) {
@@ -808,14 +1243,16 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
 
   // Ubah pesanan: kembalikan stok lalu muat ulang item ke keranjang
   const editOrder = (order) => {
-    const newStock = products.map(p => {
-      const inOrder = order.items.find(i => i.id === p.id);
-      return inOrder ? { ...p, stock: p.stock + inOrder.qty } : p;
-    });
-    setProducts(newStock);
-    dbSet(licenseInfo?.id, 'product_stock_db', newStock);
-    restoreMaterialUsage(order);
-    setCart(order.items.map(i => ({ ...i })));
+    if (trackStock) {
+      const newStock = products.map(p => {
+        const inOrder = order.items.find(i => i.id === p.id);
+        return inOrder ? { ...p, stock: p.stock + inOrder.qty } : p;
+      });
+      setProducts(newStock);
+      dbSet(licenseInfo?.id, 'product_stock_db', newStock);
+      restoreMaterialUsage(order);
+    }
+    setCart(order.items.map(i => ({ ...i, lineId: i.lineKey || cartLineKey(i.id, i.tier || 'retail', i.modifiers || []) })));
     setBuyerName(order.buyer === 'Tanpa Nama' ? '' : (order.buyer || ''));
     setPaymentMethod(order.paymentMethod || '');
     setNotes(order.notes || '');
@@ -829,11 +1266,23 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     triggerAlert("Pesanan dimuat ke keranjang. Ubah item lalu checkout ulang.", "success");
   };
 
-  const getPaymentInfo = (method, amount = 0) => {
+  // v21.1: paymentReference QRIS dibuat saat metode QRIS dipilih — QR yang
+  // tampil SUDAH membawa reference (tag 62/07) sebelum BAYAR ditekan.
+  useEffect(() => {
+    if (paymentMethod === 'QRIS') {
+      if (!qrisRefLive.current) {
+        qrisRefLive.current = newPaymentReference();
+        setQrisReference(qrisRefLive.current);
+      } else setQrisReference(qrisRefLive.current);
+    }
+  }, [paymentMethod]);
+
+  const getPaymentInfo = (method, amount = 0, order = null) => {
     if (method === 'Cash') return <div className="p-3 bg-paper dark:bg-white/5 rounded-xl text-center font-extrabold text-ink dark:text-ink-inv text-sm">Bayar Tunai di Kasir</div>;
     if (method === 'QRIS') {
       const payload = profile.payment?.qrisPayload;
-      const dyn = payload ? buildDynamicQris(payload, amount) : null;
+      const ref = (order?.payments || []).find(p => p.paymentReference)?.paymentReference || null;
+      const dyn = payload ? buildIntentQris(payload, amount, ref) : null;
       return (
         <div className="flex flex-col items-center">
           {dyn ? (
@@ -844,6 +1293,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
               </div>
               <p className="text-base mt-2.5 text-flame-700 dark:text-apricot font-extrabold money">{formatIDR(amount)}</p>
               <p className="text-[10px] mt-0.5 text-ink-faint font-bold">Nominal sudah terisi otomatis, pelanggan tinggal scan</p>
+              {ref && <p className="text-[8.5px] mt-1 font-mono text-ink-faint/80">Ref: {ref}</p>}
             </>
           ) : profile.payment?.qris ? (
             <>
@@ -882,11 +1332,15 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     let displayPrice = p.price;
     if (priceTier === 'grosir' && p.priceGrosir > 0) displayPrice = p.priceGrosir;
     else if (priceTier === 'ojol' && p.priceOjol > 0) displayPrice = p.priceOjol;
-    const inCartQty = cart.find(i => i.id === p.id)?.qty || 0;
+    const configurable = needsModifierSheet(p, modGroups);
+    const inCartQty = cart.filter(i => i.id === p.id).reduce((a, b) => a + b.qty, 0);
+    // v21.1: Stock Tracking OFF → produk TIDAK pernah dinonaktifkan
+    // karena stok (spec #10). Badge stok hanya tampil saat ON.
+    const outOfStock = trackStock && (p.stock || 0) <= 0;
 
     return (
-      <button onClick={() => addToCart(p)} disabled={p.stock <= 0}
-        className={`relative bg-surface dark:bg-surface-dark p-2.5 rounded-2xl border text-left transition-all duration-200 group ${p.stock > 0
+      <button onClick={(ev) => addToCart(p, ev)} disabled={outOfStock}
+        className={`relative bg-surface dark:bg-surface-dark p-2.5 rounded-2xl border text-left transition-all duration-200 group ${!outOfStock
           ? inCartQty > 0
             ? 'border-flame-500 ring-2 ring-flame-500/25 shadow-card cursor-pointer'
             : 'border-line dark:border-line-dark hover:border-flame-300 shadow-card cursor-pointer press'
@@ -894,15 +1348,20 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
         <div className="aspect-square bg-paper dark:bg-white/[.04] rounded-xl mb-2 overflow-hidden relative">
           {p.image ? <img src={p.image} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
             : <div className="w-full h-full flex items-center justify-center"><CategoryIcon name={p.type} className="w-10 h-10 opacity-80" /></div>}
-          {inCartQty > 0 && (
-            <span className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-flame-500 text-white text-[10px] font-extrabold flex items-center justify-center shadow-card">{inCartQty}</span>
+          {configurable && (
+            <span className="absolute top-1.5 right-1.5 text-[7.5px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-chrome-deep/85 backdrop-blur text-apricot">Custom</span>
           )}
-          <span className={`absolute bottom-1.5 right-1.5 text-[8px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md ${p.stock > 0
-            ? 'bg-chrome-deep/85 backdrop-blur text-white'
-            : 'bg-brick text-white'}`}>{p.stock > 0 ? `${p.stock}` : 'Habis'}</span>
+          {inCartQty > 0 && (
+            <span key={inCartQty} className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-flame-500 text-white text-[10px] font-extrabold flex items-center justify-center shadow-card animate-bump">{inCartQty}</span>
+          )}
+          {trackStock && (
+            <span className={`absolute bottom-1.5 right-1.5 text-[8px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md ${p.stock > 0
+              ? 'bg-chrome-deep/85 backdrop-blur text-white'
+              : 'bg-brick text-white'}`}>{p.stock > 0 ? `${p.stock}` : 'Habis'}</span>
+          )}
         </div>
         <h4 className="font-bold text-ink dark:text-ink-inv text-xs truncate mb-0.5">{p.name}</h4>
-        <p className="text-ink dark:text-ink-inv font-extrabold text-[13px] money">{formatIDR(displayPrice)}</p>
+        <p className="text-ink dark:text-ink-inv font-extrabold text-[13px] money">{formatIDR(displayPrice)}{configurable && <span className="text-[9px] text-ink-faint font-bold ml-1">+</span>}</p>
       </button>
     );
   };
@@ -915,7 +1374,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
           <p className="text-apricot/80 text-[9px] font-extrabold uppercase tracking-[0.2em]">Tiket Pesanan</p>
           <p className="text-ink-inv font-extrabold text-sm leading-none mt-0.5">{totalCartQty} item</p>
         </div>
-        <Keranjang className="w-5 h-5 text-apricot" />
+        <span data-cart-anchor className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center"><Keranjang className="w-5 h-5 text-apricot" /></span>
       </div>
       <div className={`overflow-y-auto custom-scrollbar px-4 ${compact ? 'max-h-[30vh]' : 'flex-1 max-h-[42vh]'}`}>
         {cart.length === 0 ? (
@@ -925,19 +1384,22 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
             <p className="text-[10px] text-ink-faint/70 mt-1">Klik produk buat nambahin</p>
           </div>
         ) : cart.map(i => (
-          <div key={i.id} className="flex items-center gap-2.5 py-2.5 border-b border-dotted border-line dark:border-line-dark last:border-0">
+          <div key={i.lineId || i.id} className="flex items-center gap-2.5 py-2.5 border-b border-dotted border-line dark:border-line-dark last:border-0 animate-slide-in-right">
             <div className="w-9 h-9 bg-paper dark:bg-white/5 rounded-lg overflow-hidden shrink-0 flex items-center justify-center">
               {i.image ? <img src={i.image} className="w-full h-full object-cover" /> : <span className="text-[10px] font-extrabold text-ink-faint">{i.name?.[0]}</span>}
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-bold text-xs truncate text-ink dark:text-ink-inv">{i.name}</p>
+              {(i.modifiers || []).length > 0 && modifiersLabelByGroup(i.modifiers).map((lbl, mi) => (
+                <p key={mi} className="text-[8.5px] font-bold text-flame-700/80 dark:text-apricot/80 truncate">+ {lbl}</p>
+              ))}
               <p className="text-[10px] text-ink-faint money font-bold">{formatIDR(i.price)} × {i.qty}</p>
             </div>
             <div className="flex items-center gap-1">
-              <button onClick={() => updateQty(i.id, -1)} className="w-6 h-6 rounded-md bg-paper dark:bg-white/5 text-xs font-extrabold text-ink-soft hover:text-brick transition">−</button>
-              <span className="w-5 text-center text-xs font-extrabold text-ink dark:text-ink-inv">{i.qty}</span>
-              <button onClick={() => updateQty(i.id, 1)} className="w-6 h-6 rounded-md bg-flame-50 dark:bg-flame-900/40 text-xs font-extrabold text-flame-700 dark:text-apricot hover:bg-flame-100 dark:hover:bg-flame-900/70 transition">+</button>
-              <button onClick={() => removeFromCart(i.id)} className="w-6 h-6 rounded-md text-ink-faint hover:text-brick transition"><Trash2 className="w-3.5 h-3.5 mx-auto" /></button>
+              <button onClick={() => updateQty(i.lineId || i.id, -1)} className="w-6 h-6 rounded-md bg-paper dark:bg-white/5 text-xs font-extrabold text-ink-soft hover:text-brick transition">−</button>
+              <span key={i.qty} className="w-5 text-center text-xs font-extrabold text-ink dark:text-ink-inv animate-num">{i.qty}</span>
+              <button onClick={() => updateQty(i.lineId || i.id, 1)} className="w-6 h-6 rounded-md bg-flame-50 dark:bg-flame-900/40 text-xs font-extrabold text-flame-700 dark:text-apricot hover:bg-flame-100 dark:hover:bg-flame-900/70 transition">+</button>
+              <button onClick={() => removeFromCart(i.lineId || i.id)} className="w-6 h-6 rounded-md text-ink-faint hover:text-brick transition"><Trash2 className="w-3.5 h-3.5 mx-auto" /></button>
             </div>
           </div>
         ))}
@@ -951,7 +1413,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       <div className="px-4 py-3.5 bg-paper/60 dark:bg-white/[.03] border-t border-line/60 dark:border-line-dark">
         <div className="flex justify-between items-center mb-3">
           <span className="text-[10px] font-extrabold uppercase tracking-widest text-ink-faint">Total</span>
-          <span className="text-xl font-extrabold text-ink dark:text-ink-inv money">{formatIDR(cartBill.total)}</span>
+          <span key={cartBill.total} className="text-xl font-extrabold text-ink dark:text-ink-inv money animate-flash-soft">{formatIDR(cartBill.total)}</span>
         </div>
         <Button onClick={() => setShowCart(true)} disabled={cart.length === 0} icon={Keranjang} className="w-full py-3.5">
           Checkout
@@ -978,6 +1440,13 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
           </button>
         </div>
       )}
+
+      {/* ===== STATUS SINKRONISASI + SHIFT KASIR (v21) ===== */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <SyncPill licenseInfo={licenseInfo} />
+        <span className="text-[10px] font-bold text-ink-faint hidden sm:inline">Transaksi tetap aman saat internet putus — antrean lokal tersinkron otomatis.</span>
+      </div>
+      <ShiftPanel licenseInfo={licenseInfo} triggerAlert={triggerAlert} />
 
       {/* ===== view switcher ===== */}
       <div className="flex gap-1.5 mb-5 bg-surface dark:bg-surface-dark p-1 rounded-xl border border-line dark:border-line-dark shadow-card inline-flex">
@@ -1031,7 +1500,17 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
             <div className="relative flex gap-2 mb-3">
               <div className="relative flex-1 group">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none"><Search className="w-4 h-4 text-ink-faint" /></div>
-                <input className="field-lg pl-10 pr-12" placeholder={t('search')} value={search} onChange={e => setSearch(e.target.value)} />
+                <input className="field-lg pl-10 pr-12" placeholder={t('search')} value={search} onChange={e => setSearch(e.target.value)}
+                  onKeyDown={e => {
+                    // v21 SCANNER HOT-PATH: scanner fisik mengetik kode lalu Enter.
+                    // Cocok persis (SKU/nama) → item langsung masuk keranjang,
+                    // TANPA modal, TANPA konfirmasi. Keyboard/mouse tetap jalan.
+                    if (e.key !== 'Enter') return;
+                    const q = String(search || '').trim().toLowerCase();
+                    if (!q) return;
+                    const hit = products.find(p => (p.sku && String(p.sku).toLowerCase() === q) || String(p.name).toLowerCase() === q);
+                    if (hit) { addToCart(hit); setSearch(''); triggerAlert('+1 ' + hit.name, 'success'); }
+                  }} />
                 <button onClick={() => { localStorage.getItem('scanner_mode') === 'camera' ? setLiveScanner({ show: true, mode: 'product' }) : triggerAlert("Gunakan Scanner Fisik Anda.", "success") }}
                   className="absolute inset-y-2 right-2 px-3 bg-flame-50 dark:bg-flame-900/20 rounded-xl text-flame-600 dark:text-apricot hover:bg-flame-100 dark:hover:bg-flame-900/40 transition flex items-center justify-center"><Pindai className="w-4.5 h-4.5" /></button>
               </div>
@@ -1070,10 +1549,10 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
               <button onClick={() => setShowCart(true)}
                 className="w-full max-w-md mx-auto flex justify-between items-center bg-surface dark:bg-chrome-deep text-ink dark:text-ink-inv p-3.5 pl-5 rounded-3xl shadow-pop border border-line dark:border-chrome-edge press">
                 <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-2xl bg-flame-500 text-white font-extrabold text-xs flex items-center justify-center">{totalCartQty}</span>
+                  <span data-cart-anchor className="w-8 h-8 rounded-2xl bg-flame-500 text-white font-extrabold text-xs flex items-center justify-center animate-bump" key={totalCartQty}>{totalCartQty}</span>
                   <div className="text-left">
                     <span className="block text-[9px] font-extrabold uppercase tracking-widest text-ink-faint dark:text-ink-inv/50">Lihat Keranjang</span>
-                    <span className="block text-base font-extrabold money leading-none mt-0.5">{formatIDR(cartBill.total)}</span>
+                    <span key={cartBill.total} className="block text-base font-extrabold money leading-none mt-0.5 animate-flash-soft">{formatIDR(cartBill.total)}</span>
                   </div>
                 </div>
                 <span className="flex items-center gap-2 font-extrabold text-xs bg-flame-500 text-white px-4 py-2.5 rounded-2xl"><Keranjang className="w-4 h-4" /> Checkout</span>
@@ -1125,7 +1604,10 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
 
       {/* ===== checkout sheet (dipasang di level root agar bisa dibuka
            dari rail desktop maupun bar mobile) ===== */}
-      <CartPopup showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile} isLoading={isLoading} orderType={orderType} setOrderType={setOrderType} tableNo={tableNo} setTableNo={setTableNo} notes={notes} setNotes={setNotes} cashTendered={cashTendered} setCashTendered={setCashTendered} />
+      <CartPopup showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile} isLoading={isLoading} orderType={orderType} setOrderType={setOrderType} tableNo={tableNo} setTableNo={setTableNo} notes={notes} setNotes={setNotes} cashTendered={cashTendered} setCashTendered={setCashTendered} qrisReference={qrisReference} />
+
+      {/* ===== MODIFIER SHEET (v21.1) — produk configurable ===== */}
+      {modProduct && <ModifierSheet product={modProduct} groups={modGroups} onClose={() => setModProduct(null)} onAdd={addModToCart} />}
 
       {/* ============ DETAIL PESANAN (modal) ============
           v8: layout flex — header & tombol aksi TETAP terlihat
@@ -1137,14 +1619,12 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
             <button onClick={() => setSelectedOrder(null)} className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-paper dark:bg-white/5 flex items-center justify-center text-ink-faint hover:text-brick z-10"><X className="w-4 h-4" /></button>
             <div className="p-5 pb-3 shrink-0">
               <p className="kicker">Detail Pesanan #{selectedOrder.id.slice(-5)}</p>
-              {selectedOrder.status === 'pending' ? (
-                <Badge tone="gold" className="mt-1.5"><WaktuReal className="w-3 h-3" /> Menunggu Pembayaran</Badge>
-              ) : (
-                <div className="inline-flex items-center gap-2 mt-1.5 text-leaf-deep dark:text-leaf">
-                  <div className="w-7 h-7 rounded-full bg-leaf-soft dark:bg-leaf/15 flex items-center justify-center"><Check className="w-4 h-4 text-leaf-deep dark:text-leaf" /></div>
-                  <span className="font-extrabold text-sm">Lunas</span>
-                </div>
-              )}
+              <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                <TxStateBadge order={selectedOrder} />
+                {selectedOrder.status === 'paid' && selectedOrder.syncStatus === 'PENDING' && (
+                  <span className="text-[9px] font-extrabold text-ink-faint flex items-center gap-1"><WaktuReal className="w-3 h-3" /> antre sinkron</span>
+                )}
+              </div>
               <div className="flex flex-wrap gap-1.5 mt-3 text-[10px] font-extrabold">
                 <span className="px-2.5 py-1 rounded-lg bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf flex items-center gap-1">{getPaymentIcon(selectedOrder.paymentMethod)} {selectedOrder.paymentMethod || 'Metode -'}</span>
                 {selectedOrder.buyer && <span className="px-2.5 py-1 rounded-lg bg-paper dark:bg-white/5 text-ink-soft dark:text-ink-inv/70">{selectedOrder.buyer}</span>}
@@ -1156,9 +1636,14 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
             <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-5 pb-3">
               <div className="bg-paper dark:bg-white/[.03] rounded-2xl p-4 space-y-2 border border-line dark:border-line-dark">
                 {selectedOrder.items.map((item, i) => (
-                  <div key={i} className="flex justify-between text-xs">
-                    <span className="font-bold text-ink-soft dark:text-ink-inv/80">{item.qty}x {item.name}</span>
-                    <span className="font-extrabold text-ink dark:text-ink-inv money">{formatIDR(item.price * item.qty)}</span>
+                  <div key={i}>
+                    <div className="flex justify-between text-xs">
+                      <span className="font-bold text-ink-soft dark:text-ink-inv/80">{item.qty}x {item.name}</span>
+                      <span className="font-extrabold text-ink dark:text-ink-inv money">{formatIDR(item.price * item.qty)}</span>
+                    </div>
+                    {(item.modifiers || []).length > 0 && modifiersLabelByGroup(item.modifiers).map((lbl, mi) => (
+                      <p key={mi} className="text-[9px] font-bold text-flame-700/80 dark:text-apricot/80">+ {lbl}</p>
+                    ))}
                   </div>
                 ))}
                 <div className="border-t border-dashed border-line dark:border-line-dark pt-2 space-y-1 text-[11px] font-bold text-ink-faint">
@@ -1172,8 +1657,20 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
                   <div className="flex justify-between text-[11px] font-bold text-ink-faint"><span>Tunai / Kembali</span><span className="money">{formatIDR(selectedOrder.cashTendered)} / {formatIDR(selectedOrder.change || 0)}</span></div>
                 )}
                 {selectedOrder.notes && <div className="text-[11px] text-ink-faint italic pt-1">Catatan: {selectedOrder.notes}</div>}
-                {selectedOrder.paymentMethod && selectedOrder.status !== 'paid' && getPaymentInfo(selectedOrder.paymentMethod, selectedOrder.total) && (
-                  <div className="pt-2">{getPaymentInfo(selectedOrder.paymentMethod, selectedOrder.total)}</div>
+                {(() => {
+                  const ref = (selectedOrder.payments || []).find(p => p.paymentReference)?.paymentReference;
+                  if (!ref) return null;
+                  const exp = (selectedOrder.payments || []).find(p => p.expiresAt)?.expiresAt;
+                  const left = exp ? Math.max(0, Math.round((exp - Date.now()) / 60000)) : null;
+                  return (
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="text-[8.5px] font-mono text-ink-faint/80 break-all">Ref: {ref}</span>
+                      {left != null && selectedOrder.status !== 'paid' && <span className="text-[8.5px] font-extrabold text-gold-deep dark:text-gold shrink-0">intent {left}m</span>}
+                    </div>
+                  );
+                })()}
+                {selectedOrder.paymentMethod && selectedOrder.status !== 'paid' && getPaymentInfo(selectedOrder.paymentMethod, selectedOrder.total, selectedOrder) && (
+                  <div className="pt-2">{getPaymentInfo(selectedOrder.paymentMethod, selectedOrder.total, selectedOrder)}</div>
                 )}
               </div>
             </div>
@@ -1182,6 +1679,14 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
               {selectedOrder.status === 'pending' ? (
                 <div className="space-y-2">
                   <button onClick={() => confirmPayment(selectedOrder)} className="w-full bg-flame-600 hover:bg-flame-500 text-white py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 press"><Selesai className="w-4.5 h-4.5" /> Selesaikan Pembayaran</button>
+                  {/* v21.1 — simulator di titik jual: menguji jalur event →
+                      webhook → matching → PAID dgn intent nyata (spec #25) */}
+                  {selectedOrder.paymentMethod === 'QRIS' && (selectedOrder.payments || []).some(p => p.paymentReference) && (
+                    <button onClick={() => simulatePaymentForOrder(selectedOrder)}
+                      className="w-full text-[10px] font-extrabold text-ink-faint hover:text-flame-600 dark:hover:text-apricot py-1.5 transition press">
+                      Simulasikan event pembayaran (uji Payment Core)
+                    </button>
+                  )}
                   <div className="grid grid-cols-2 gap-2">
                     <button onClick={() => editOrder(selectedOrder)} className="bg-surface dark:bg-surface-dark text-ink-soft dark:text-ink-inv/80 border border-line dark:border-line-dark hover:border-flame-300 py-3 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 press"><Edit3 className="w-4 h-4" /> Ubah</button>
                     <button onClick={() => cancelOrder(selectedOrder)} className="bg-brick-soft dark:bg-brick/10 border border-brick/25 text-brick-deep dark:text-brick py-3 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 press"><X className="w-4 h-4" /> Batalkan</button>
@@ -1189,7 +1694,19 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
                   <p className="text-[9.5px] text-ink-faint font-bold text-center">Struk bisa dicetak setelah pembayaran lunas</p>
                 </div>
               ) : (
-                <button onClick={() => setShowReceipt(selectedOrder)} className="w-full bg-flame-600 hover:bg-flame-500 text-white py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 press"><StrukCetak className="w-4.5 h-4.5" /> Cetak Struk</button>
+                <div className="space-y-2">
+                  <button onClick={() => setShowReceipt(selectedOrder)} className="w-full bg-flame-600 hover:bg-flame-500 text-white py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 press"><StrukCetak className="w-4.5 h-4.5" /> Cetak Struk</button>
+                  {(posPerms.has('transaction.void') || posPerms.has('transaction.refund')) && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {posPerms.has('transaction.void') && canVoidTx(selectedOrder) && (
+                        <button onClick={() => setShowVoid(selectedOrder)} className="bg-brick-soft dark:bg-brick/10 border border-brick/25 text-brick-deep dark:text-brick py-3 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 press"><Ban className="w-4 h-4" /> Void</button>
+                      )}
+                      {posPerms.has('transaction.refund') && canRefundTx(selectedOrder) && (
+                        <button onClick={() => setShowRefund(selectedOrder)} className="bg-surface dark:bg-surface-dark border border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/80 hover:border-flame-300 py-3 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 press"><Undo2 className="w-4 h-4" /> Refund</button>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -1197,6 +1714,12 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       )}
 
       {showReceipt && <ReceiptModal order={showReceipt} profile={profile} onClose={() => setShowReceipt(null)} />}
+
+      {/* ===== VOID & REFUND (v21) — permission + alasan + audit ===== */}
+      {showVoid && <VoidModal order={showVoid} licenseInfo={licenseInfo} triggerAlert={triggerAlert}
+        onClose={() => setShowVoid(null)} onDone={() => setSelectedOrder(null)} />}
+      {showRefund && <RefundModal order={showRefund} licenseInfo={licenseInfo} triggerAlert={triggerAlert}
+        onClose={() => setShowRefund(null)} onDone={(upd) => setSelectedOrder(upd)} />}
 
       {/* ===== GATE KASIR AKTIF (POS Station) =====
           Perangkat tetap login sebagai station, tapi tiap manusia

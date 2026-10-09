@@ -147,6 +147,34 @@ button:disabled { cursor: not-allowed; }
 @keyframes pulse-dot { 0%,100% { opacity:1 } 50% { opacity:.35 } }
 @keyframes wobble { 0%,100% { transform: rotate(-2.5deg) } 50% { transform: rotate(2.5deg) } }
 @keyframes floaty { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-5px) } }
+/* v21 — motion domain kasir: GPU-friendly (transform+opacity), 120–220ms */
+@keyframes bump { 0% { transform: scale(1) } 35% { transform: scale(1.12) } 100% { transform: scale(1) } }
+@keyframes flash-soft { 0% { opacity: .35 } 100% { opacity: 1 } }
+@keyframes success-pop { 0% { transform: scale(.5); opacity: 0 } 60% { transform: scale(1.15); opacity: 1 } 100% { transform: scale(1); opacity: 1 } }
+@keyframes slide-in-right { from { opacity: 0; transform: translateX(14px) } to { opacity: 1; transform: translateX(0) } }
+
+.animate-bump { animation: bump .18s cubic-bezier(.16,1,.3,1) both; }
+.animate-flash-soft { animation: flash-soft .22s ease-out both; }
+.animate-success-pop { animation: success-pop .2s cubic-bezier(.16,1,.3,1) both; }
+.animate-slide-in-right { animation: slide-in-right .18s cubic-bezier(.16,1,.3,1) both; }
+
+/* v21.1 — bahasa gerak tambahan: transisi angka, sheet spring,
+   koreksi (shake), denyut tren gaya ticker saham. Semua compositor-
+   friendly (transform+opacity) dan bertahap sesuai konteks:
+   angka 140ms · sheet 240ms spring · shake 320ms · tren 220ms. */
+@keyframes num-pop { 0% { transform: scale(1.18) translateY(-2px); opacity: .35 } 100% { transform: scale(1) translateY(0); opacity: 1 } }
+@keyframes sheet-spring { 0% { transform: translateY(28px) scale(.985); opacity: .6 } 62% { transform: translateY(-5px) scale(1.001); opacity: 1 } 100% { transform: translateY(0) scale(1); opacity: 1 } }
+@keyframes shake-x { 0%,100% { transform: translateX(0) } 22% { transform: translateX(-6px) } 44% { transform: translateX(5px) } 66% { transform: translateX(-3px) } 85% { transform: translateX(2px) } }
+@keyframes trend-flash { 0% { transform: translateY(3px) scale(.92); opacity: 0 } 55% { transform: translateY(-1px) scale(1.05); opacity: 1 } 100% { transform: translateY(0) scale(1); opacity: 1 } }
+
+.animate-num { animation: num-pop .14s cubic-bezier(.16,1,.3,1) both; }
+.animate-sheet { animation: sheet-spring .24s cubic-bezier(.34,1.25,.5,1) both; }
+.animate-shake { animation: shake-x .32s ease-in-out both; }
+.animate-trend { animation: trend-flash .22s cubic-bezier(.16,1,.3,1) both; }
+@media (hover:hover) {
+  .press { transition: transform .12s cubic-bezier(.16,1,.3,1); }
+  .press:active { transform: scale(.965); }
+}
 
 .animate-fade-in { animation: fade-in .25s ease both; }
 .animate-slide-up { animation: slide-up .35s cubic-bezier(.16,1,.3,1) both; }
@@ -197,7 +225,9 @@ button:disabled { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-in, .animate-slide-up, .animate-pop, .animate-rise,
   .animate-ping-ring, .animate-scanline, .animate-pulse-dot,
-  .animate-wobble, .animate-floaty {
+  .animate-wobble, .animate-floaty,
+  .animate-bump, .animate-flash-soft, .animate-success-pop, .animate-slide-in-right,
+  .animate-num, .animate-sheet, .animate-shake, .animate-trend {
     animation: none !important;
     transition: none !important;
   }

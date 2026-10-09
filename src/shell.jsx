@@ -58,6 +58,7 @@ export const NAV_GROUPS = [
   ]},
   { key: 'org', labelKey: 'orgGrp', items: [
     { id: 'report', labelKey: 'report', icon: Laporan, scope: 'management' },
+    { id: 'finance2', labelKey: 'finance2', icon: Bayar, scope: 'management' },   // v21: Settlement/Rekonsiliasi/Kas
     { id: 'employee', labelKey: 'employee', icon: Cabang, scope: 'management' },
     { id: 'organization', labelKey: 'organization', icon: JaringanBuddy, scope: 'management' },
     { id: 'roles', labelKey: 'roles', icon: PerisaiBuddy, scope: 'management' },

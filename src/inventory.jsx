@@ -85,6 +85,21 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
     setNewProd({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
   };
 
+  // v21.1 — Modifier Engine: grup modifier per tenant + assignment per produk
+  const [modGroups, setModGroups] = useState(() => safeParse('modifier_group_db', []));
+  const [showModMgr, setShowModMgr] = useState(false);
+  const [modProduct, setModProduct] = useState(null);   // produk yg diatur variannya
+  useEffect(() => {
+    const h = () => setModGroups(safeParse('modifier_group_db', []));
+    window.addEventListener('welp_db_sync', h);
+    return () => window.removeEventListener('welp_db_sync', h);
+  }, []);
+  const saveModGroups = (rows) => {
+    const norm = rows.map((g, i) => ({ ...g, id: g.id || `mgrp_${Date.now().toString(36)}_${i}` }));
+    setModGroups(norm);
+    dbSet(licenseInfo?.id, 'modifier_group_db', norm);
+  };
+
   const deleteProduct = (id) => {
     if (confirm("Hapus produk ini?")) saveProducts(products.filter(p => p.id !== id));
   };
@@ -104,7 +119,10 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
         <div className="animate-fade-in space-y-3">
           <div className="flex justify-between items-center mb-1">
             <Badge tone="green"><Stok className="w-3.5 h-3.5" /> {products.length} item terdaftar</Badge>
-            <Button onClick={() => setShowAdd(true)} icon={Plus}>Tambah</Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setShowModMgr(true)} icon={Plus}>Grup Modifier</Button>
+              <Button onClick={() => setShowAdd(true)} icon={Plus}>Tambah</Button>
+            </div>
           </div>
 
           {products.length === 0 && <EmptyState mascot="bingung" title="Belum ada produk" desc="Klik Tambah untuk memulai, atau simpan resep dari Kalkulator HPP agar produk & harga terisi otomatis." />}
@@ -120,6 +138,8 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
                   <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                     <h4 className="font-extrabold text-ink dark:text-ink-inv text-[13px] truncate">{p.name}</h4>
                     <Badge><CategoryIcon name={p.type} className="w-3 h-3" /> {p.type}</Badge>
+                    {/* v21.1: mode produk — QUICK vs CONFIGURABLE */}
+                    {(p.modifierGroupIds || []).length > 0 && <Badge tone="gold">Custom (modifier)</Badge>}
                     {low && <Badge tone="red">Menipis</Badge>}
                   </div>
                   <p className="text-ink dark:text-ink-inv font-extrabold text-sm money">{formatIDR(p.price)}</p>
@@ -131,7 +151,10 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
                     <span className="w-9 text-center text-sm font-extrabold text-ink dark:text-ink-inv money">{p.stock}</span>
                     <button onClick={() => updateStock(p.id, 1)} className="w-8 h-8 bg-surface dark:bg-surface-dark rounded-lg shadow-sm flex items-center justify-center text-sm font-extrabold text-ink-soft hover:text-flame-600 dark:hover:text-apricot transition active:scale-90 press">+</button>
                   </div>
-                  <button onClick={() => deleteProduct(p.id)} className="text-[10px] font-bold text-ink-faint hover:text-brick transition px-2">Hapus</button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setModProduct(p)} className="text-[10px] font-bold text-ink-faint hover:text-flame-600 dark:hover:text-apricot transition px-1">Varian</button>
+                    <button onClick={() => deleteProduct(p.id)} className="text-[10px] font-bold text-ink-faint hover:text-brick transition px-2">Hapus</button>
+                  </div>
                 </div>
               </div>
             );
@@ -241,6 +264,18 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
       {cropSrc && (
         <ImageCropperModal imageSrc={cropSrc} onCropComplete={(img) => { setNewProd({ ...newProd, image: img }); setCropSrc(null); }} onClose={() => setCropSrc(null)} />
       )}
+
+      {/* v21.1 — MANAGER GRUP MODIFIER (CRUD penuh, spec #8) */}
+      {showModMgr && <ModifierGroupsManager groups={modGroups} onSave={saveModGroups} onClose={() => setShowModMgr(false)} />}
+      {/* v21.1 — ATUR MODE & GRUP PER PRODUK */}
+      {modProduct && <ProductModifierDialog product={modProduct} groups={modGroups}
+        onSave={(mode, ids) => {
+          saveProducts(products.map(p => p.id === modProduct.id
+            ? { ...p, mode, modifierGroupIds: ids }
+            : p));
+          setModProduct(null);
+          triggerAlert(mode === 'configurable' ? 'Produk kini configurable — kasir diminta memilih varian.' : 'Produk quick — tap langsung masuk keranjang.', 'success');
+        }} onClose={() => setModProduct(null)} />}
 
       {/* OVERLAY SCANNER SKU */}
       {skuScanner && (
@@ -465,6 +500,128 @@ export const SupplierTab = ({ triggerAlert, licenseInfo }) => {
             <button onClick={() => deleteSupplier(s.id)} className="text-ink-faint hover:text-brick p-2 hover:bg-brick-soft dark:hover:bg-brick/10 rounded-lg transition"><Trash2 className="w-4 h-4" /></button>
           </div>
         ))}
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================
+   v21.1 — MODIFIER GROUPS MANAGER (spec #8)
+   CRUD grup modifier: name, required/optional, single/multi,
+   min/max, priceDelta, default option, urutan. Contoh bisnis:
+   Cimol → Level Pedas / Bumbu / Topping (tidak dibuat SKU baru).
+   ============================================================ */
+const ModifierGroupsManager = ({ groups, onSave, onClose }) => {
+  const [draft, setDraft] = useState(() => (groups || []).map(g => ({
+    id: g.id, name: g.name || '', active: g.active !== false, required: !!g.required,
+    multi: !!g.multi, min: Number(g.min) || 0, max: Number(g.max) || 0,
+    options: (g.options || []).map(o => ({ ...o })),
+  })));
+
+  const updGroup = (i, patch) => setDraft(d => d.map((g, x) => x === i ? { ...g, ...patch } : g));
+  const addGroup = () => setDraft(d => [...d, { name: '', required: false, multi: false, min: 0, max: 0, options: [{ name: '', priceDelta: 0 }] }]);
+  const delGroup = (i) => setDraft(d => d.filter((_, x) => x !== i));
+  const updOpt = (gi, oi, patch) => setDraft(d => d.map((g, x) => x !== gi ? g : { ...g, options: g.options.map((o, y) => y === oi ? { ...o, ...patch } : o) }));
+  const addOpt = (gi) => setDraft(d => d.map((g, x) => x !== gi ? g : { ...g, options: [...g.options, { name: '', priceDelta: 0 }] }));
+  const delOpt = (gi, oi) => setDraft(d => d.map((g, x) => x !== gi ? g : { ...g, options: g.options.filter((_, y) => y !== oi) }));
+  const setDefault = (gi, oi) => setDraft(d => d.map((g, x) => x !== gi ? g : { ...g, options: g.options.map((o, y) => ({ ...o, isDefault: y === oi ? !o.isDefault : false })) }));
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center sm:p-4 bg-chrome-deep/70 backdrop-blur-sm animate-fade-in">
+      <div className="card w-full sm:max-w-lg max-h-[92vh] rounded-t-3xl sm:rounded-3xl shadow-pop flex flex-col overflow-hidden animate-pop">
+        <div className="p-5 border-b border-line/70 dark:border-line-dark/70 shrink-0 flex justify-between items-start gap-3">
+          <div>
+            <p className="kicker">Modifier Engine</p>
+            <h3 className="font-extrabold text-base text-ink dark:text-ink-inv mt-0.5">Grup Modifier</h3>
+            <p className="text-[10.5px] text-ink-faint font-semibold mt-1">Contoh: Level Pedas (wajib), Bumbu (pilih 1), Topping (boleh banyak, +harga). Kombinasi TIDAK dibuat SKU baru.</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg bg-paper dark:bg-white/5 flex items-center justify-center text-ink-faint hover:text-brick shrink-0">✕</button>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5 space-y-4">
+          {draft.length === 0 && <EmptyState mascot="pikir" title="Belum ada grup" desc="Tambahkan grup seperti Level Pedas, Bumbu, atau Topping, lalu pasang ke produk lewat tombol Varian." compact />}
+          {draft.map((g, gi) => (
+            <div key={gi} className="border border-line dark:border-line-dark rounded-2xl p-3.5 space-y-2.5 bg-paper/60 dark:bg-white/[.03]">
+              <div className="flex gap-2 items-center">
+                <input className="field flex-1" placeholder="Nama grup (mis. Level Pedas)" value={g.name} onChange={e => updGroup(gi, { name: e.target.value })} />
+                <button onClick={() => delGroup(gi)} className="w-9 h-9 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick-deep dark:text-brick font-extrabold shrink-0">✕</button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button onClick={() => updGroup(gi, { required: !g.required })} className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition ${g.required ? 'bg-flame-600 text-white border-flame-600' : 'bg-surface dark:bg-surface-dark text-ink-faint border-line dark:border-line-dark'}`}>{g.required ? 'Wajib' : 'Opsional'}</button>
+                <button onClick={() => updGroup(gi, { multi: !g.multi, min: !g.multi ? g.min : 0 })} className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold border transition ${g.multi ? 'bg-flame-600 text-white border-flame-600' : 'bg-surface dark:bg-surface-dark text-ink-faint border-line dark:border-line-dark'}`}>{g.multi ? 'Multi-pilih' : 'Pilih satu'}</button>
+                {g.multi && <div className="w-20"><NumericInput value={g.max} onChange={v => updGroup(gi, { max: v })} placeholder="Maks" label="" /></div>}
+                {g.multi && g.min > 0 && <div className="w-20"><NumericInput value={g.min} onChange={v => updGroup(gi, { min: v })} placeholder="Min" label="" /></div>}
+              </div>
+              <div className="space-y-1.5">
+                {g.options.map((o, oi) => (
+                  <div key={oi} className="flex gap-1.5 items-center">
+                    <input className="field !py-2 flex-1 min-w-0" placeholder={`Opsi ${oi + 1} (mis. Pedas)`} value={o.name} onChange={e => updOpt(gi, oi, { name: e.target.value })} />
+                    <div className="w-24 shrink-0"><NumericInput value={o.priceDelta} onChange={v => updOpt(gi, oi, { priceDelta: v })} prefix="+" label="" /></div>
+                    <button onClick={() => setDefault(gi, oi)} title="Jadikan default" className={`w-9 h-9 rounded-lg shrink-0 text-[10px] font-extrabold border transition ${o.isDefault ? 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf border-leaf/25' : 'bg-surface dark:bg-surface-dark text-ink-faint border-line dark:border-line-dark'}`}>★</button>
+                    <button onClick={() => delOpt(gi, oi)} className="w-9 h-9 rounded-lg shrink-0 text-ink-faint hover:text-brick transition">✕</button>
+                  </div>
+                ))}
+                <button onClick={() => addOpt(gi)} className="text-[10.5px] font-extrabold text-flame-600 dark:text-apricot px-1 py-1">+ Tambah opsi</button>
+              </div>
+            </div>
+          ))}
+          <button onClick={addGroup} className="w-full py-3 rounded-2xl border-2 border-dashed border-line dark:border-line-dark text-[11.5px] font-extrabold text-ink-faint hover:border-flame-300 hover:text-flame-600 dark:hover:text-apricot transition">+ Tambah Grup Modifier</button>
+        </div>
+
+        <div className="p-4 border-t border-line dark:border-line-dark shrink-0 flex gap-2">
+          <Button variant="secondary" className="flex-1 py-3" onClick={onClose}>Batal</Button>
+          <Button className="flex-1 py-3" onClick={() => { onSave(draft.filter(g => String(g.name || '').trim())); onClose(); }}>Simpan Grup</Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================
+   v21.1 — MODE & GRUP PER PRODUK (QUICK vs CONFIGURABLE)
+   ============================================================ */
+const ProductModifierDialog = ({ product, groups, onSave, onClose }) => {
+  const [mode, setMode] = useState(product?.mode === 'configurable' ? 'configurable' : 'quick');
+  const [ids, setIds] = useState(() => (Array.isArray(product?.modifierGroupIds) ? product.modifierGroupIds : []));
+  const activeGroups = (groups || []).filter(g => g.active !== false);
+  const toggle = (gid) => setIds(prev => prev.includes(gid) ? prev.filter(x => x !== gid) : [...prev, gid]);
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center sm:p-4 bg-chrome-deep/70 backdrop-blur-sm animate-fade-in">
+      <div className="card w-full sm:max-w-md max-h-[92vh] overflow-y-auto custom-scrollbar shadow-pop rounded-t-3xl sm:rounded-3xl animate-pop">
+        <div className="p-5 border-b border-line/70 dark:border-line-dark/70">
+          <p className="kicker">Mode Penjualan</p>
+          <h3 className="font-extrabold text-base text-ink dark:text-ink-inv mt-0.5">{product?.name}</h3>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setMode('quick')} className={`p-3.5 rounded-2xl border text-left transition ${mode === 'quick' ? 'border-flame-500 ring-2 ring-flame-500/20 bg-flame-50 dark:bg-flame-900/20' : 'border-line dark:border-line-dark'}`}>
+              <p className="font-extrabold text-[12px] text-ink dark:text-ink-inv">Quick Product</p>
+              <p className="text-[10px] text-ink-faint font-bold mt-1">Tap → langsung masuk keranjang. Paling cepat.</p>
+            </button>
+            <button onClick={() => setMode('configurable')} className={`p-3.5 rounded-2xl border text-left transition ${mode === 'configurable' ? 'border-flame-500 ring-2 ring-flame-500/20 bg-flame-50 dark:bg-flame-900/20' : 'border-line dark:border-line-dark'}`}>
+              <p className="font-extrabold text-[12px] text-ink dark:text-ink-inv">Configurable</p>
+              <p className="text-[10px] text-ink-faint font-bold mt-1">Tap → sheet varian → masuk keranjang.</p>
+            </button>
+          </div>
+          {mode === 'configurable' && (
+            <div className="space-y-2">
+              <p className="kicker">Grup Modifier Terpasang</p>
+              {activeGroups.length === 0 && <p className="text-[11px] font-bold text-ink-faint">Belum ada grup. Buat dulu lewat tombol <b>Grup Modifier</b> di daftar produk.</p>}
+              {activeGroups.map(g => (
+                <button key={g.id} onClick={() => toggle(g.id)}
+                  className={`w-full flex justify-between items-center px-3.5 py-2.5 rounded-xl border text-left transition ${ids.includes(g.id) ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/20' : 'border-line dark:border-line-dark'}`}>
+                  <span className="font-extrabold text-[12px] text-ink dark:text-ink-inv">{g.name}</span>
+                  <span className="text-[9.5px] font-extrabold text-ink-faint">{g.required ? 'Wajib' : 'Opsional'} · {g.options?.length || 0} opsi</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-3 pt-1">
+            <Button variant="secondary" className="flex-1 py-3" onClick={onClose}>Batal</Button>
+            <Button className="flex-1 py-3" onClick={() => onSave(mode, ids)}>Simpan</Button>
+          </div>
+        </div>
       </div>
     </div>
   );

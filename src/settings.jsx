@@ -10,9 +10,11 @@ import {
   Toko, Plus, Trash2, Layers, Omzet, Tim, LayarBuddy, JaringanBuddy,
   Alat, Pindai, KameraBuddy, X, BluetoothBuddy, WifiBuddy, Selesai, Qris, QrDinamis, Dompet,
   Bayar, Edit3, UnduhBuddy, UnggahBuddy, Languages, Stok, Lisensi, BahayaBuddy,
-  ModeRetail, ModeFnb, Setelan, BadgeCheck, Check, UnggahQris, WaktuReal
+  ModeRetail, ModeFnb, Setelan, BadgeCheck, Check, UnggahQris, WaktuReal, KoinBuddy
 } from './welp-icons.jsx';
-import { safeParse, formatIDR, getLang, qrDataUrl, useQr, WALLET_TYPES, decodeQrFromImage, parseEmv, qrisMeta, verifyQrisCrc, makeTableToken, db, dbSet, dbSetDoc, useDbSync, hydrateDb } from './core.jsx';
+import { safeParse, formatIDR, getLang, qrDataUrl, useQr, WALLET_TYPES, decodeQrFromImage, parseEmv, qrisMeta, verifyQrisCrc, makeTableToken, db, dbSet, dbSetDoc, useDbSync, hydrateDb, getBizConfig, stockTrackingOn, auditLog } from './core.jsx';
+import { ingestPaymentEvent } from './welp-core/paymentOps.js';
+import { MATCH_STATUS, MATCH_STATUS_META, PAYMENT_EVENT_SOURCES, PAYMENT_EVENT_SOURCE_META, collectIntents } from './welp-core/payment.js';
 import { doc as fsDoc, setDoc as fsSetDoc } from 'firebase/firestore';
 import { Button, Card, PageTitle, NumericInput, Select, Toggle, Badge, EmptyState, ImageCropperModal, ConfirmDialog } from './ui';
 
@@ -564,6 +566,49 @@ export const PaymentTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTa
         </div>
       </Card>
 
+      {/* ===== v21: BIAYA & SETTLEMENT PER METODE (integration boundary) ===== */}
+      <Card title="Biaya & Settlement per Metode" icon={KoinBuddy}>
+        <div className="space-y-3">
+          <p className="text-[10.5px] text-ink-faint font-semibold leading-relaxed">
+            Isi MDR/fee tiap metode agar workspace <b>Keuangan</b> bisa menghitung dana bersih yang masuk rekening (gross − fee − refund = net).
+            Setor tunai diakhiri menutup shift; dana QRIS/e-wallet/bank dikonfirmasi lewat tab Keuangan memakai nomor referensi provider.
+          </p>
+          {[
+            { key: 'QRIS', label: 'QRIS' },
+            ...(profile.payment?.ewallets || []).map(w => ({ key: w.type, label: w.type })),
+            ...(profile.payment?.bank || []).map(b => ({ key: b.bank, label: `Bank ${b.bank}` })),
+          ].map(m => {
+            const cfg = profile.payment?.methods?.[m.key] || {};
+            const setCfg = (patch) => saveProfile({
+              ...profile,
+              payment: { ...profile.payment, methods: { ...(profile.payment?.methods || {}), [m.key]: { ...cfg, ...patch } } },
+            });
+            return (
+              <div key={m.key} className="p-3.5 rounded-2xl border border-line dark:border-line-dark bg-paper dark:bg-white/[.03]">
+                <div className="flex items-center justify-between mb-2.5">
+                  <p className="font-extrabold text-[12px] text-ink dark:text-ink-inv">{m.label}</p>
+                  {(cfg.feePercent || cfg.feeFixed) ? <Badge tone="green"><Check className="w-3 h-3" /> Fee diatur</Badge> : <Badge tone="grey">Tanpa fee</Badge>}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <NumericInput label="MDR / Fee (%)" suffix="%" value={cfg.feePercent || 0} onChange={v => setCfg({ feePercent: v })} />
+                  <NumericInput label="Fee Tetap (Rp)" prefix="Rp" value={cfg.feeFixed || 0} onChange={v => setCfg({ feeFixed: v })} />
+                  <div>
+                    <label className="kicker block mb-1.5 ml-0.5">Rekening Tujuan</label>
+                    <input className="field" placeholder="BCA 1234567890" value={cfg.account || ''} onChange={e => setCfg({ account: e.target.value })} />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {(profile.payment?.ewallets || []).length === 0 && (profile.payment?.bank || []).length === 0 && (
+            <p className="text-[10.5px] font-bold text-ink-faint">Tambahkan e-wallet / rekening bank di atas untuk mengatur fee metodenya. QRIS selalu tersedia.</p>
+          )}
+        </div>
+      </Card>
+
+      {/* v21.1 — WELP PAYMENT CORE LAB: simulator event + intent + ledger */}
+      <PaymentLab licenseInfo={licenseInfo} triggerAlert={triggerAlert} />
+
       {cropSrc && (
         <ImageCropperModal
           imageSrc={cropSrc}
@@ -572,6 +617,130 @@ export const PaymentTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTa
         />
       )}
     </div>
+  );
+};
+
+
+
+/* ================= PAYMENT LAB (v21.1, spec #25 & #28–31) =================
+   Simulator event pembayaran utk fase PWA — menguji arsitektur Payment
+   Core TANPA native capability: Order → QR → Simulated Event →
+   Internal Webhook → Matching → PAID / AMBIGUOUS. Semua hasil
+   ter-audit di ledger payment_events. BUKAN integrasi pembayaran nyata. */
+const PaymentLab = ({ licenseInfo, triggerAlert }) => {
+  const [, force] = useState(0);
+  const [targetRef, setTargetRef] = useState('');
+  const [amount, setAmount] = useState(0);
+  const [source, setSource] = useState(PAYMENT_EVENT_SOURCES.PWA_SIMULATOR);
+  const [rawText, setRawText] = useState('');
+  const [lastResult, setLastResult] = useState(null);
+
+  const events = safeParse('payment_event_db', []);
+  const orders = [...safeParse('active_orders_db', []), ...safeParse('pos_history_db', [])];
+  const intents = collectIntents(orders).filter(i => i.status === 'PENDING' && i.method !== 'Cash');
+  const pendingAmbiguous = events.filter(e => e.matchStatus === MATCH_STATUS.AMBIGUOUS);
+  const actor = licenseInfo?.employeeName || licenseInfo?.tenant || 'owner';
+
+  const fire = () => {
+    const intent = intents.find(i => i.paymentReference === targetRef);
+    const amt = Number(amount) || (intent ? intent.amount : 0);
+    if (!amt) return triggerAlert('Pilih intent / isi nominal dulu.', 'error');
+    const rawEvent = {
+      eventId: 'evt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      source, amount: amt, method: intent?.method || 'QRIS',
+      reference: intent ? intent.paymentReference : (targetRef || null),
+      providerRef: null, timestamp: Date.now(),
+      rawText: source === PAYMENT_EVENT_SOURCES.ANDROID_NOTIFICATION_BRIDGE ? (rawText || null) : null,
+      device: 'payment-lab', note: 'Payment Lab (PWA)',
+    };
+    const res = ingestPaymentEvent({
+      tenantId: licenseInfo?.id, rawEvent, orders,
+      actor, actorRole: licenseInfo?.currentUserRole || 'owner', licenseInfo,
+    });
+    setLastResult(res);
+    force(v => v + 1);
+    const tone = (res.status === MATCH_STATUS.CONFIRMED || res.status === MATCH_STATUS.DUPLICATE) ? 'success' : 'error';
+    triggerAlert(`Event ${res.status}: ${MATCH_STATUS_META[res.status]?.label || ''}${res.reason ? ' — ' + res.reason : ''}`, tone);
+  };
+
+  const toneCls = (st) => st === MATCH_STATUS.CONFIRMED ? 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf'
+    : st === MATCH_STATUS.AMBIGUOUS ? 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold'
+      : st === MATCH_STATUS.DUPLICATE ? 'bg-paper dark:bg-white/5 text-ink-faint'
+        : 'bg-brick-soft dark:bg-brick/10 text-brick-deep dark:text-brick';
+
+  return (
+    <Card title="Payment Lab — Simulator Event (Testing)" icon={Qris}
+      help="Fase PWA TIDAK bisa membaca notifikasi Android — itu tugas Native Notification Bridge nanti. Di sini arsitektur diuji: event → webhook internal → matching → keputusan. Nominal sama TIDAK pernah auto-confirm.">
+      <div className="space-y-4">
+        <div>
+          <p className="kicker mb-1.5">PaymentIntent Aktif (menunggu bayar)</p>
+          {intents.length === 0 ? (
+            <p className="text-[11px] font-bold text-ink-faint p-3 rounded-xl border border-dashed border-line dark:border-line-dark">Belum ada intent. Buat transaksi QRIS di Kasir (pilih QRIS lalu BAYAR), kembali ke sini untuk mensimulasikan pembayarannya.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-44 overflow-y-auto custom-scrollbar">
+              {intents.map(i => (
+                <button key={i.paymentReference} onClick={() => { setTargetRef(i.paymentReference); setAmount(i.amount); }}
+                  className={`w-full flex justify-between items-center gap-2 px-3 py-2.5 rounded-xl border text-left transition press ${targetRef === i.paymentReference ? 'border-flame-500 bg-flame-50 dark:bg-flame-900/20' : 'border-line dark:border-line-dark hover:border-flame-300'}`}>
+                  <span className="min-w-0">
+                    <span className="block text-[10.5px] font-mono font-extrabold text-ink dark:text-ink-inv truncate">{i.paymentReference}</span>
+                    <span className="block text-[9px] font-bold text-ink-faint">order #{String(i.orderId).slice(-5)} · {i.branchId || 'PUSAT'}{i.expiresAt ? ` · exp ${Math.max(0, Math.round((i.expiresAt - Date.now()) / 60000))}m` : ''}</span>
+                  </span>
+                  <span className="font-extrabold text-[11.5px] money text-ink dark:text-ink-inv shrink-0">{formatIDR(i.amount)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Sumber Event (PaymentEventSource)" value={source === PAYMENT_EVENT_SOURCES.PWA_SIMULATOR ? 'Simulator PWA' : source === PAYMENT_EVENT_SOURCES.ANDROID_NOTIFICATION_BRIDGE ? 'Notification Bridge (Android)' : 'Provider Webhook'}
+            options={['Simulator PWA', 'Notification Bridge (Android)', 'Provider Webhook']}
+            onChange={v => setSource(v === 'Simulator PWA' ? PAYMENT_EVENT_SOURCES.PWA_SIMULATOR : v === 'Notification Bridge (Android)' ? PAYMENT_EVENT_SOURCES.ANDROID_NOTIFICATION_BRIDGE : PAYMENT_EVENT_SOURCES.PROVIDER_WEBHOOK)} />
+          <NumericInput label="Nominal Dana Masuk" value={amount} onChange={setAmount} prefix="Rp" />
+        </div>
+        {source === PAYMENT_EVENT_SOURCES.ANDROID_NOTIFICATION_BRIDGE && (
+          <div>
+            <label className="kicker block mb-1.5">Teks Notifikasi Mentah (simulasi bridge)</label>
+            <textarea className="field" rows={2} placeholder="Contoh: QRIS debit Rp25.000. Ref WELP-XXXX..." value={rawText} onChange={e => setRawText(e.target.value)} />
+            <p className="text-[9.5px] font-bold text-ink-faint mt-1">Bridge native nanti membaca notifikasi perangkat lalu mengirim event ke webhook WELP — bukan webhook jaringan.</p>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={fire} disabled={!intents.length} icon={Qris}>Kirim Event ke Webhook WELP</Button>
+          <Button variant="secondary" onClick={() => { setTargetRef(''); setAmount(0); setRawText(''); setLastResult(null); }}>Reset</Button>
+        </div>
+
+        {lastResult && (
+          <div className={`p-3.5 rounded-2xl border ${toneCls(lastResult.status)} animate-pop`}>
+            <p className="font-extrabold text-[12.5px]">Hasil: {MATCH_STATUS_META[lastResult.status]?.label || lastResult.status}</p>
+            <p className="text-[10.5px] font-bold opacity-80 mt-0.5">{lastResult.reason || ''}</p>
+            {lastResult.status === MATCH_STATUS.AMBIGUOUS && <p className="text-[10px] font-bold mt-1">→ Review manual tersedia di Keuangan → Pembayaran (permission payment.confirm).</p>}
+          </div>
+        )}
+
+        <div>
+          <p className="kicker mb-1.5">Ledger Event Pembayaran ({events.length}){pendingAmbiguous.length > 0 && <span className="ml-2 text-gold-deep dark:text-gold">· {pendingAmbiguous.length} ambigu</span>}</p>
+          {!events.length ? (
+            <p className="text-[11px] font-bold text-ink-faint p-3 rounded-xl border border-dashed border-line dark:border-line-dark">Belum ada event. Semua event (simulator, bridge, provider) tampil di sini sebagai ledger append-only.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-56 overflow-y-auto custom-scrollbar">
+              {events.slice(0, 14).map(e => (
+                <div key={e.eventId} className="flex justify-between items-center gap-2 px-3 py-2 rounded-xl bg-paper dark:bg-white/[.03] border border-line/70 dark:border-line-dark/70">
+                  <span className="min-w-0">
+                    <span className="block text-[10px] font-mono font-bold text-ink dark:text-ink-inv truncate">{e.eventId}</span>
+                    <span className="block text-[9px] font-bold text-ink-faint truncate">{PAYMENT_EVENT_SOURCE_META[e.source]?.label || e.source} · {e.reference || e.providerRef || 'tanpa ref'} · {new Date(e.timestamp || e.processedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+                  </span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span className="text-[10.5px] font-extrabold money text-ink dark:text-ink-inv">{formatIDR(e.amount)}</span>
+                    <span className={`text-[8.5px] font-extrabold px-2 py-1 rounded-full ${toneCls(e.matchStatus)}`}>{MATCH_STATUS_META[e.matchStatus]?.label || e.matchStatus}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 };
 
@@ -772,6 +941,26 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
             <div className="w-24 shrink-0"><NumericInput value={lowStock} onChange={v => { setLowStock(v); localStorage.setItem('low_stock_threshold', String(v || 0)); }} /></div>
           </div>
 
+          {/* v21.1 — INVENTORY OPTIONAL (spec #9–11): Stock Tracking ON/OFF */}
+          <div className="flex justify-between items-center gap-3 px-5 py-4">
+            <div className="flex items-center gap-3 pr-3">
+              <div className="w-9 h-9 rounded-xl bg-paper dark:bg-white/5 text-ink-faint flex items-center justify-center"><Stok className="w-4 h-4" /></div>
+              <div>
+                <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">Stock Tracking (Kontrol Stok)</p>
+                <p className="text-[10px] text-ink-faint font-semibold max-w-[340px]">ON: stok turun otomatis saat jual, produk habis terblokir. OFF: semua produk tetap laku tanpa blokir stok & crew tidak dipaksa mengelola inventaris (stok tetap bisa diatur manual lewat opname).</p>
+              </div>
+            </div>
+            <div className="shrink-0">
+              <Toggle on={stockTrackingOn()} onClick={() => {
+                const cfg = getBizConfig();
+                const next = { ...cfg, stockTracking: cfg.stockTracking === false ? true : false };
+                dbSetDoc(licenseInfo?.id, 'discount_tax_db', next);
+                auditLog(licenseInfo, 'STOCK_TRACKING_TOGGLE', { status: next.stockTracking === false ? 'OFF' : 'ON' });
+                triggerAlert(next.stockTracking === false ? 'Stock Tracking OFF — POS tidak lagi memblokir/menurunkan stok.' : 'Stock Tracking ON — stok turun otomatis saat penjualan.', 'success');
+              }} />
+            </div>
+          </div>
+
           <div className="flex justify-between items-center gap-3 px-5 py-4">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold flex items-center justify-center"><Lisensi className="w-4 h-4" /></div>
@@ -804,7 +993,7 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
 
       <div className="flex items-center justify-center gap-1.5 pt-2">
         <BadgeCheck className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-        <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">WELP v15.3</p>
+        <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">WELP v21.1</p>
       </div>
     </div>
   );

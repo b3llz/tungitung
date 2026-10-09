@@ -1,13 +1,14 @@
 {
   "name": "welp-platform",
   "private": true,
-  "version": "20.0.0",
+  "version": "21.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "security:smoke": "node scripts/security-smoke.mjs",
+    "test": "node scripts/tx-domain-test.mjs && node scripts/payment-domain-test.mjs",
     "check:source": "node --check scripts/security-smoke.mjs"
   },
   "dependencies": {
