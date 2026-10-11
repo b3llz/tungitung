@@ -1,6 +1,6 @@
 {
   "firestore": {
-    "rules": "firestore.enterprise.v3.rules"
+    "rules": "firestore.enterprise.v4.rules"
   },
   "storage": {
     "rules": "storage.enterprise.v3.rules"

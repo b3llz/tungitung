@@ -5,7 +5,7 @@ const root = process.cwd();
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const failures = [];
 
-const enterprise = read('firestore.enterprise.v3.rules');
+const enterprise = read('firestore.enterprise.v4.rules');
 const storage = read('storage.enterprise.v3.rules');
 const functions = read('functions/index.js');
 const gitignore = read('.gitignore');
