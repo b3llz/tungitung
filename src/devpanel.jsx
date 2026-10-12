@@ -167,11 +167,40 @@ export const DeveloperPanel = () => {
     setTenantId(base);
   }, [storeName]);
 
+  // Pesan error auth yang bisa ditindaklanjuti. "auth/invalid-credential" mentah
+  // bikin bingung: Firebase sengaja menyamarkan "user tidak ada" & "password
+  // salah" jadi kode yang sama (anti user-enumeration) sejak 2023.
+  const explainAuthError = (e) => {
+    const code = e?.code || '';
+    const proj = auth?.app?.options?.projectId || 'project aktif';
+    switch (code) {
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+        return `Email atau password salah — ATAU akun developer belum ada di project "${proj}" (Firebase menyamarkan keduanya, jadi tidak bisa dibedakan dari sini). Langkah perbaikan: (1) Firebase Console → project ${proj} → Authentication → Sign-in method → pastikan Email/Password aktif; (2) tab Users → Add user dengan email developer ini; (3) kalau akun sudah ada tapi lupa password → reset dari tab Users; (4) masukkan email yang sama ke functions/.env → WELP_BOOTSTRAP_EMAILS lalu deploy ulang functions, supaya akun dapat hak provisioning tenant.`;
+      case 'auth/operation-not-allowed':
+        return `Provider Email/Password belum diaktifkan di project "${proj}". Buka Firebase Console → Authentication → Sign-in method → Email/Password → Enable, lalu coba lagi.`;
+      case 'auth/too-many-requests':
+        return 'Terlalu banyak percobaan login gagal — Firebase memblokir sementara. Tunggu beberapa menit, atau reset password akun ini dari Firebase Console → Authentication → Users.';
+      case 'auth/network-request-failed':
+        return 'Koneksi ke Firebase gagal. Periksa internet/VPN/DNS, lalu coba lagi.';
+      case 'auth/invalid-email':
+        return 'Format email tidak valid. Periksa penulisan email developer.';
+      case 'auth/invalid-api-key':
+      case 'auth/api-key-not-valid.-please-pass-a-valid-api-key.':
+        return `API key Firebase tidak valid untuk project "${proj}". Periksa VITE_FIREBASE_API_KEY di file .env — pastikan diambil dari Web App di project yang sama (bukan project lain).`;
+      case 'auth/admin-restricted-operation':
+        return 'Operasi dibatasi pengaturan project. Pastikan domain aplikasi terdaftar di Authentication → Settings → Authorized domains.';
+      default:
+        return 'Login gagal: ' + (code || e?.message || 'kesalahan tidak diketahui');
+    }
+  };
+
   const doLogin = async () => {
     if (!email || !pass) { setAuthErr('Isi email & password developer.'); return; }
     setAuthErr(''); setAuthLoading(true);
     try { await signInWithEmailAndPassword(getAuth(), email.trim(), pass); }
-    catch (e) { setAuthErr('Login gagal: ' + (e.code || e.message)); }
+    catch (e) { setAuthErr(explainAuthError(e)); }
     setAuthLoading(false);
   };
   const doLogout = () => signOut(getAuth());
@@ -370,11 +399,12 @@ export const DeveloperPanel = () => {
             <h1 className="font-display text-ink dark:text-ink-inv font-extrabold text-lg">WELP Developer Console</h1>
             <p className="text-[10px] text-ink-faint dark:text-ink-inv/40 font-bold uppercase tracking-[0.2em] mt-1">by JUSTru Group</p>
             <p className="text-[11px] text-ink-faint dark:text-ink-inv/50 font-bold mt-2 flex items-center gap-1.5"><PerisaiBuddy className="w-4 h-4 text-flame-500" /> Area terbatas, khusus developer</p>
+            <p className="text-[10px] font-mono text-ink-faint dark:text-ink-inv/45 bg-paper dark:bg-white/5 border border-line dark:border-chrome-edge rounded-full px-3 py-1 mt-2" title="Login ini divalidasi terhadap project Firebase yang tercantum — kalau akun developer lu ada di project lain, pindahkan .env atau buat akunnya di sini">project: {auth?.app?.options?.projectId || '-'}</p>
           </div>
           <div className="space-y-3">
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email developer" className="w-full bg-paper dark:bg-chrome-deep/80 border border-line dark:border-chrome-edge text-ink dark:text-ink-inv text-sm font-bold p-3.5 rounded-2xl outline-none focus:border-flame-400 transition" />
             <input value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doLogin()} type="password" placeholder="Password" className="w-full bg-paper dark:bg-chrome-deep/80 border border-line dark:border-chrome-edge text-ink dark:text-ink-inv text-sm font-bold p-3.5 rounded-2xl outline-none focus:border-flame-400 transition" />
-            {authErr && <p className="text-brick text-[11px] font-bold text-center flex items-center justify-center gap-1.5"><BahayaBuddy className="w-4 h-4" /> {authErr}</p>}
+            {authErr && <div className="text-brick-deep text-[11px] font-bold bg-brick-soft border border-brick/20 rounded-2xl p-3 leading-relaxed text-left flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> <span>{authErr}</span></div>}
             <button onClick={doLogin} disabled={authLoading} className="w-full py-3.5 rounded-2xl bg-flame-600 hover:bg-flame-500 text-white font-extrabold text-sm flex items-center justify-center gap-2 disabled:opacity-60 press shadow-card">{authLoading ? <span className="spinner-ring !border-white/30 !border-t-white"></span> : <><GembokBuddy className="w-4 h-4" /> Masuk Console</>}</button>
           </div>
           <p className="text-[10px] text-ink-faint dark:text-ink-inv/40 text-center mt-5 leading-relaxed">Login memakai Firebase Authentication (Email/Password). Buat akun developer di Firebase Console terlebih dahulu.</p>
