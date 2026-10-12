@@ -1,0 +1,99 @@
+rules_version = '2';
+
+// WELP Firestore Rules — v18 hardened compatibility gate
+//
+// IMPORTANT:
+// 1) Client authentication is still transitional. The long-term production
+//    target is Firebase Auth + custom claims (welpTenant/welpRole/welpBranch).
+// 2) Until that migration is completed, every client request must carry a
+//    valid Firebase App Check assertion in addition to Auth.
+// 3) App Check is NOT tenant authorization. It blocks a large class of
+//    scripted/unauthorized clients, while custom-claim tenant isolation is
+//    the next mandatory production gate.
+// 4) Never treat client-side RBAC/localStorage as security boundaries.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function appChecked() {
+      return request.app != null;
+    }
+
+    function isDev() {
+      return signedIn()
+        && appChecked()
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['shandikazaid@gmail.com'];
+    }
+
+    // Transitional legacy credential upgrade. This remains intentionally
+    // narrow and cannot modify any unrelated license fields.
+    function legacyPassUpgrade() {
+      return signedIn() && appChecked()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['credPass', 'password'])
+        && request.resource.data.credPass.get('hash', '') is string
+        && request.resource.data.credPass.get('hash', '').matches('^[0-9a-f]{64}$')
+        && request.resource.data.credPass.get('salt', '').matches('^[0-9a-f]{32}$')
+        && resource.data.get('credPass', {}).get('hash', '') == '';
+    }
+
+    function legacyPinUpgrade() {
+      return signedIn() && appChecked()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['credPin', 'ownerPin'])
+        && request.resource.data.credPin.get('hash', '') is string
+        && request.resource.data.credPin.get('hash', '').matches('^[0-9a-f]{64}$')
+        && request.resource.data.credPin.get('salt', '').matches('^[0-9a-f]{32}$')
+        && resource.data.get('credPin', {}).get('hash', '') == '';
+    }
+
+    match /licenses/{lic} {
+      allow get: if signedIn() && appChecked();
+      allow list: if isDev();
+      allow create: if isDev();
+      allow update: if isDev() || legacyPassUpgrade() || legacyPinUpgrade();
+      allow delete: if isDev();
+    }
+
+    match /logs/{logId} {
+      allow create: if signedIn() && appChecked();
+      allow read, update, delete: if false;
+    }
+
+    // Attendance evidence is immutable from the client and requires the
+    // hardened capture shape plus App Check.
+    match /tenants/{lic}/absensi/{attendanceId} {
+      allow read: if signedIn() && appChecked();
+      allow create: if signedIn() && appChecked()
+        && request.resource.data.status == 'verified'
+        && request.resource.data.evidenceVersion == 2
+        && request.resource.data.captureMode == 'welp-camera'
+        && request.resource.data.liveMotionCheck == true
+        && request.resource.data.geoStatus == 'verified'
+        && request.resource.data.far == false
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.acc is number
+        && request.resource.data.acc >= 0
+        && request.resource.data.acc <= 100
+        && request.resource.data.photoHash is string
+        && request.resource.data.photoHash.matches('^[0-9a-f]{64}$')
+        && request.resource.data.captureId is string
+        && request.resource.data.employeeCid is string
+        && request.resource.data.branchId is string
+        && request.resource.data.type in ['in', 'out']
+        && request.resource.data.serverAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Compatibility data path. App Check materially reduces direct scripted
+    // abuse, but this is NOT the final tenant boundary. Production migration
+    // must replace this with custom-claim tenant authorization.
+    match /tenants/{lic}/{document=**} {
+      allow read, write: if signedIn() && appChecked();
+    }
+  }
+}

@@ -26,7 +26,7 @@
 //   • actionCodeSettings.url → balik ke panel, bukan halaman kosong.
 // ============================================================
 import React, { useState, useEffect, useReducer } from 'react';
-import { db, auth, fileToDataUrl, hexToTriplet, writeBrandMirror, makeCred, anonAuthBlocked, callWelpCreateIdentity, callWelpVerificationLink } from './core.jsx';
+import { db, auth, firebaseInitError, fileToDataUrl, hexToTriplet, writeBrandMirror, makeCred, anonAuthBlocked, callWelpCreateIdentity, callWelpVerificationLink } from './core.jsx';
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, sendEmailVerification, applyActionCode
 } from 'firebase/auth';
@@ -42,6 +42,13 @@ import {
 // v15.1: allowlist developer — email di sini + email_verified di Firebase
 // = boleh menghapus tenant (selaras function isDev() di firestore.rules).
 const DEV_EMAILS = ['shandikazaid@gmail.com'];
+
+// v21.1.2: baca env SECARA LANGSUNG — independen dari hasil init Firebase.
+// Kegunaan: membedakan "config nggak ikut ter-build" (apiKey kosong) dari
+// "kredensial salah". import.meta.env dibaca saat dev-server start / build,
+// jadi kalau .env dibuat SETELAH build, nilainya tetap kosong di build lama.
+const ENV_KEY_OK = !!String(import.meta.env.VITE_FIREBASE_API_KEY || '').trim();
+const ENV_PROJ = import.meta.env.VITE_FIREBASE_PROJECT_ID || auth?.app?.options?.projectId || '';
 
 // Koleksi yang dibersihkan saat tenant dihapus (best-effort).
 const PURGE_COLLECTIONS = [
@@ -172,7 +179,7 @@ export const DeveloperPanel = () => {
   // salah" jadi kode yang sama (anti user-enumeration) sejak 2023.
   const explainAuthError = (e) => {
     const code = e?.code || '';
-    const proj = auth?.app?.options?.projectId || 'project aktif';
+    const proj = ENV_PROJ || auth?.app?.options?.projectId || 'project aktif';
     switch (code) {
       case 'auth/invalid-credential':
       case 'auth/wrong-password':
@@ -188,7 +195,7 @@ export const DeveloperPanel = () => {
         return 'Format email tidak valid. Periksa penulisan email developer.';
       case 'auth/invalid-api-key':
       case 'auth/api-key-not-valid.-please-pass-a-valid-api-key.':
-        return `API key Firebase tidak valid untuk project "${proj}". Periksa VITE_FIREBASE_API_KEY di file .env — pastikan diambil dari Web App di project yang sama (bukan project lain).`;
+        return `API key Firebase kosong/tidak valid di build ini. Penyebab paling umum: file .env tidak ada di folder ROOT project (harus sejajar package.json — BUKAN di dalam functions/), atau .env dibuat SETELAH aplikasi di-build (env hanya dibaca saat dev-server start / npm run build). Perbaiki .env di root, lalu restart npm run dev / jalankan ulang npm run build. Nilai API key diambil dari Firebase Console → Project settings → General → Web app (project ${proj}).`;
       case 'auth/admin-restricted-operation':
         return 'Operasi dibatasi pengaturan project. Pastikan domain aplikasi terdaftar di Authentication → Settings → Authorized domains.';
       default:
@@ -399,7 +406,14 @@ export const DeveloperPanel = () => {
             <h1 className="font-display text-ink dark:text-ink-inv font-extrabold text-lg">WELP Developer Console</h1>
             <p className="text-[10px] text-ink-faint dark:text-ink-inv/40 font-bold uppercase tracking-[0.2em] mt-1">by JUSTru Group</p>
             <p className="text-[11px] text-ink-faint dark:text-ink-inv/50 font-bold mt-2 flex items-center gap-1.5"><PerisaiBuddy className="w-4 h-4 text-flame-500" /> Area terbatas, khusus developer</p>
-            <p className="text-[10px] font-mono text-ink-faint dark:text-ink-inv/45 bg-paper dark:bg-white/5 border border-line dark:border-chrome-edge rounded-full px-3 py-1 mt-2" title="Login ini divalidasi terhadap project Firebase yang tercantum — kalau akun developer lu ada di project lain, pindahkan .env atau buat akunnya di sini">project: {auth?.app?.options?.projectId || '-'}</p>
+            {!ENV_KEY_OK ? (
+              <div className="w-full text-brick-deep text-[11px] font-bold bg-brick-soft border border-brick/20 rounded-2xl p-3 leading-relaxed text-left flex items-start gap-2 mb-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /><span><b>Config .env belum terbaca oleh build ini</b> — VITE_FIREBASE_API_KEY kosong, login pasti gagal. Taruh file <b>.env</b> di folder ROOT project (sejajar package.json, BUKAN di dalam functions/), lalu <b>restart npm run dev</b> / <b>build ulang</b>. Catatan: functions/.env hanya butuh WELP_BOOTSTRAP_EMAILS — API key tidak ditaruh di sana.</span></div>
+            ) : (
+              <p className="text-[10px] font-mono text-ink-faint dark:text-ink-inv/45 bg-paper dark:bg-white/5 border border-line dark:border-chrome-edge rounded-full px-3 py-1 mt-2" title="Login ini divalidasi terhadap project Firebase yang tercantum — kalau akun developer lu ada di project lain, pindahkan .env atau buat akunnya di sini">project: {ENV_PROJ || '-'}</p>
+            )}
+            {ENV_KEY_OK && firebaseInitError && (
+              <div className="w-full text-brick-deep text-[11px] font-bold bg-brick-soft border border-brick/20 rounded-2xl p-3 leading-relaxed text-left flex items-start gap-2 mb-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /><span>Firebase gagal inisialisasi: {String(firebaseInitError?.message || firebaseInitError)}</span></div>
+            )}
           </div>
           <div className="space-y-3">
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email developer" className="w-full bg-paper dark:bg-chrome-deep/80 border border-line dark:border-chrome-edge text-ink dark:text-ink-inv text-sm font-bold p-3.5 rounded-2xl outline-none focus:border-flame-400 transition" />
