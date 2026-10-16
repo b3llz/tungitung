@@ -1,46 +1,50 @@
 name: Deploy WELP to Cloudflare Workers
 
 on:
-push:
-branches:
-- main
-workflow_dispatch:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
-contents: read
+  contents: read
 
 concurrency:
-group: welp-production
-cancel-in-progress: false
+  group: welp-production
+  cancel-in-progress: false
 
 jobs:
-deploy:
-name: Build and Deploy WELP
-runs-on: ubuntu-latest
-timeout-minutes: 30
+  deploy:
+    name: Build and Deploy WELP
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
-steps:
-  - name: Checkout Latest GitHub Code
-    uses: actions/checkout@v4
-  - name: Setup Node.js
-    uses: actions/setup-node@v4
-    with:
-      node-version: 24
-      cache: npm
-  - name: Install Dependencies
-    run: npm install
-  - name: Build WELP
-    run: npm run build
-  - name: Verify Build Output
-    run: |
-      test -d dist || {
-        echo "ERROR: Folder dist tidak ditemukan!"
-        exit 1
-      }
-      echo "Build berhasil."
-  - name: Deploy to Cloudflare Workers
-    uses: cloudflare/wrangler-action@v3
-    with:
-      apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      command: deploy --config wrangler.jsonc
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Application
+        run: npm run build
+
+      - name: Verify Build Output
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "ERROR: Folder dist tidak ditemukan"
+            exit 1
+          fi
+
+      - name: Deploy to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler.jsonc
