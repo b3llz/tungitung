@@ -12,3 +12,7 @@ build/
 functions/.env
 functions/.env.*
 !functions/.env.example
+WELP*.zip
+welp*.zip
+welp-setup.sh
+.welp-backup-*.tar.gz

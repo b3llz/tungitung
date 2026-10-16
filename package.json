@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "security:smoke": "node scripts/security-smoke.mjs",
     "test": "node scripts/tx-domain-test.mjs && node scripts/payment-domain-test.mjs",
-    "check:source": "node --check scripts/security-smoke.mjs"
+    "check:source": "node --check scripts/security-smoke.mjs",
+    "deploy": "vite build && npx -y wrangler deploy",
+    "deploy:pages": "vite build && npx -y wrangler pages deploy dist --project-name welp"
   },
   "dependencies": {
     "currency.js": "^2.0.4",
