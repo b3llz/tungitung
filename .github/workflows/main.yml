@@ -28,9 +28,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build Application
         run: npm run build
@@ -38,9 +39,10 @@ jobs:
       - name: Verify Build Output
         run: |
           if [ ! -d "dist" ]; then
-            echo "ERROR: Folder dist tidak ditemukan"
+            echo "ERROR: Folder dist tidak ditemukan."
             exit 1
           fi
+          echo "Build berhasil. Folder dist ditemukan."
 
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v3
@@ -48,3 +50,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --config wrangler.jsonc
+          
