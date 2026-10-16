@@ -1,0 +1,33 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function appChecked() { return request.app != null; }
+    function tenantMember(lic) {
+      return signedIn() && appChecked() && request.auth.token.welpTenant == lic;
+    }
+    function permission(p) {
+      return signedIn() && appChecked() && p in request.auth.token.welpPermissions;
+    }
+
+    match /tenants/{lic}/absensi/{allPaths=**} {
+      allow read: if tenantMember(lic) && (permission('attendance.read') || permission('attendance.write'));
+      allow write: if tenantMember(lic) && permission('attendance.write')
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if false;
+    }
+
+    match /tenants/{lic}/payroll/{allPaths=**} {
+      allow read: if tenantMember(lic) && permission('payroll.read');
+      allow write: if false; // payroll evidence/documents must use trusted backend
+      allow delete: if false;
+    }
+
+    match /tenants/{lic}/{allPaths=**} {
+      allow read: if tenantMember(lic) && permission('dashboard.read');
+      allow write: if false;
+      allow delete: if false;
+    }
+  }
+}
