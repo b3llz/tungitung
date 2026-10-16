@@ -12,3 +12,9 @@ build/
 functions/.env
 functions/.env.*
 !functions/.env.example
+
+# installer WELP (tidak perlu di-commit)
+WELP-v21-2*.zip
+welp-v21-2*.zip
+welp-setup.sh
+.welp-backup-*.tar.gz

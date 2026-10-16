@@ -23,15 +23,19 @@ VITE_WELP_SECURITY_MODE=compatibility
 
 Firebase Web API key/site key di atas bukan pengganti server secret. Jangan pernah memasukkan Firebase Admin private key atau payment secret ke variable `VITE_*`.
 
-## 3. Functions `.env`
-
-Buat `functions/.env`:
+## 3. Functions `.env` (HANYA bila pakai plan Blaze)
 
 ```env
 WELP_BOOTSTRAP_EMAILS=email-developer@example.com
 ```
 
 Email harus akun administrator provisioning yang memang kamu kontrol.
+
+> **v21.2 Spark mode:** plan gratis (Spark) tidak bisa deploy Cloud Functions
+> — dan itu TIDAK masalah: fitur inti (daftar tenant, login Akun WELP, email
+> verifikasi) sudah berjalan tanpa functions. File ini opsional, hanya untuk
+> yang upgrade ke Blaze. Allowlist developer di plan gratis diatur langsung
+> di file rules (`isDev()` / `isProvisioner()`). Lihat PANDUAN-PLAN-GRATIS-SPARK.md.
 
 ## 4. Netlify
 
@@ -79,4 +83,4 @@ Setelah cutover enterprise selesai, ubah ke:
 VITE_WELP_SECURITY_MODE=enterprise
 ```
 
-dan deploy `firestore.enterprise.v3.rules` + `storage.enterprise.v3.rules` melalui konfigurasi Firebase production yang sudah diuji.
+dan deploy `firestore.enterprise.v4.rules` + `storage.enterprise.v3.rules` melalui konfigurasi Firebase production yang sudah diuji (v4 = rules terbaru dengan koleksi payment v21 + izin provisioner v21.2).

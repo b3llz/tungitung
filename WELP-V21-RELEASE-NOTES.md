@@ -98,3 +98,139 @@
 - Konfirmasi settlement/refund non-tunai masih MANUAL (nomor referensi dari dasbor provider) — struktur & lifecycle sudah siap untuk integrasi API (Midtrans/QRIS aggregator) tanpa mengubah data.
 - Sinkronisasi SYNCED end-to-end butuh deployment dengan kredensial/rules production; di sandbox verifikasi, write ditolak permission sehingga engine menunjukkan status FAILED + retry sesuai desain.
 - Tidak ada klaim 100% anti-fraud; semua aksi tetap tercatat immutable di audit log.
+
+---
+
+# v21.1.3 — Dev Panel: "Gagal simpan: internal" TUNTAS + Error Transparan
+
+## ROOT CAUSE yang ditemukan
+1. **Error mentah Admin SDK lolos dari callable functions.** Semua error seperti
+   `auth/email-already-exists`, `auth/unauthorized-continue-uri` (domain panel
+   belum ada di Authorized domains), `auth/insufficient-permissions` (IAM service
+   account), `auth/password-policy-*` (project pakai kebijakan password ketat)
+   dilempar tanpa dipetakan → Firebase client menerjemahkannya menjadi satu kata:
+   **"internal"** — misterius dan tidak bisa ditindaklanjuti.
+2. **Alur simpan tenant rapuh:** lisensi ditulis dulu → identity → link
+   verifikasi. Gagal di link verifikasi = seluruh simpanan terasa gagal, padahal
+   akun owner & lisensi sudah terbentuk (state tidak konsisten + user mengulang
+   dan menabrak `email-already-exists` → "internal" lagi).
+
+## PERBAIKAN
+### Backend (functions/index.js)
+- `mapAdminError()` + wrapper `guarded()` untuk **7/7 callable**: HttpsError
+  validasi diteruskan apa adanya; error Admin SDK/Firestore dipetakan ke pesan
+  Indonesia yang bisa dieksekusi (cara fix-nya disebut langsung di pesan).
+- `createWelpIdentity` kini **idempoten terhadap balapan**: email yang terlanjur
+  ada (save dobel / tab ganda / percobaan setengah jalan) dipakai lanjut, bukan
+  crash. Akun disabled di-un-disable otomatis.
+- Health endpoint menandai versi `v21.1.3-payment-core`.
+- **Tidak ada pelonggaran keamanan:** whitelist permission, requireProvisioner,
+  HMAC webhook, dan fail-closed semuanya utuh.
+
+### Dev Panel (src/devpanel.jsx)
+- `explainFnError()` + `explainStoreError()`: kata "internal"/kode mentah
+  diganti instruksi konkret (deploy functions, IAM, Authorized domains, kuota,
+  sesi kedaluwarsa). Toast error tampil 8-9 detik (dulu 2,6 detik — sering
+  keburu hilang sebelum sempat dibaca) + timer anti tumpang-tindih.
+- **Simpan tenant idempoten:** identity dulu → lisensi → link verifikasi
+  BEST-EFFORT. Gagal membuat link verifikasi TIDAK membatalkan tenant; modal
+  kredensial tetap muncul dengan peringatan + tombol **"Coba buat link
+  verifikasi lagi"**.
+- **Generator password kelas lengkap** (besar/kecil/angka/simbol, 12 char,
+  Fisher-Yates dgn crypto.getRandomValues): lolos password policy ketat
+  sekalipun; entropi naik dari 62^10 menjadi ±93^12.
+- Badge DEV berbeda utk email belum terverifikasi (`DEV?`), footer versi panel
+  diperbarui.
+
+## v21.1.1 / v21.1.2 (rekam jejak)
+- v21.1.1: `explainAuthError` — kode auth mentah (termasuk `invalid-credential`
+  hasil penyamaran anti user-enumeration Firebase) dijelaskan dgn langkah fix.
+- v21.1.2: deteksi dini `.env` tidak terbaca (banner merah sebelum login),
+  badge project aktif, pesan `invalid-api-key` diperlengkapi.
+
+## YANG HARUS DILAKUKAN USER SETELAH UPDATE
+1. Ekstrak zip → `npm install`.
+2. Root `.env` berisi `VITE_FIREBASE_*` (client); `functions/.env` berisi
+   `WELP_BOOTSTRAP_EMAILS` (server). Keduanya TIDAK saling menggantikan.
+3. **Wajib deploy ulang backend:** `firebase deploy --only functions`
+   (perbaikan "internal" ada di sisi server — client saja TIDAK cukup).
+4. Pastikan domain tempat panel di-host terdaftar di Firebase Console →
+   Authentication → Settings → **Authorized domains** (localhost sudah default).
+
+## VERIFIKASI
+- `npm test` → 69/69 PASS (36 tx + 33 payment)
+- `npm run build` → PASS
+- `npm run security:smoke` → PASS
+- `node --check functions/index.js` → PASS
+
+---
+
+# v21.2.0 — SPARK MODE: TANPA CLOUD FUNCTIONS (plan gratis pun jalan penuh)
+
+## ROOT CAUSE yang akhirnya tuntas
+"Fagal simpan: internal" di Dev Panel ternyata BUKAN sekadar error server —
+**plan Firebase Spark (gratis) memang TIDAK bisa deploy Cloud Functions**
+(deploy functions butuh plan Blaze/pay-as-you-go). Artinya selama ini
+`createWelpIdentity` tidak pernah ada di server: setiap simpan tenant memanggil
+endpoint yang tidak ada → Firebase client menerjemahkan 404 menjadi
+`functions/internal` → "Gagal simpan: internal". Solusi v21.1.3 (deploy ulang
+functions) mustahil dijalankan di plan gratis → **arsitektur dirombok: fitur
+inti tidak lagi membutuhkan Cloud Functions sama sekali, tanpa menurunkan
+keamanan.**
+
+## PERUBAHAN ARSITEKTUR (client-first, security-first)
+### 1. Provisioning 100% klien (src/core.jsx + src/devpanel.jsx)
+- `provisionWelpIdentityClient()`: akun Auth owner dibuat dari klien via
+  **app Firebase sekunder** (sesi developer tidak pernah tertimpa), idempoten
+  (email sudah ada → dipakai lanjut; password beda → pesan jelas, bukan crash).
+- Email verifikasi owner **dikirim otomatis** dari klien
+  (`sendEmailVerification`) — tanpa server. Gagal kirim tidak membatalkan
+  pendaftaran; tombol "Kirim ulang email verifikasi" ada di modal kredensial
+  (`welpResendVerification`).
+- Alur simpan tenant: akun Auth → lisensi → **welp_identities/{uid}** → record
+  karyawan owner (linking Employee Area). Semua idempoten & diberi pesan error
+  actionable.
+
+### 2. Sumber privilege baru yang aman: welp_identities/{uid}
+- Sesi Akun WELP kini bisa dibangun dari Firestore (`buildDirectSession`):
+  identitas + lisensi, keduanya **dokumen DEV-controlled**.
+- Keamanan setara custom claims: rules membatasi penulisan
+  `welp_identities` & `licenses` HANYA untuk allowlist email developer
+  terverifikasi (`isDev()` di compatibility rules, `isProvisioner()` di
+  enterprise v4). User biasa hanya bisa MEMBACA dokumen identitas miliknya
+  sendiri (doc id == uid), list diblokir total.
+- `firestore.rules` + `firestore.enterprise.v4.rules` diperbarui; enterprise
+  v4 juga memperbaiki bug laten (panel tidak bisa menulis licenses di mode
+  enterprise karena `create,update,delete: if false`).
+
+### 3. Login & sesi (src/lock.jsx + src/App.jsx)
+- `handleAccountLogin`: dua jalur — claims (enterprise/Blaze) ATAU sesi
+  langsung dari `welp_identities` (Spark). Email harus terverifikasi.
+- Restore & refresh sesi via `refreshWelpSession()`: functions dulu, fallback
+  jalur langsung — transisi Blaze↔Spark tidak lagi memutus sesi.
+
+### 4. Pesan error jujur & bisa dieksekusi
+- `functions/not-found` → dijelaskan sebagai wajar di plan Spark + arahkan
+  update ke v21.2 (bukan lagi "deploy functions" yang mustahil).
+- Kasus baru: `wrong-existing-password`, `weak-password`,
+  `operation-not-allowed`, App Check/permission-denied dengan langkah konkret.
+
+## YANG HARUS DILAKUKAN USER (plan gratis — TANPA deploy functions)
+1. `npm install` → `npm run dev` / `npm run build`.
+2. Publish rules terbaru (INI BISA di plan gratis):
+   `firebase deploy --only firestore:rules`
+   atau lewat Console: Firestore → Rules → tempel isi `firestore.rules` → Publish.
+3. Firebase Console → Authentication: aktifkan **Email/Password** (+ Anonymous
+   untuk mode legacy); pastikan domain aplikasi ada di **Authorized domains**.
+4. (Disarankan) Aktifkan App Check + reCAPTCHA v3 → `VITE_RECAPTCHA_SITE_KEY`
+   di `.env` — compat rules menuntut `request.app`.
+5. Panduan lengkap: **PANDUAN-PLAN-GRATIS-SPARK.md**.
+
+## YANG TETAP & TIDAK BERUBAH
+- Functions/index.js tidak diubah — tetap berguna untuk Blaze (claims server,
+  webhook HMAC payment). v21.2 memakainya BILA ada, bukan syarat.
+- Semua koleksi/fitur v21 (POS, Payment Core, settlement, shift) tidak disentuh.
+- PBKDF2 310k, sanitasi sesi, pin-gate, audit trail, App Check gate: utuh.
+
+## VERIFIKASI
+- `npm test` → 69/69 PASS · `npm run build` PASS · `npm run security:smoke` PASS
