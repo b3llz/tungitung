@@ -1,19 +1,44 @@
 name: WELP Security Gate
+
 on:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: welp-security-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   security:
+    name: Security and Build Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm run security:smoke
-      - run: node --check functions/index.js
-      - run: npm run build
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Security Smoke Test
+        run: npm run security:smoke
+
+      - name: Check Functions Syntax
+        run: node --check functions/index.js
+
+      - name: Build Application
+        run: npm run build
