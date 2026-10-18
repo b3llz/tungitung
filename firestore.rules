@@ -1,0 +1,319 @@
+rules_version = '2';
+
+// ============================================================================
+// WELP Firestore Rules — v5 SPARK-HARDENED (menyesuaikan fitur v21.2.0)
+// ----------------------------------------------------------------------------
+// MODE INI UNTUK: Firebase plan SPARK (tanpa Cloud Functions), sesi legacy
+// (login ID toko / station / karyawan / absensi memakai anonymous auth) dan
+// self-order pelanggan anonymous. Ini pengganti langsung firestore.rules
+// compat (v18) — model trust-nya sama, tapi jauh lebih ketat:
+//
+//   1. DENY-BY-DEFAULT   — SEMUA koleksi yang benar-benar dipakai aplikasi
+//                          didaftarkan eksplisit. Koleksi hantu (stok,
+//                          penjualan, employees) TIDAK ada di sini -> otomatis
+//                          ditolak.
+//   2. MEJA_SESSIONS     — sekarang terdaftar (sebelumnya bolong: self-order
+//                          QR meja bisa mati di ruleset tertutup).
+//   3. LEDGER FINANSIAL  — pos_history, payment_events, payment_intents,
+//                          shift_log, cash_events, riwayat_stok: TIDAK BISA
+//                          dihapus klien (append/void-only). settlements hanya
+//                          boleh dihapus saat status PENDING.
+//   4. IMMUTABLE         — absensi (evidence hardened), audit_log, logs:
+//                          create-only.
+//   5. PRIVILEGE         — licenses & welp_identities hanya bisa ditulis
+//                          developer allowlist terverifikasi. Enumerasi
+//                          lisensi diblokir (anti-squatting/anti-enumerasi).
+//   6. PAYROLL           — hapus HANYA boleh untuk status DRAFT (koreksi
+//                          salah input); payroll final tak terhapus.
+//
+// HARDENING LANJUTAN (setelah stabil):
+//   - Set ENFORCE_APP_CHECK = true di bawah SETELAH App Check aktif
+//     (isi VITE_RECAPTCHA_SITE_KEY di .env, pantau tab App Check di
+//     Firebase console beberapa hari, baru flip). Default false supaya
+//     deploy pertama tidak mungkin mematikan aplikasi.
+//
+// DEPLOY (plan Spark — deploy rules GRATIS, bukan Cloud Functions):
+//   a) CLI   : firebase deploy --only firestore:rules
+//   b) Manual: Firebase Console -> Firestore Database -> Rules ->
+//              tempel seluruh isi file ini -> Publish
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------
+    // KONFIGURASI
+    // ------------------------------------------------------------------
+    // Ganti return false -> true SETELAH App Check terpasang & terpantau
+    // sehat (isi VITE_RECAPTCHA_SITE_KEY di .env, pantau tab App Check di
+    // Firebase console beberapa hari, baru flip). Default false supaya
+    // deploy pertama tidak mungkin mematikan aplikasi.
+    // Catatan: emulator Firestore lokal tidak mensimulasikan App Check,
+    // jadi test suite dijalankan dengan flag false.
+    function enforceAppCheck() {
+      return false;
+    }
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function appOk() {
+      return enforceAppCheck() == false || request.app != null;
+    }
+
+    // Sesi valid = ada auth (termasuk anonymous untuk mode legacy/self-order)
+    function session() {
+      return signedIn() && appOk();
+    }
+
+    // Developer allowlist — satu-satunya yang boleh mengatur privilege
+    // (licenses & welp_identities). Email WAJIB terverifikasi.
+    function isDev() {
+      return signedIn() && appOk()
+        && request.auth.token.email != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['shandikazaid@gmail.com'];
+    }
+
+    // ------------------------------------------------------------------
+    // HELPER VALIDASI
+    // ------------------------------------------------------------------
+    // Upgrade kredensial legacy (plaintext -> hash PBKDF2) yang sengaja
+    // SEMPIT: hanya field cred yang boleh berubah, hash lama HARUS masih
+    // kosong (sekali upgrade saja), format hash hex-64 & salt hex-32.
+    // Dicopy persis dari rules compat yang sudah terbukti jalan.
+    function legacyPassUpgrade() {
+      return session()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['credPass', 'password'])
+        && request.resource.data.credPass.get('hash', '') is string
+        && request.resource.data.credPass.get('hash', '').matches('^[0-9a-f]{64}$')
+        && request.resource.data.credPass.get('salt', '').matches('^[0-9a-f]{32}$')
+        && resource.data.get('credPass', {}).get('hash', '') == '';
+    }
+
+    function legacyPinUpgrade() {
+      return session()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['credPin', 'ownerPin'])
+        && request.resource.data.credPin.get('hash', '') is string
+        && request.resource.data.credPin.get('hash', '').matches('^[0-9a-f]{64}$')
+        && request.resource.data.credPin.get('salt', '').matches('^[0-9a-f]{32}$')
+        && resource.data.get('credPin', {}).get('hash', '') == '';
+    }
+
+    // ------------------------------------------------------------------
+    // 1) LICENSES — lisensi & kredensial toko (berisi hash password/PIN)
+    //    get  : semua sesi (dipakai semua mode login + monitor lisensi)
+    //    list : DEV SAJA (anti-enumerasi ID toko)
+    //    write: DEV SAJA, kecuali upgrade hash sempit di atas
+    // ------------------------------------------------------------------
+    match /licenses/{lic} {
+      allow get: if session();
+      allow list: if isDev();
+      allow create, delete: if isDev();
+      allow update: if isDev() || legacyPassUpgrade() || legacyPinUpgrade();
+    }
+
+    // ------------------------------------------------------------------
+    // 2) WELP_IDENTITIES — identitas Akun WELP (setara custom claims di
+    //    mode Spark). User hanya boleh BACA dokumen miliknya sendiri;
+    //    tulis HANYA dev. List diblokir (tanpa enumerasi identitas).
+    // ------------------------------------------------------------------
+    match /welp_identities/{uid} {
+      allow get: if session() && request.auth.uid == uid;
+      allow list: if false;
+      allow create, update, delete: if isDev();
+    }
+
+    // ------------------------------------------------------------------
+    // 3) LOGS — log perangkat (fire & forget). Create-only.
+    // ------------------------------------------------------------------
+    match /logs/{logId} {
+      allow create: if session()
+        && request.resource.data.action is string
+        && request.resource.data.timestamp is string;
+      allow read, update, delete: if false;
+    }
+
+    // ==================================================================
+    // 4) TENANTS — data operasional per toko (semua butuh sesi valid)
+    // ==================================================================
+
+    // ---- Katalog & operasional (CRUD penuh via aplikasi) ----
+    match /tenants/{lic}/produk/{id} {
+      allow read, create, update, delete: if session();
+    }
+    match /tenants/{lic}/bahan/{id} {
+      allow read, create, update, delete: if session();
+    }
+    match /tenants/{lic}/resep/{id} {
+      allow read, create, update, delete: if session();
+    }
+    match /tenants/{lic}/modifier_groups/{id} {
+      allow read, create, update, delete: if session();
+    }
+    match /tenants/{lic}/orders/{id} {
+      // keranjang aktif antar perangkat (sync two-way)
+      allow read, create, update, delete: if session();
+    }
+    match /tenants/{lic}/kas_keluar/{id} {
+      allow read, create, update, delete: if session();
+    }
+    match /tenants/{lic}/supplier/{id} {
+      allow read, create, update, delete: if session();
+    }
+    match /tenants/{lic}/customers/{id} {
+      // CRM pelanggan
+      allow read, create, update, delete: if session();
+    }
+
+    // ---- Pengaturan toko (toko_profile, bizconfig, branding, roles, dst)
+    //      dibaca publik-tenant (self-order butuh toko_profile & bizconfig)
+    match /tenants/{lic}/pengaturan/{id} {
+      allow read, create, update: if session();
+      allow delete: if false; // dok kunci toko tidak boleh dihapus klien
+    }
+
+    // ---- Self-order pelanggan (perangkat pelanggan = anonymous auth)
+    match /tenants/{lic}/self_orders/{id} {
+      allow read: if session();
+      allow create: if session()
+        && request.resource.data.status == 'awaiting_validation'; // pesanan baru selalu lewat validasi kasir
+      allow update: if session(); // kasir: validasi/bayar; pelanggan: edit selama belum divalidasi
+      allow delete: if session(); // pembersihan pesanan batal/kadaluarsa
+    }
+
+    // ---- Sesi meja QR (token meja, device binding)
+    match /tenants/{lic}/meja_sessions/{id} {
+      allow read, create, update, delete: if session();
+    }
+
+    // ---- HR: karyawan, cabang, regions, stations
+    //      (read/list dibuka: login karyawan & station meng-ENUMERASI
+    //       koleksi ini untuk mencari empId/station code + verifikasi PIN)
+    match /tenants/{lic}/karyawan/{id} {
+      allow read: if session();
+      allow create, update: if session();
+      // hapus data karyawan boleh (fitur kelola tim), tapi PIN/cred ikut
+      // hilang bersama dokumennya — tidak ada jalur terpisah.
+      allow delete: if session();
+    }
+    match /tenants/{lic}/cabang/{id} {
+      allow read: if session();
+      allow create, update, delete: if session();
+    }
+    match /tenants/{lic}/regions/{id} {
+      allow read, create, update, delete: if session();
+    }
+    match /tenants/{lic}/stations/{id} {
+      // read terbuka: login mode Station meng-ENUMERASI stations utk PIN
+      allow read: if session();
+      allow create, update, delete: if session();
+    }
+
+    // ---- Absensi (EVIDENCE IMMUTABLE — salin persis dari compat yang
+    //      terbukti jalan: bukti kamera + geo + hash foto 64-hex)
+    match /tenants/{lic}/absensi/{id} {
+      allow read: if session();
+      allow create: if session()
+        && request.resource.data.status == 'verified'
+        && request.resource.data.evidenceVersion == 2
+        && request.resource.data.captureMode == 'welp-camera'
+        && request.resource.data.liveMotionCheck == true
+        && request.resource.data.geoStatus == 'verified'
+        && request.resource.data.far == false
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.acc is number
+        && request.resource.data.acc >= 0
+        && request.resource.data.acc <= 100
+        && request.resource.data.photoHash is string
+        && request.resource.data.photoHash.matches('^[0-9a-f]{64}$')
+        && request.resource.data.captureId is string
+        && request.resource.data.employeeCid is string
+        && request.resource.data.branchId is string
+        && request.resource.data.type in ['in', 'out']
+        && request.resource.data.serverAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // ---- Pengajuan cuti/izin (masuk selalu ber-status DIAJUKAN;
+    //      review = update; tanpa delete agar jejak tetap ada)
+    match /tenants/{lic}/pengajuan/{id} {
+      allow read: if session();
+      allow create: if session()
+        && request.resource.data.status == 'DIAJUKAN';
+      allow update: if session();
+      allow delete: if false;
+    }
+
+    // ---- Payroll: hapus HANYA draft; data final tak terhapus
+    match /tenants/{lic}/payroll/{id} {
+      allow read, create, update: if session();
+      allow delete: if session()
+        && resource.data.get('status', '') == 'DRAFT';
+    }
+
+    // ---- Dokumen perusahaan & pengumuman (Employee Area)
+    match /tenants/{lic}/dokumen/{id} {
+      allow read, create, update, delete: if session();
+    }
+    match /tenants/{lic}/pengumuman/{id} {
+      allow read, create, update, delete: if session();
+    }
+
+    // ---- LEDGER FINANSIAL (PROTEKSI KERAS: tidak bisa dihapus klien)
+    match /tenants/{lic}/pos_history/{id} {
+      // transaksi final: batal = VOID/REFUND via UPDATE (status), bukan hapus
+      allow read, create, update: if session();
+      allow delete: if false;
+    }
+    match /tenants/{lic}/riwayat_stok/{id} {
+      // mutasi stok historis (update sempit dipakai sync diff)
+      allow read, create, update: if session();
+      allow delete: if false;
+    }
+    match /tenants/{lic}/payment_events/{id} {
+      // ledger event pembayaran (append + konfirmasi/tolak via update)
+      allow read, create, update: if session();
+      allow delete: if false;
+    }
+    match /tenants/{lic}/payment_intents/{id} {
+      // proyeksi intent QRIS (docId = paymentReference, idempoten)
+      allow read, create, update: if session();
+      allow delete: if false;
+    }
+    match /tenants/{lic}/settlements/{id} {
+      // rekonsiliasi: salah input boleh dibuang SELAMA masih PENDING
+      allow read, create, update: if session();
+      allow delete: if session()
+        && resource.data.get('status', '') == 'PENDING';
+    }
+    match /tenants/{lic}/shift_log/{id} {
+      // log shift append-only (buka/tutup = dokumen baru)
+      allow read, create: if session();
+      allow update, delete: if false;
+    }
+    match /tenants/{lic}/cash_events/{id} {
+      // uang masuk/keluar kas append-only
+      allow read, create: if session();
+      allow update, delete: if false;
+    }
+    match /tenants/{lic}/audit_log/{id} {
+      // jejak audit append-only
+      allow read, create: if session();
+      allow update, delete: if false;
+    }
+
+    // ==================================================================
+    // 5) DENY SEMUA SISANYA (dokumentasi eksplisit dari deny-by-default)
+    //    Termasuk koleksi hantu rules lama: stok, penjualan, employees.
+    // ==================================================================
+    match /tenants/{lic}/{document=**} {
+      allow read, write: if false;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
