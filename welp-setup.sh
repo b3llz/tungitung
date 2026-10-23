@@ -2,6 +2,13 @@
 # ============================================================================
 #  WELP UPDATER v5 — CODESPACES 1 PERINTAH: upload zip -> LIVE
 # ----------------------------------------------------------------------------
+#  v5.1 PERBAIKAN (kasus deploy gagal error 100324 "infinite loop"):
+#   • public/_redirects isinya '/* /index.html 200' TERNYATA BIKIN 'wrangler deploy'
+#     GAGAL di Workers Assets (aturan /* nangkep /index.html juga -> loop).
+#     Sekarang file itu DIHAPUS kalau ketemu — SPA fallback cukup dari
+#     wrangler.jsonc (not_found_handling: single-page-application).
+#   • Fallback Cloudflare Pages sekarang bikin project-nya dulu secara
+#     non-interaktif (dulu: prompt diblokir CI -> error "non-interactive context").
 #  v5 PERBAIKAN (kasus "GitHub sudah baru tapi Cloudflare masih build lama"):
 #   • VERIFIKASI PASCA-DEPLOY: setelah deploy, script baca ULANG situs live
 #     & cocokkan hash file asset utama (index-XXXX.js) lokal vs live.
@@ -461,9 +468,12 @@ WJSON
   say "wrangler.jsonc dibuat (config Cloudflare)"
 fi
 mkdir -p "$TARGET/public"
-if [ ! -f "$TARGET/public/_redirects" ]; then
-  printf '/* /index.html 200\n' > "$TARGET/public/_redirects"
-  say "public/_redirects dibuat (SPA fallback Cloudflare)"
+# v5.1: catch-all SPA di _redirects MEMBUAT 'wrangler deploy' GAGAL (error 100324,
+# aturan /* menangkap /index.html juga -> loop sendiri). SPA fallback sudah
+# ditangani wrangler.jsonc (not_found_handling), jadi _redirects DIHAPUS, bukan dibuat.
+if [ -f "$TARGET/public/_redirects" ] && grep -q '^/\*[[:space:]]' "$TARGET/public/_redirects"; then
+  rm -f "$TARGET/public/_redirects" "$TARGET/dist/_redirects" 2>/dev/null
+  say "public/_redirects lama DIHAPUS (catch-all SPA memicu error 100324 di Workers Assets)"
 fi
 if [ ! -f "$TARGET/public/_headers" ]; then
   cat > "$TARGET/public/_headers" <<'HHeaders'
@@ -623,6 +633,10 @@ else
     verify_deploy "$TARGET/dist" "$DEPLOYED_URL" || true
   else
     warn "wrangler deploy gagal — coba jalur Cloudflare Pages..."
+    # v5.1: pastikan project Pages sudah ada (non-interaktif). Tanpa ini wrangler
+    # mau prompt "buat project?" -> kena blokir CI=true -> "cannot be run in a
+    # non-interactive context". Gagal bikin (mis. sudah ada) diabaikan saja.
+    ( cd "$TARGET" && CI=true WRANGLER_SEND_METRICS=false npx -y wrangler pages project create welp --production-branch main >/dev/null 2>&1 ) || true
     DEPLOY_LOG="$( cd "$TARGET" && CI=true WRANGLER_SEND_METRICS=false npx -y wrangler pages deploy dist --project-name welp --commit-dirty=true 2>&1 )"
     DP="$?"
     printf '%s\n' "$DEPLOY_LOG" | tail -n 25
