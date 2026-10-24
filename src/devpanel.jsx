@@ -52,6 +52,7 @@ import {
   collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, writeBatch, onSnapshot, query, orderBy
 } from 'firebase/firestore';
 import { AppSymbol, Mascot } from './brand.jsx';
+import { APP_VERSION } from './appversion.js';   // v21.5.1: satu sumber nomor versi
 import {
   PerisaiBuddy, GembokBuddy, Lisensi, Trash2, Copy, Check,
   MonitorPusat, Kredensial, WaktuReal, BahayaBuddy, KoinBuddy, Terang, Gelap, Toko
@@ -811,7 +812,7 @@ export const DeveloperPanel = () => {
           </div>
         </div>
 
-        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] flex items-center justify-center gap-1.5"><WaktuReal className="w-3.5 h-3.5" /> WELP Developer Console v21.2.0 · Spark-ready</p>
+        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] flex items-center justify-center gap-1.5"><WaktuReal className="w-3.5 h-3.5" /> WELP Developer Console v{APP_VERSION} · Spark-ready</p>
       </div>
       {toast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-flame-600 text-white px-5 py-3 rounded-full shadow-pop text-sm font-extrabold animate-slide-up">{toast}</div>}
 

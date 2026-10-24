@@ -15,6 +15,7 @@ import {
 import { safeParse, formatIDR, getLang, qrDataUrl, useQr, WALLET_TYPES, decodeQrFromImage, parseEmv, qrisMeta, verifyQrisCrc, makeTableToken, db, dbSet, dbSetDoc, useDbSync, hydrateDb, getBizConfig, stockTrackingOn, auditLog } from './core.jsx';
 import { connectPrinter, disconnectPrinter, printerConnected, printerName, onPrinterChange, kickCashDrawer, escposReceipt, printReceiptBytes, haptic } from './welp-core/posprinter.js';
 import { ingestPaymentEvent } from './welp-core/paymentOps.js';
+import { APP_VERSION } from './appversion.js';   // v21.5.1: satu sumber nomor versi
 import { MATCH_STATUS, MATCH_STATUS_META, PAYMENT_EVENT_SOURCES, PAYMENT_EVENT_SOURCE_META, collectIntents } from './welp-core/payment.js';
 import { doc as fsDoc, setDoc as fsSetDoc } from 'firebase/firestore';
 import { Button, Card, PageTitle, NumericInput, Select, Toggle, Badge, EmptyState, ImageCropperModal, ConfirmDialog } from './ui';
@@ -999,7 +1000,7 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
 
       <div className="flex items-center justify-center gap-1.5 pt-2">
         <BadgeCheck className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-        <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">WELP v21.1</p>
+        <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">WELP v{APP_VERSION}</p>
       </div>
     </div>
   );

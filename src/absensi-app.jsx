@@ -50,6 +50,7 @@ import {
 } from './core.jsx';
 import { Button, Toast, Mascot, Badge } from './ui';
 import { BrandLogo, useBrandState } from './brand.jsx';
+import { APP_VERSION } from './appversion.js';   // v21.5.1: satu sumber nomor versi
 import { EmpExtras } from './business/empextras.jsx';   // v21.4: pengumuman, jadwal, poin, target
 
 /* ---------- util ---------- */
@@ -852,7 +853,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
           </div>
         )}
 
-        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em] pt-1 pb-2">WELP v21.5</p>
+        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em] pt-1 pb-2">WELP v{APP_VERSION}</p>
       </div>
     </div>
   );

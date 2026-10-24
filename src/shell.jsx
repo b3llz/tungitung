@@ -25,6 +25,7 @@ import {
 } from './welp-icons.jsx';
 import { BrandLockup, BrandLogo, Mascot } from './brand.jsx';
 import { t, getLang } from './core.jsx';
+import { APP_VERSION } from './appversion.js';   // v21.5.1: satu sumber nomor versi
 import { NAV_PERMS_V20, roleLabelOf as rbacRoleLabel, canDo } from './welp-core/rbac.js';
 import { useDevice } from './ui';
 
@@ -282,7 +283,7 @@ export const MenuSheet = ({ open, onClose, role, perms, active, setActive, licen
           <button onClick={onLogout} className="w-full flex items-center justify-center gap-3 p-3 rounded-xl bg-brick/15 text-brick font-extrabold hover:bg-brick/25 transition press">
             <Keluar className="w-5 h-5" /> {t('logout')}
           </button>
-          <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] pt-2">WELP v21.5 Spark Mode</p>
+          <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] pt-2">WELP v{APP_VERSION} Spark Mode</p>
         </div>
       </div>
     </div>

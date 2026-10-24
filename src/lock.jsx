@@ -13,6 +13,7 @@ import { getIdTokenResult } from 'firebase/auth';
 import { doc, getDoc, collection, getDocs } from "firebase/firestore";
 import { db, syncSession, auditLog, ensureAuth, verifyCred, upgradeCred, credIsLegacy, pinGate, pinGateMsg, signInWelpAccount, callWelpSession, buildDirectSession, signOutWelpAccount } from './core.jsx';
 import { BrandLockup, BrandLogo, Mascot } from './brand.jsx';
+import { APP_VERSION } from './appversion.js';   // v21.5.1: satu sumber nomor versi
 import {
   HppCalc, Kasir, Laporan, Pindai,
   PerisaiBuddy, GembokBuddy, Kredensial, HapusBuddy, Lisensi, Cabang, LayarBuddy
@@ -534,7 +535,7 @@ export const LockScreen = ({ onUnlock }) => {
 
           <div className="flex items-center justify-center gap-1.5 mt-5">
             <Lisensi className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" />
-            <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">Lisensi terkelola, WELP v20</p>
+            <p className="text-[10px] font-bold text-ink-faint uppercase tracking-widest">Lisensi terkelola, WELP v{APP_VERSION}</p>
           </div>
         </div>
 
