@@ -1,5 +1,5 @@
 // ============================================================
-// TEAM MODULE v14 — Manajemen Cabang, POS Station, Manajemen
+// TEAM MODULE v14, Manajemen Cabang, POS Station, Manajemen
 // Karyawan (Employee ID + PIN pribadi + status kontrak), Monitoring
 // Terpusat, Kelola Absensi + review Pengajuan Cuti, Manajemen
 // Penggajian dengan workflow approval nyata + slip gaji premium,
@@ -31,9 +31,10 @@ import {
   JENIS_KONTRAK, kontrakOf, cutiPolicyOf, hakCutiOf, usedCutiDays,
   hariKerjaOf, hariLabelOf, HARI_MINGGUAN, brandAccentHex, brandAccentDeepHex,
   buildSlipHtml, makeCred, credIsLegacy,   // v15 F0
+  reverseGeocode,   // v21.3: alamat lengkap otomatis dari titik GPS cabang
   roleLabelOfV15, ROLE_META, PERMISSIONS, getRolesMatrix, permsOf, openDataUrl, uploadMedia   // v15 F3-F5
 } from './core.jsx';
-// v21.1 — laporan lintas cabang memakai state machine transaksi
+// v21.1, laporan lintas cabang memakai state machine transaksi
 import { countsAsSale, netTotalOf, normalizePayments } from './welp-core/tx.js';
 import { Button, Card, PageTitle, Badge, EmptyState, Modal, Toggle, Select, NumericInput } from './ui';
 
@@ -67,7 +68,7 @@ const FieldCard = ({ icon: Icon, label, desc, children }) => (
   </div>
 );
 
-// v15 F4-H2: PinDots responsif — grid keypad 6 kolom memakai
+// v15 F4-H2: PinDots responsif, grid keypad 6 kolom memakai
 // min-w-0 + gap kecil + font lebih ramping agar tidak terpotong
 // (scrollWidth 40 vs clientWidth 30 pada layar 320px).
 const PinDots = ({ pin, onKey }) => (
@@ -91,7 +92,7 @@ const PinDots = ({ pin, onKey }) => (
 );
 
 /* ---------- STEP FIELD (angka + unit jelas, anti keypad berantakan)
-   Toleransi pakai "menit", radius pakai "meter" — selalu tampil,
+   Toleransi pakai "menit", radius pakai "meter", selalu tampil,
    bisa diketik atau diketuk +/- biar aman di layar sentuh. ---------- */
 const StepField = ({ label, value, onChange, min, max, step, unit, hint }) => {
   const num = parseInt(value, 10) || 0;
@@ -118,7 +119,7 @@ const StepField = ({ label, value, onChange, min, max, step, unit, hint }) => {
 };
 
 /* ============================================================
-   SHIFT EDITOR v12 — daftar shift (maks 4) dgn nama, jam mulai &
+   SHIFT EDITOR v12, daftar shift (maks 4) dgn nama, jam mulai &
    selesai, saklar aktif. Durasi dihitung otomatis & mendukung
    shift lintas tengah malam (mis. 22:00 – 06:00).
    ============================================================ */
@@ -171,7 +172,7 @@ export const ShiftEditor = ({ shifts, onChange, maxShifts = 4 }) => {
 };
 
 /* ============================================================
-   SHIFT CABANG PUSAT (v12) — Pusat adalah cabang virtual tanpa
+   SHIFT CABANG PUSAT (v12), Pusat adalah cabang virtual tanpa
    doc di koleksi cabang, jadi definisi shift-nya disimpan di
    koleksi 'pengaturan' (doc key: shift_pusat). UI & aturannya
    sama persis dgn shift cabang lain.
@@ -225,7 +226,7 @@ export const PusatShiftsCard = ({ licenseInfo }) => {
 };
 
 /* ============================================================
-   MANAJEMEN CABANG — nama + lokasi (alamat + GPS), password &
+   MANAJEMEN CABANG, nama + lokasi (alamat + GPS), password &
    PIN login cabang, role default, saklar penggajian, aturan
    absensi (jam masuk / toleransi menit / radius meter), dan
    SHIFT KERJA per cabang (v12).
@@ -240,15 +241,34 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
   const [pin, setPin] = useState('');
   const [geo, setGeo] = useState(null);
   const [geoBusy, setGeoBusy] = useState(false);
+  const [geoAddr, setGeoAddr] = useState(null);   // v21.3: alamat lengkap hasil reverse geocode
   const [showPw, setShowPw] = useState(false);
   const [revealPinId, setRevealPinId] = useState(null);   // PIN cabang: tersembunyi, tampil sesaat saat diminta
   const [editingId, setEditingId] = useState(null);
 
-  const resetForm = () => { setForm({ name: '', location: '', password: '', pin: '', role: 'admin', payrollEnabled: false, jamMasuk: DEFAULT_ATURAN.jamMasuk, toleransi: DEFAULT_ATURAN.toleransi, radius: DEFAULT_ATURAN.radius, hkBulan: DEFAULT_ATURAN.hkBulan, shifts: [], regionId: '' }); setPin(''); setGeo(null); setEditingId(null); };
+  const resetForm = () => { setForm({ name: '', location: '', password: '', pin: '', role: 'admin', payrollEnabled: false, jamMasuk: DEFAULT_ATURAN.jamMasuk, toleransi: DEFAULT_ATURAN.toleransi, radius: DEFAULT_ATURAN.radius, hkBulan: DEFAULT_ATURAN.hkBulan, shifts: [], regionId: '' }); setPin(''); setGeo(null); setGeoAddr(null); setEditingId(null); };
 
+  // v21.3: AMBIL TITIK GPS + ALAMAT LENGKAP OTOMATIS.
+  // Setelah izin lokasi diberikan, sistem mengisi sendiri nama jalan,
+  // nomor, RT/RW, kelurahan, kecamatan, kota/kabupaten, provinsi, dan
+  // kode pos ke kolom alamat, owner tidak perlu mengetik manual.
   const pickGeo = async () => {
     setGeoBusy(true);
-    try { const g = await getLocation(); setGeo(g); triggerAlert('Titik lokasi cabang berhasil diambil.', 'success'); }
+    try {
+      const g = await getLocation();
+      setGeo(g);
+      setGeoAddr(null);
+      triggerAlert('Titik lokasi cabang berhasil diambil. Membaca alamat lengkap...', 'success');
+      const a = await reverseGeocode(g.lat, g.lng);
+      if (a) {
+        setGeoAddr(a);
+        // isi kolom alamat otomatis bila masih kosong / isian lama GPS lama
+        setForm(f => ({ ...f, location: f.location && f.location.length > 12 ? f.location : (a.displayName || f.location) }));
+        triggerAlert('Alamat lengkap terisi otomatis: jalan, RT/RW, kelurahan, kecamatan, kota, provinsi & kode pos.', 'success');
+      } else {
+        triggerAlert('Koordinat tersimpan. Nama jalan gagal dibaca, boleh diketik manual.', 'error');
+      }
+    }
     catch (e) { triggerAlert('Gagal ambil lokasi: ' + (e.message || 'izin ditolak'), 'error'); }
     setGeoBusy(false);
   };
@@ -279,7 +299,14 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
         hkBulan: Math.min(31, Math.max(0, parseInt(form.hkBulan, 10) || 0))
       },
       shifts: form.shifts.map(s => ({ id: s.id, nama: (s.nama || '').trim() || 'Shift', mulai: s.mulai, selesai: s.selesai, aktif: s.aktif !== false })),
-      lat: geo?.lat ?? oldRec?.lat ?? null, lng: geo?.lng ?? oldRec?.lng ?? null, geoAcc: geo?.acc ?? oldRec?.geoAcc ?? null
+      lat: geo?.lat ?? oldRec?.lat ?? null, lng: geo?.lng ?? oldRec?.lng ?? null, geoAcc: geo?.acc ?? oldRec?.geoAcc ?? null,
+      // v21.3: alamat terstruktur dari reverse geocode (ikut tersimpan)
+      addrDetail: geoAddr ? {
+        jalan: geoAddr.jalan || null, nomor: geoAddr.nomor || null, rt: geoAddr.rt || null, rw: geoAddr.rw || null,
+        kelurahan: geoAddr.kelurahan || null, kecamatan: geoAddr.kecamatan || null,
+        kota: geoAddr.kota || null, provinsi: geoAddr.provinsi || null, kodepos: geoAddr.kodepos || null,
+        displayName: geoAddr.displayName || null,
+      } : (oldRec?.addrDetail || null)
     };
     if (editingId) { updateRow(editingId, payload); auditLog(licenseInfo, 'CABANG_UBAH', { target: editingId, nama: payload.name }); triggerAlert('Cabang diperbarui!', 'success'); }
     else { addRow(payload); auditLog(licenseInfo, 'CABANG_TAMBAH', { nama: payload.name }); triggerAlert('Cabang baru tersimpan & langsung bisa dipakai login!', 'success'); }
@@ -289,10 +316,11 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
   const startEdit = (b) => {
     const at = getAturan(b);
     setEditingId(b.cid);
-    // v15 F0: password tidak lagi bisa dibaca (tersimpan hash) —
+    // v15 F0: password tidak lagi bisa dibaca (tersimpan hash)  
     // kolom kosong berarti "tidak diganti".
     setForm({ name: b.name || '', location: b.location || '', password: '', pin: '', role: b.role || 'admin', payrollEnabled: !!b.payrollEnabled, jamMasuk: at.jamMasuk, toleransi: at.toleransi, radius: at.radius, hkBulan: at.hkBulan, shifts: normShifts(b.shifts), regionId: b.regionId || '' });
     setPin(''); setGeo(b.lat != null ? { lat: b.lat, lng: b.lng, acc: b.geoAcc } : null);
+    setGeoAddr(b.addrDetail || null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -308,12 +336,12 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
               onChange={e => setForm({ ...form, name: e.target.value })} />
           </FieldCard>
 
-          <FieldCard icon={Lokasi} label="Lokasi Cabang" desc="Alamat teks + titik GPS untuk validasi absensi">
-            <textarea className="field h-20 resize-none" placeholder="Alamat lengkap cabang..."
+          <FieldCard icon={Lokasi} label="Lokasi Cabang" desc="Alamat lengkap terisi otomatis dari GPS (jalan, RT/RW, kelurahan, kecamatan, kota, provinsi, kode pos)">
+            <textarea className="field h-20 resize-none" placeholder="Ambil titik GPS, alamat lengkap terisi sendiri. Boleh diedit manual..."
               value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} />
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <Button variant="secondary" onClick={pickGeo} className="py-2.5 px-3.5 text-xs" icon={geoBusy ? WaktuReal : Lokasi}>
-                {geoBusy ? 'Mengambil...' : 'Ambil Titik GPS'}
+                {geoBusy ? 'Membaca alamat...' : 'Ambil Titik GPS + Alamat'}
               </Button>
               {geo ? (
                 <span className="text-[10px] font-extrabold text-leaf-deep dark:text-leaf flex items-center gap-1">
@@ -321,14 +349,25 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
                 </span>
               ) : <span className="text-[10px] text-ink-faint font-semibold">Belum ada titik GPS</span>}
             </div>
+            {geoAddr && (
+              <div className="mt-2.5 p-3 rounded-xl bg-leaf-soft/60 dark:bg-leaf/10 border border-leaf/25">
+                <p className="text-[10px] font-extrabold text-leaf-deep dark:text-leaf flex items-center gap-1.5"><Check className="w-3.5 h-3.5" /> Alamat lengkap terbaca</p>
+                <p className="text-[10.5px] font-bold text-ink dark:text-ink-inv leading-relaxed mt-1 break-words">
+                  {[geoAddr.jalan, geoAddr.nomor && `No. ${geoAddr.nomor}`, geoAddr.rt && geoAddr.rw && `RT ${geoAddr.rt} / RW ${geoAddr.rw}`].filter(Boolean).join(', ') || geoAddr.displayName}
+                </p>
+                <p className="text-[9.5px] font-semibold text-ink-faint leading-relaxed mt-0.5">
+                  {[geoAddr.kelurahan && `Kel. ${geoAddr.kelurahan}`, geoAddr.kecamatan && `Kec. ${geoAddr.kecamatan}`, geoAddr.kota && `Kota/Kab. ${geoAddr.kota}`, geoAddr.provinsi, geoAddr.kodepos].filter(Boolean).join(', ')}
+                </p>
+              </div>
+            )}
           </FieldCard>
 
           <FieldCard icon={JaringanBuddy} label="Region / Area (Opsional)" desc="Kelompokkan cabang ke dalam region utk penugasan Area Manager">
             <Select
-              value={regionOpts.find(r => r.cid === form.regionId)?.name || '— Tanpa Region —'}
-              options={['— Tanpa Region —', ...regionOpts.map(r => r.name + (r.code ? ` (${r.code})` : ''))]}
+              value={regionOpts.find(r => r.cid === form.regionId)?.name || 'Tanpa Region'}
+              options={['Tanpa Region', ...regionOpts.map(r => r.name + (r.code ? ` (${r.code})` : ''))]}
               onChange={v => {
-                if (v === '— Tanpa Region —') return setForm(f => ({ ...f, regionId: '' }));
+                if (v === 'Tanpa Region') return setForm(f => ({ ...f, regionId: '' }));
                 const found = regionOpts.find(r => (r.name + (r.code ? ` (${r.code})` : '')) === v);
                 setForm(f => ({ ...f, regionId: found ? found.cid : '' }));
               }} />
@@ -336,7 +375,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
           </FieldCard>
 
           <div className="grid sm:grid-cols-2 gap-3.5">
-            <FieldCard icon={Kredensial} label="Password Kompatibilitas" desc={editingId ? 'Biarkan kosong bila tidak diganti (tersimpan hash)' : 'Hanya jalur legacy — semua orang kini disarankan akun pribadi'}>
+            <FieldCard icon={Kredensial} label="Password Kompatibilitas" desc={editingId ? 'Biarkan kosong bila tidak diganti (tersimpan hash)' : 'Hanya jalur legacy, semua orang kini disarankan akun pribadi'}>
               <div className="flex gap-2">
                 <input className="field min-w-0 flex-1" type={showPw ? 'text' : 'password'} placeholder={editingId ? 'Tidak diganti' : 'Password cabang'}
                   value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
@@ -361,24 +400,31 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
             {editingId && <p className="text-[10px] text-ink-faint font-semibold mt-2">Biarkan kosong bila tidak ingin mengganti PIN lama.</p>}
           </FieldCard>
 
-          {/* ATURAN ABSENSI — unit selalu terlihat: menit & meter */}
+          {/* ATURAN ABSENSI, unit selalu terlihat: menit & meter */}
           <FieldCard icon={WaktuReal} label="Aturan Absensi Karyawan" desc="Dipakai otomatis di Aplikasi Karyawan & monitoring owner">
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
+            <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 min-w-0">
+              <div className="min-w-0">
                 <label className="kicker block mb-1.5">Jam Masuk</label>
-                <input type="time" className="field !px-3" value={form.jamMasuk}
+                <input type="time" className="field !px-2.5 !py-2.5 w-full max-w-full min-w-0 text-[13px] block"
+                  style={{ WebkitAppearance: 'none', appearance: 'none' }} value={form.jamMasuk}
                   onChange={e => setForm({ ...form, jamMasuk: e.target.value })} />
                 <p className="text-[9.5px] font-semibold text-ink-faint mt-1.5">Batas hadir tiap hari</p>
               </div>
-              <StepField label="Target HK / Bulan" unit="hari" value={form.hkBulan}
-                onChange={v => setForm({ ...form, hkBulan: v })} min={0} max={31} step={1}
-                hint="0 = tanpa target. Jadi pembanding di rekap, payroll & aplikasi karyawan" />
-              <StepField label="Toleransi Telat" unit="menit" value={form.toleransi}
-                onChange={v => setForm({ ...form, toleransi: v })} min={0} max={120} step={5}
-                hint="Telat dihitung dari jam masuk + toleransi ini" />
-              <StepField label="Radius Lokasi" unit="meter" value={form.radius}
-                onChange={v => setForm({ ...form, radius: v })} min={20} max={5000} step={10}
-                hint="Jarak maksimal dari titik GPS cabang" />
+              <div className="min-w-0">
+                <StepField label="Target HK / Bulan" unit="hari" value={form.hkBulan}
+                  onChange={v => setForm({ ...form, hkBulan: v })} min={0} max={31} step={1}
+                  hint="0 = tanpa target. Jadi pembanding di rekap, payroll & aplikasi karyawan" />
+              </div>
+              <div className="min-w-0">
+                <StepField label="Toleransi Telat" unit="menit" value={form.toleransi}
+                  onChange={v => setForm({ ...form, toleransi: v })} min={0} max={120} step={5}
+                  hint="Telat dihitung dari jam masuk + toleransi ini" />
+              </div>
+              <div className="min-w-0">
+                <StepField label="Radius Lokasi" unit="meter" value={form.radius}
+                  onChange={v => setForm({ ...form, radius: v })} min={20} max={5000} step={10}
+                  hint="Jarak maksimal dari titik GPS cabang" />
+              </div>
             </div>
             <p className="text-[10px] text-ink-faint font-semibold mt-2.5 leading-relaxed flex items-start gap-1.5">
               <Lokasi className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -386,7 +432,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
             </p>
           </FieldCard>
 
-          {/* SHIFT KERJA — definisi bergantian per cabang (v12) */}
+          {/* SHIFT KERJA, definisi bergantian per cabang (v12) */}
           <FieldCard icon={WaktuReal} label="Shift Kerja (Opsional)" desc="Atur ada berapa shift & jamnya, lalu tetapkan siapa saja lewat Manajemen Karyawan">
             <ShiftEditor shifts={form.shifts} onChange={shifts => setForm(f => ({ ...f, shifts }))} />
             {form.shifts.length > 0 && (
@@ -451,7 +497,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
                       ))}
                     </div>
                   )}
-                  {/* v15 F0: PIN cabang tersimpan hash — tidak ada lagi tombol lihat.
+                  {/* v15 F0: PIN cabang tersimpan hash, tidak ada lagi tombol lihat.
                       Status: ter-hash (aman) atau legacy (otomatis ter-hash saat login pertama). */}
                   <div className="mt-2 flex items-center gap-2">
                     <span className="text-[10px] font-extrabold text-ink-soft dark:text-ink-inv/70 flex items-center gap-1.5 bg-paper dark:bg-white/5 border border-line dark:border-line-dark rounded-lg px-2 py-1">
@@ -469,18 +515,18 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
         })}
       </div>
 
-      {/* SHIFT CABANG PUSAT — Pusat tidak punya doc cabang, jadi
+      {/* SHIFT CABANG PUSAT, Pusat tidak punya doc cabang, jadi
           definisinya disimpan di koleksi pengaturan (key shift_pusat) */}
       <PusatShiftsCard licenseInfo={licenseInfo} />
 
-      {/* POS STATION — perangkat kasir, bukan akun manusia */}
+      {/* POS STATION, perangkat kasir, bukan akun manusia */}
       <StationsCard licenseInfo={licenseInfo} branches={branches} triggerAlert={triggerAlert} />
     </div>
   );
 };
 
 /* ============================================================
-   POS STATION — identitas perangkat kasir yang menetap di monitor.
+   POS STATION, identitas perangkat kasir yang menetap di monitor.
    Station = perangkat (POS-001 dst), terikat satu cabang, PIN
    sendiri. Bukan akun manusia: tanpa payroll, tanpa data pribadi.
    Kasir yang memakainya tetap login personal via PIN karyawan.
@@ -539,7 +585,7 @@ const StationsCard = ({ licenseInfo, branches, triggerAlert }) => {
                 </p>
                 <p className="text-[10px] font-bold text-ink-faint mt-0.5 flex items-center gap-2 flex-wrap">
                   <span className="flex items-center gap-1"><Cabang className="w-3 h-3" /> {s.branchName || branchName(s.branchId)}</span>
-                  {/* v15 F0: PIN station ter-hash — tidak bisa dilihat, hanya diganti */}
+                  {/* v15 F0: PIN station ter-hash, tidak bisa dilihat, hanya diganti */}
                   <span className="flex items-center gap-1"><GembokBuddy className="w-3 h-3" /> PIN {s.cred ? 'ter-hash aman' : (s.pin ? 'legacy, ter-hash saat login' : '-')}</span>
                 </p>
               </div>
@@ -563,7 +609,7 @@ const StationsCard = ({ licenseInfo, branches, triggerAlert }) => {
 };
 
 /* ============================================================
-   MANAJEMEN KARYAWAN v12 — struktur cabang-first:
+   MANAJEMEN KARYAWAN v12, struktur cabang-first:
    pilih cabang dulu, baru daftar karyawannya. Tiap karyawan
    punya Employee ID unik otomatis + PIN pribadi 6 digit +
    status aktif. PIN pribadi dipakai di Aplikasi Karyawan &
@@ -617,7 +663,7 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
     const oldRec = editingId ? employees.find(e => e.cid === editingId) : null;
     if (!editingId && form.pin.length !== 6) return triggerAlert('Atur PIN pribadi 6 digit dulu (bisa tekan Acak).', 'error');
     if (editingId && form.pin && form.pin.length !== 6) return triggerAlert('PIN harus 6 digit.', 'error');
-    // v15 F0: PIN pribadi karyawan disimpan sebagai HASH cred — plaintext
+    // v15 F0: PIN pribadi karyawan disimpan sebagai HASH cred, plaintext
     // tidak pernah dikirim ke Firestore. Edit tanpa ganti PIN = cred lama dipertahankan.
     const cred = form.pin ? await makeCred(form.pin) : null;
     const payload = {
@@ -662,7 +708,7 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
 
   const regenPin = async (e) => {
     const np = String(Math.floor(100000 + Math.random() * 900000));
-    // v15 F0: PIN baru disimpan sebagai hash — tampilkan SEKALI di toast,
+    // v15 F0: PIN baru disimpan sebagai hash, tampilkan SEKALI di toast,
     // setelah itu tidak bisa dilihat lagi dari app.
     const cred = await makeCred(np);
     updateRow(e.cid, { cred, pin: null });
@@ -708,7 +754,7 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
             </FieldCard>
           </div>
 
-          {/* v15 F2: RELASI MULTI-CABANG — karyawan bisa tercatat di >1 cabang;
+          {/* v15 F2: RELASI MULTI-CABANG, karyawan bisa tercatat di >1 cabang;
               saat login app karyawan, ia memilih cabang kerja hari itu */}
           <FieldCard icon={Cabang} label="Cabang Tambahan (Opsional)" desc="Centang bila karyawan ini juga bekerja di cabang lain">
             <div className="flex flex-wrap gap-1.5">
@@ -732,7 +778,7 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
           <FieldCard icon={JaringanBuddy} label="Penugasan Region / Area (Opsional)" desc="Untuk Area Manager, Area Supervisor & role wilayah lainnya">
             {regionOpts.length === 0 ? (
               <p className="text-[11px] font-bold text-ink-faint">
-                Belum ada region. Buat dulu di menu <b>Organisasi &amp; Region</b>, lalu tugaskan di sini — scope cabang mengikuti region yang dipilih.
+                Belum ada region. Buat dulu di menu <b>Organisasi &amp; Region</b>, lalu tugaskan di sini, scope cabang mengikuti region yang dipilih.
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
@@ -750,7 +796,7 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
                 })}
               </div>
             )}
-            <p className="text-[9.5px] text-ink-faint font-semibold mt-2">Karyawan dengan region assignment dapat memantau & mengelola seluruh cabang dalam region tersebut (sesuai permission role-nya). Pusat cukup mengganti assignment di sini — cabang & histori data tidak berubah.</p>
+            <p className="text-[9.5px] text-ink-faint font-semibold mt-2">Karyawan dengan region assignment dapat memantau & mengelola seluruh cabang dalam region tersebut (sesuai permission role-nya). Pusat cukup mengganti assignment di sini, cabang & histori data tidak berubah.</p>
           </FieldCard>
 
           <FieldCard icon={Kredensial} label="Akun Pribadi & Department" desc="Email akun WELP karyawan + department untuk HR">
@@ -763,9 +809,9 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
               </div>
               <div>
                 <label className="kicker block mb-1.5 ml-0.5">Department</label>
-                <Select value={form.department || '—'}
-                  options={['—', ...DEPARTMENTS]}
-                  onChange={v => setForm(f => ({ ...f, department: v === '—' ? '' : v }))} />
+                <Select value={form.department || 'Tanpa Departemen'}
+                  options={['Tanpa Departemen', ...DEPARTMENTS]}
+                  onChange={v => setForm(f => ({ ...f, department: v === 'Tanpa Departemen' ? '' : v }))} />
               </div>
             </div>
           </FieldCard>
@@ -990,9 +1036,9 @@ export const KaryawanTab = ({ licenseInfo, triggerAlert }) => {
 };
 
 /* ============================================================
-   MULTI OUTLET — MONITORING TERPUSAT v21.1 (realtime + laporan)
+   MULTI OUTLET, MONITORING TERPUSAT v21.1 (realtime + laporan)
    ------------------------------------------------------------
-   • Kartu per cabang: omzet, laba kotor, transaksi — dengan
+   • Kartu per cabang: omzet, laba kotor, transaksi, dengan
      INDIKATOR TREN 3/7/30 hari gaya ticker saham (▲ naik hijau,
      ▼ turun merah, ■ datar) dibanding periode sebelumnya.
    • Klik kartu → rincian laporan: KPI, tren harian, campuran
@@ -1254,7 +1300,7 @@ export const OutletTab = ({ licenseInfo }) => {
                     <h3 className="font-extrabold text-lg leading-tight mt-0.5 truncate">{detail.unit.name}</h3>
                     <p className="text-[10px] font-bold text-white/50 mt-0.5 flex items-center gap-1.5"><Lokasi className="w-3.5 h-3.5 shrink-0" />{detail.unit.location || 'Lokasi belum diisi'}</p>
                   </div>
-                  <button onClick={() => setDetail(null)} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition shrink-0">✕</button>
+                  <button onClick={() => setDetail(null)} aria-label="Tutup laporan" className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition shrink-0" style={{ minWidth: 36, minHeight: 36 }}>✕</button>
                 </div>
                 <div className="flex items-center gap-2 mt-2.5">
                   <TrendChip pct={rep.trendPct} size="lg" />
@@ -1360,13 +1406,13 @@ export const OutletTab = ({ licenseInfo }) => {
 };
 
 /* ============================================================
-   KELOLA ABSENSI (owner/admin) v12 — monitoring per HARI.
+   KELOLA ABSENSI (owner/admin) v12, monitoring per HARI.
    • Statistik hari ini (hadir / telat / belum absen / total staf)
    • Kehadiran hari ini dgn foto selfie, jam server, kategori
      Tepat Waktu / Telat (durasi "00j 15m 00d")
    • Rekap 7 hari per karyawan + status cuti disetujui
    • Riwayat dikelompokkan per hari
-   • QR + link APLIKASI KARYAWAN (?absen=1 — terpisah dari kasir)
+   • QR + link APLIKASI KARYAWAN (?absen=1, terpisah dari kasir)
    • Review pengajuan sakit / izin / cuti
    ============================================================ */
 export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBranchId }) => {
@@ -1383,7 +1429,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
   const [copied, setCopied] = useState(false);
   const [rejectFor, setRejectFor] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
-  // v15 F4/I3: tab internal — 4 subfitur tidak lagi menumpuk di satu
+  // v15 F4/I3: tab internal, 4 subfitur tidak lagi menumpuk di satu
   // halaman panjang: Monitoring · Review Cuti · QR Login · Rekap.
   const [subTab, setSubTab] = useState('monitor');
   const SUBTABS = [
@@ -1411,7 +1457,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
   const all = enrich(absensi.filter(scope));
   const todayRows = all.filter(a => a._date === today);
   // v15 F4-H7: karyawan nonaktif tidak dihitung dalam monitoring
-  // (Belum Absen / Total / rekap) — hanya yang aktif.
+  // (Belum Absen / Total / rekap), hanya yang aktif.
   const staffScope = employees.filter(e => e.status !== 'nonaktif').filter(e => filterBranch === 'ALL' || (e.branchId || 'PUSAT') === filterBranch);
 
   const stats = [
@@ -1461,7 +1507,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
   }
   byDay.sort((a, b) => b.ms - a.ms);
 
-  // ===== PENGAJUAN (cuti/izin/sakit) — scope sesuai role =====
+  // ===== PENGAJUAN (cuti/izin/sakit), scope sesuai role =====
   const pengajuanScope = pengajuan
     .filter(p => isAdmin ? p.branchId === (sessionBranchId || 'PUSAT') : (filterBranch === 'ALL' || p.branchId === filterBranch))
     .sort((a, b) => trustedTime(b).ms - trustedTime(a).ms);
@@ -1690,7 +1736,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 
       )}
 
-      {/* REKAP SHIFT & JAM KERJA (v12) — HK, total jam, telat, dan pembagian orang per shift */}
+      {/* REKAP SHIFT & JAM KERJA (v12), HK, total jam, telat, dan pembagian orang per shift */}
       {subTab === 'rekap' && (
       <>
       <Card title="Rekap Shift & Jam Kerja" icon={WaktuReal}
@@ -1887,7 +1933,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 };
 
 /* ============================================================
-   MANAJEMEN PENGAJIAN v12 — WORKFLOW NYATA:
+   MANAJEMEN PENGAJIAN v12, WORKFLOW NYATA:
    DRAFT → DIAJUKAN → DISETUJUI → DIBAYAR → SELESAI
    (DITOLAK → revisi → ajukan ulang).
    • Admin Cabang (payroll ON): buat & ajukan payroll cabangnya,
@@ -1900,7 +1946,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 const PERIODE = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 const periodeNow = () => PERIODE[new Date().getMonth()] + ' ' + new Date().getFullYear();
 
-// 'September 2026' → { start, end } (ms) — untuk rekap HK & jam kerja periode gaji
+// 'September 2026' → { start, end } (ms), untuk rekap HK & jam kerja periode gaji
 const monthRangeMs = (periodLabel) => {
   const [nama, y] = String(periodLabel || '').split(' ');
   const m = PERIODE.indexOf(nama);
@@ -2078,7 +2124,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
   const markPaid = () => {
     if (!payModal) return;
     // v15 F4-H9: paidAt memakai waktu terpercaya (offset jam server via
-    // header) — bukan jam mentah perangkat; serverTimestamp tetap resmi.
+    // header), bukan jam mentah perangkat; serverTimestamp tetap resmi.
     act(payModal, 'DIBAYAR', 'Dibayarkan oleh ' + actor, { proof: proof || payModal.proof || null, paidAt: trustedNow() });
     setPayModal(null); setProof(null);
     triggerAlert('Pembayaran gaji tercatat dengan waktu server.', 'success');
@@ -2093,7 +2139,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
     // v15.3: QR verifikasi dibuat lokal (data URL) sebelum dokumen ditulis
     const no = 'SG-' + String(rec.cid || '').slice(-6).toUpperCase();
     const qr = await qrDataUrl(`WELP-SLIP|${no}|${licenseInfo?.tenant || 'Toko'}|${rec.employeeName || ''}|${rec.period || ''}|${formatIDR(rec.amount)}`, 96);
-    // v20 FIX: buildSlipHtml kini async (QR fallback di dalamnya) —
+    // v20 FIX: buildSlipHtml kini async (QR fallback di dalamnya)  
     // document.write menunggu HTML final, bukan Promise.
     w.document.write(await buildSlipHtml({ rec, company: licenseInfo?.tenant || 'Toko', profile: coProfile, roleLabel, qr }));
     w.document.close();
@@ -2254,7 +2300,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
             })()}
             <FieldCard icon={WaktuReal} label="Periode Gaji" desc="Bulan yang dibayarkan (13 bulan terakhir, termasuk periode lampau)">
               {/* v15 F4-H8: 13 bulan terakhir (bukan hanya tahun berjalan)
-                  — payroll periode lampau kini bisa dibuat */}
+                 , payroll periode lampau kini bisa dibuat */}
               <Select value={form.period}
                 options={(() => {
                   const now = new Date();
@@ -2376,7 +2422,7 @@ export const PayrollTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
 };
 
 /* ============================================================
-   MANAJEMEN PERUSAHAAN (v14) — pusat identitas & kebijakan
+   MANAJEMEN PERUSAHAAN (v14), pusat identitas & kebijakan
    perusahaan biar rasa "ekosistem kantor"-nya terasa utuh:
    profil legal, hari kerja & off day, hak cuti tahunan
    (default 12 hari sesuai UU, bisa diatur), dokumen perusahaan
@@ -2390,7 +2436,7 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
   const { items: employees } = useTenantCol(licenseInfo, 'karyawan', 'karyawan_db');
   const { items: pengajuan } = useTenantCol(licenseInfo, 'pengajuan', 'pengajuan_db');
   const { items: dokumen, addRow: addDok, removeRow: removeDok, updateRow: updateDok } = useTenantCol(licenseInfo, 'dokumen', 'dokumen_db');
-  // v20: PENGUMUMAN — konten perusahaan yg muncul di Employee Area.
+  // v20: PENGUMUMAN, konten perusahaan yg muncul di Employee Area.
   const { items: pengumuman, addRow: addAnn, updateRow: updateAnn, removeRow: removeAnn } = useTenantCol(licenseInfo, 'pengumuman', 'pengumuman_db');
   const { items: branchesAll } = useTenantCol(licenseInfo, 'cabang', 'cabang_db');
 
@@ -2600,7 +2646,7 @@ export const PerusahaanTab = ({ licenseInfo, triggerAlert }) => {
         )}
       </Card>
 
-      {/* v20: PENGUMUMAN PERUSAHAAN — tampil di Employee Area karyawan */}
+      {/* v20: PENGUMUMAN PERUSAHAAN, tampil di Employee Area karyawan */}
       <Card title="Pengumuman Perusahaan" icon={JaringanBuddy}
         help="Pengumuman terbit langsung muncul di Employee Area seluruh karyawan (atau cabang tertentu). Cocok untuk info shift libur, rapat, kebijakan baru, dll.">
         <div className="space-y-3">

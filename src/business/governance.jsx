@@ -1,15 +1,15 @@
 // ============================================================
-// WELP BUSINESS — GOVERNANCE PAGES v20
+// WELP BUSINESS, GOVERNANCE PAGES v20
 // ------------------------------------------------------------
 // 1. OrganizationTab  : Pusat → Region/Area → Cabang (tree),
 //                       CRUD region, penetapan region per cabang,
 //                       ringkasan SDM per unit organisasi.
-// 2. RolesTab         : Role & Permission engine UI — role bawaan
+// 2. RolesTab         : Role & Permission engine UI, role bawaan
 //                       + custom role (Area Manager, HRD, Auditor,
 //                       dst.) dengan matrix permission granular
 //                       (view/create/edit/delete/approve/export/
 //                       manage) dan scope akses.
-// 3. ApprovalTab      : Pusat persetujuan — payroll & cuti yang
+// 3. ApprovalTab      : Pusat persetujuan, payroll & cuti yang
 //                       menunggu keputusan, sesuai scope.
 // 4. AuditTab         : Penjelajah audit log (append-only) dengan
 //                       filter aksi/aktor/cabang sesuai scope.
@@ -22,7 +22,7 @@ import React, { useState, useMemo } from 'react';
 import {
   JaringanBuddy, Cabang, Tim, Plus, Edit3, Trash2, Check, Search,
   PerisaiBuddy, BadgeCheck, History, BahayaBuddy, Lokasi, MedaliBuddy,
-  Kredensial, Riwayat, StrukCetak, Toko,
+  Kredensial, Riwayat, StrukCetak, Toko, ChevronDown,
 } from '../welp-icons.jsx';
 import {
   formatIDR, useTenantCol, trustedTime, dayLabel, auditLog,
@@ -73,7 +73,7 @@ const useSessionScope = (licenseInfo, employees) => {
 };
 
 /* ============================================================
-   1. ORGANIZATION TAB — Pusat → Region → Cabang
+   1. ORGANIZATION TAB, Pusat → Region → Cabang
    ============================================================ */
 export const OrganizationTab = ({ licenseInfo, triggerAlert, perms }) => {
   const { items: regions, live, addRow: addRegion, updateRow: updateRegion, removeRow: removeRegion } = useTenantCol(licenseInfo, 'regions', 'regions_db');
@@ -135,7 +135,7 @@ export const OrganizationTab = ({ licenseInfo, triggerAlert, perms }) => {
 
   return (
     <div className="max-w-4xl mx-auto w-full pb-24 space-y-5">
-      <PageTitle title="Organisasi & Region" sub="Struktur Pusat → Region/Area → Cabang — cabang adalah unit organisasi, bukan akun login"
+      <PageTitle title="Organisasi & Region" sub="Struktur Pusat → Region/Area → Cabang, cabang adalah unit organisasi, bukan akun login"
         right={<LiveDot live={live} />} />
 
       {/* ---------- FORM REGION ---------- */}
@@ -263,9 +263,9 @@ export const OrganizationTab = ({ licenseInfo, triggerAlert, perms }) => {
         <p className="text-[11px] font-semibold text-ink-faint leading-relaxed mb-3">
           Menetapkan region TIDAK mengubah data, histori, atau pengguna cabang. Area Manager yang scope-nya region ini otomatis mengelola cabang berikut.
         </p>
-        <Select label="Region" value={assignRegion ? (regionById(reg, assignRegion)?.name || '— Tanpa Region —') : '— Tanpa Region —'}
-          options={['— Tanpa Region —', ...reg.map(r => r.name)]}
-          onChange={v => setAssignRegion(v === '— Tanpa Region —' ? '' : (reg.find(r => r.name === v)?.cid || ''))} />
+        <Select label="Region" value={assignRegion ? (regionById(reg, assignRegion)?.name || 'Tanpa Region') : 'Tanpa Region'}
+          options={['Tanpa Region', ...reg.map(r => r.name)]}
+          onChange={v => setAssignRegion(v === 'Tanpa Region' ? '' : (reg.find(r => r.name === v)?.cid || ''))} />
       </Modal>
 
       <ConfirmDialog open={!!confirmDel} danger title={`Hapus region "${confirmDel?.name}"?`}
@@ -276,7 +276,7 @@ export const OrganizationTab = ({ licenseInfo, triggerAlert, perms }) => {
 };
 
 /* ============================================================
-   2. ROLES TAB — Role & Permission Engine
+   2. ROLES TAB, Role & Permission Engine
    ============================================================ */
 const ScopeBadge = ({ scope }) => {
   const s = normScope(scope);
@@ -367,108 +367,153 @@ export const RolesTab = ({ licenseInfo, triggerAlert, perms }) => {
 
   const currentPermsOf = (roleDef) => expandPerms(roleDef.permissions);
 
+  /* ============================================================
+     v21.3 REDESIGN ROLE & PERMISSION (rapi, simpel, minim scroll):
+     1. Kartu "Cara Kerja" panjang DIHAPUS, jadi satu baris tips.
+     2. Daftar role = baris ringkas (bukan grid besar berisi chips).
+     3. Editor permission pakai ACCORDION per domain, semuanya TERTUTUP
+        secara default + tombol buka/tutup semua. Tidak scroll panjang.
+     4. Tiap domain punya aksi cepat: Aktifkan Semua / Kosongkan.
+     ============================================================ */
+  const [openDoms, setOpenDoms] = useState({});              // accordion state
+  const domOpen = (k) => !!openDoms[k];
+  const setDomOpen = (k, v) => setOpenDoms(s => ({ ...s, [k]: v }));
+  const toggleAllDoms = (open) => {
+    const next = {};
+    if (open) PERM_DOMAINS.forEach(d => { next[d.key] = true; });
+    setOpenDoms(next);
+  };
+
+  // Aksi cepat per domain: aktifkan/kosongkan satu domain sekaligus.
+  const setDomain = (roleDef, dom, on) => {
+    if (!canManage) return;
+    const keys = dom.actions.map(a => `${dom.key}.${a}`);
+    if (roleDef.builtin) {
+      const current = legacyMatrix[roleDef.key] || ROLE_PRESETS_V20[roleDef.key] || [];
+      let next = on ? [...new Set([...current, ...keys])] : current.filter(k => !keys.includes(k));
+      if (roleDef.key === 'owner' && !next.includes('roles.manage')) next = [...next, 'roles.manage'];
+      persist({ ...legacyMatrix, [roleDef.key]: next }, customRoles);
+    } else {
+      const nextCustom = customRoles.map(r => {
+        if (r.key !== roleDef.key) return r;
+        const cur = r.permissions || [];
+        const next = on ? [...new Set([...cur, ...keys])] : cur.filter(k => !keys.includes(k));
+        return { ...r, permissions: next };
+      });
+      persist(legacyMatrix, nextCustom);
+    }
+  };
+
   return (
-    <div className="max-w-5xl mx-auto w-full pb-24 space-y-5">
-      <PageTitle title="Role & Permission" sub="Custom role bebas (Area Manager, HRD, Auditor, ...) + permission granular per aksi"
+    <div className="max-w-3xl mx-auto w-full pb-24 space-y-4">
+      <PageTitle title="Role & Permission" sub="Atur siapa boleh apa. Tap role, lalu centang izinnya."
         right={<LiveDot live={live} />}
       />
 
-      <Card title="Cara Kerja" icon={PerisaiBuddy}
-        help="Permission granular = domain.aksi. Contoh: payroll.approve berarti boleh menyetujui payroll. Scope menentukan data mana yang terlihat: seluruh organisasi, region tertentu, atau cabang tertentu. Untuk akun enterprise (Akun WELP), perubahan role diterapkan ke claims server melalui provisioning agar otorisasi backend ikut berubah.">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-bold">
-          {[['view', 'Melihat data'], ['create', 'Membuat'], ['edit', 'Mengubah'], ['delete', 'Menghapus'], ['approve', 'Menyetujui'], ['export', 'Mengunduh'], ['manage', 'Kontrol penuh'], ['use', 'Mengoperasikan']].map(([k, v]) => (
-            <div key={k} className="p-2.5 rounded-xl bg-paper dark:bg-white/5 border border-line dark:border-line-dark">
-              <p className="font-mono text-[10px] text-flame-700 dark:text-apricot">.{k}</p>
-              <p className="text-ink-faint mt-0.5">{v}</p>
-            </div>
-          ))}
+      <p className="text-[10.5px] font-semibold text-ink-faint leading-relaxed -mt-1">
+        Izin dibaca domain.aksi, mis. payroll.approve berarti boleh menyetujui payroll. Role bawaan sudah diisi otomatis; role custom dibuat sesuai kebutuhan (Area Manager, HRD, Auditor, dll).
+      </p>
+
+      {canManage && (
+        <Button onClick={startCreate} icon={Plus} className="w-full sm:w-auto">Buat Role Custom</Button>
+      )}
+
+      {/* DAFTAR ROLE: baris ringkas satu kolom */}
+      <Card title={`Daftar Role (${roleList.length})`} icon={PerisaiBuddy} flush>
+        <div className="divide-y divide-line/70 dark:divide-line-dark/70">
+          {roleList.map(r => {
+            const p = currentPermsOf(r);
+            const isBuiltin = r.builtin;
+            const active = editingKey === r.key;
+            return (
+              <div key={r.key} className={active ? 'bg-flame-50/60 dark:bg-flame-900/10' : ''}>
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? 'bg-flame-500 text-white' : 'bg-paper dark:bg-white/5 text-flame-600 dark:text-apricot'}`}>
+                    <PerisaiBuddy className="w-4.5 h-4.5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv truncate">{r.label}</p>
+                      {isBuiltin ? <Badge tone="grey">Bawaan</Badge> : <Badge tone="lime">Custom</Badge>}
+                      {r.atasan && <Badge tone="gold">Atasan</Badge>}
+                    </div>
+                    <p className="text-[10px] font-bold text-ink-faint mt-0.5">{p.size} izin aktif</p>
+                  </div>
+                  {canManage && (
+                    <Button variant={active ? 'primary' : 'secondary'} className="py-2 px-3 text-[11px] shrink-0"
+                      icon={active ? Check : Edit3}
+                      onClick={() => { setEditingKey(active ? null : r.key); setOpenDoms({}); }}>
+                      {active ? 'Selesai' : 'Atur'}
+                    </Button>
+                  )}
+                </div>
+
+                {/* EDITOR ACCORDION muncul tepat di bawah role yang diedit */}
+                {active && canManage && (
+                  <div className="px-4 pb-4">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <p className="text-[10.5px] font-extrabold text-ink-soft dark:text-ink-inv/70">Tap grup untuk membuka izinnya</p>
+                      <button onClick={() => toggleAllDoms(true)} className="text-[10px] font-extrabold text-flame-700 dark:text-apricot shrink-0">Buka semua</button>
+                      <button onClick={() => toggleAllDoms(false)} className="text-[10px] font-extrabold text-ink-faint shrink-0">Tutup</button>
+                    </div>
+                    <div className="space-y-2">
+                      {PERM_DOMAINS.map(dom => {
+                        const domPerms = dom.actions.map(a => `${dom.key}.${a}`);
+                        const activeCount = domPerms.filter(k => currentPermsOf(defs[editingKey]).has(k)).length;
+                        const open = domOpen(dom.key);
+                        const all = activeCount === domPerms.length;
+                        return (
+                          <div key={dom.key} className={`rounded-2xl border transition ${activeCount > 0 ? 'bg-leaf-soft/40 dark:bg-leaf/5 border-leaf/25' : 'bg-paper dark:bg-white/[.03] border-line dark:border-line-dark'}`}>
+                            <button type="button" onClick={() => setDomOpen(dom.key, !open)}
+                              className="w-full flex items-center gap-2.5 px-3.5 py-3 text-left">
+                              <span className={`min-w-0 flex-1`}>
+                                <span className="block font-extrabold text-[12px] text-ink dark:text-ink-inv truncate">{dom.label}</span>
+                                <span className="block text-[9.5px] font-semibold text-ink-faint truncate">{dom.desc}</span>
+                              </span>
+                              <span className={`text-[9px] font-extrabold px-2 py-1 rounded-full shrink-0 ${all ? 'bg-leaf text-white' : activeCount > 0 ? 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold' : 'bg-paper dark:bg-white/5 text-ink-faint'}`}>
+                                {activeCount}/{domPerms.length}
+                              </span>
+                              <ChevronDown className={`w-4 h-4 text-ink-faint shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+                            </button>
+                            {open && (
+                              <div className="px-3.5 pb-3.5">
+                                <div className="flex gap-1.5 mb-2">
+                                  <button onClick={() => setDomain(defs[editingKey], dom, true)} className="px-2.5 py-1.5 rounded-lg text-[9.5px] font-extrabold bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf press">Aktifkan Semua</button>
+                                  <button onClick={() => setDomain(defs[editingKey], dom, false)} className="px-2.5 py-1.5 rounded-lg text-[9.5px] font-extrabold bg-brick-soft dark:bg-brick/10 text-brick press">Kosongkan</button>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {domPerms.map(k => {
+                                    const on = currentPermsOf(defs[editingKey]).has(k);
+                                    return (
+                                      <button key={k} onClick={() => togglePerm(defs[editingKey], k)} disabled={!canManage}
+                                        className={`px-2.5 py-1.5 rounded-xl text-[9.5px] font-mono font-extrabold border transition press disabled:opacity-60 ${on
+                                          ? 'bg-leaf-soft dark:bg-leaf/15 border-leaf/30 text-leaf-deep dark:text-leaf'
+                                          : 'bg-surface dark:bg-white/5 border-line dark:border-line-dark text-ink-faint hover:border-flame-300'}`}>
+                                        {on ? 'OK ' : ''}{k}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {!isBuiltin && (
+                      <button onClick={() => deleteCustom(r)} className="mt-3 w-full py-2.5 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick text-[11px] font-extrabold flex items-center justify-center gap-1.5 press"><Trash2 className="w-3.5 h-3.5" /> Hapus Role Ini</button>
+                    )}
+                    <p className="text-[9.5px] font-semibold text-ink-faint mt-2.5 leading-relaxed">Perubahan tersimpan realtime dan langsung dipakai menu, guard halaman, payroll & absensi.</p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </Card>
 
-      {canManage && (
-        <Button onClick={startCreate} icon={Plus}>Buat Role Custom</Button>
-      )}
-
-      {/* Daftar role */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {roleList.map(r => {
-          const p = currentPermsOf(r);
-          const isBuiltin = r.builtin;
-          return (
-            <div key={r.key} className="card p-4.5">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-extrabold text-[13.5px] text-ink dark:text-ink-inv">{r.label}</p>
-                    {isBuiltin ? <Badge tone="grey">Bawaan</Badge> : <Badge tone="lime">Custom</Badge>}
-                    {r.atasan && <Badge tone="gold">Atasan</Badge>}
-                  </div>
-                  <p className="text-[9.5px] font-mono text-ink-faint mt-0.5 truncate">{r.key}</p>
-                </div>
-                <ScopeBadge scope={isBuiltin ? { type: (ROLE_META_V20[r.key] || {}).scope || 'org' } : r.scope} />
-              </div>
-              <p className="text-[10.5px] font-bold text-ink-faint mt-2.5">{p.size} permission aktif</p>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {[...p].slice(0, 8).map(k => (
-                  <span key={k} className="px-1.5 py-0.5 rounded-md bg-paper dark:bg-white/5 text-[8.5px] font-mono font-bold text-ink-faint">{k}</span>
-                ))}
-                {p.size > 8 && <span className="px-1.5 py-0.5 text-[8.5px] font-extrabold text-ink-faint">+{p.size - 8} lainnya</span>}
-              </div>
-              {canManage && (
-                <div className="flex gap-1.5 mt-3">
-                  <Button variant="secondary" className="flex-1 py-2 text-[11px]" icon={Edit3}
-                    onClick={() => { setEditingKey(r.key); }}>{editingKey === r.key ? 'Sedang Diedit' : 'Edit Permission'}</Button>
-                  {!isBuiltin && (
-                    <button onClick={() => deleteCustom(r)} className="p-2 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick press" aria-label="Hapus role"><Trash2 className="w-4 h-4" /></button>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Editor matrix granular */}
-      {editingKey && defs[editingKey] && (
-        <Card title={`Permission — ${defs[editingKey].label}`} icon={Kredensial}
-          help="Kartu hijau = permission aktif untuk role ini. Perubahan tersimpan realtime per tenant dan langsung dipakai menu, guard halaman, halaman monitoring, payroll & absensi.">
-          <div className="space-y-4">
-            {PERM_DOMAINS.map(dom => {
-              const domPerms = dom.actions.map(a => `${dom.key}.${a}`);
-              const activeCount = domPerms.filter(k => currentPermsOf(defs[editingKey]).has(k)).length;
-              return (
-                <div key={dom.key} className="p-3.5 rounded-2xl bg-paper dark:bg-white/[.03] border border-line dark:border-line-dark">
-                  <div className="flex items-center justify-between gap-2 mb-2.5">
-                    <div className="min-w-0">
-                      <p className="font-extrabold text-[12px] text-ink dark:text-ink-inv">{dom.label}</p>
-                      <p className="text-[9.5px] font-semibold text-ink-faint">{dom.desc}</p>
-                    </div>
-                    <span className={`text-[9px] font-extrabold px-2 py-1 rounded-full shrink-0 ${activeCount === domPerms.length ? 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf' : activeCount > 0 ? 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold' : 'bg-paper dark:bg-white/5 text-ink-faint'}`}>
-                      {activeCount}/{domPerms.length}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {domPerms.map(k => {
-                      const on = currentPermsOf(defs[editingKey]).has(k);
-                      return (
-                        <button key={k} onClick={() => togglePerm(defs[editingKey], k)} disabled={!canManage}
-                          className={`px-2.5 py-1.5 rounded-xl text-[9.5px] font-mono font-extrabold border transition press disabled:opacity-60 ${on
-                            ? 'bg-leaf-soft dark:bg-leaf/15 border-leaf/30 text-leaf-deep dark:text-leaf'
-                            : 'bg-surface dark:bg-white/5 border-line dark:border-line-dark text-ink-faint hover:border-flame-300'}`}>
-                          {on ? '✓ ' : ''}{k}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="secondary" onClick={() => setEditingKey(null)}>Selesai</Button>
-          </div>
-        </Card>
-      )}
+      {/* v21.3: editor matrix lama DIHAPUS, digantikan accordion inline
+          tepat di bawah role yang diatur (lihat DAFTAR ROLE di atas). */}
 
       {/* MODAL: create/edit custom role meta */}
       <Modal open={creating} onClose={() => { setCreating(false); setEditingKey(null); }}
@@ -516,13 +561,13 @@ export const RolesTab = ({ licenseInfo, triggerAlert, perms }) => {
                 if (v === 'Kosong (atur manual)') setForm({ ...form, permissions: [] });
                 else if (v === 'Preset: Area Manager') setForm({ ...form, permissions: [...ROLE_PRESETS_V20.areamanager] });
                 else if (v === 'Preset: HR') setForm({ ...form, permissions: [...ROLE_PRESETS_V20.hr] });
-                else if (v === 'Preset: Auditor (read-only)') setForm({ ...form, permissions: [...ROLE_PRESETS_V20.auditor] });
+                else if (v === 'Preset: Auditor (lihat saja)') setForm({ ...form, permissions: [...ROLE_PRESETS_V20.auditor] });
               }}
               options={[
                 form.permissions.length ? `Custom (${form.permissions.length} permission terpilih)` : 'Pilih preset...',
                 'Preset: Area Manager',
                 'Preset: HR',
-                'Preset: Auditor (read-only)',
+                'Preset: Auditor (lihat saja)',
                 'Kosong (atur manual)',
               ]} />
           </div>
@@ -533,7 +578,7 @@ export const RolesTab = ({ licenseInfo, triggerAlert, perms }) => {
 };
 
 /* ============================================================
-   3. APPROVAL TAB — Pusat Persetujuan
+   3. APPROVAL TAB, Pusat Persetujuan
    ============================================================ */
 export const ApprovalTab = ({ licenseInfo, triggerAlert, perms, sessionRole }) => {
   const { items: payroll, live, updateRow: updatePayroll } = useTenantCol(licenseInfo, 'payroll', 'payroll_db');
@@ -710,7 +755,7 @@ export const ApprovalTab = ({ licenseInfo, triggerAlert, perms, sessionRole }) =
 };
 
 /* ============================================================
-   4. AUDIT TAB — Penjelajah Audit Log
+   4. AUDIT TAB, Penjelajah Audit Log
    ============================================================ */
 export const AuditTab = ({ licenseInfo, perms }) => {
   const { items: audit, live } = useTenantCol(licenseInfo, 'audit_log', 'audit_log_db');
@@ -757,7 +802,7 @@ export const AuditTab = ({ licenseInfo, perms }) => {
 
   return (
     <div className="max-w-4xl mx-auto w-full pb-24 space-y-5">
-      <PageTitle title="Audit Log" sub="Jejak aktivitas append-only — tidak bisa diubah/dihapus oleh siapa pun"
+      <PageTitle title="Audit Log" sub="Jejak aktivitas append-only, tidak bisa diubah/dihapus oleh siapa pun"
         right={<LiveDot live={live} />} />
 
       <Card>

@@ -1,5 +1,5 @@
 /* ============================================================
-   WELP ICON SYSTEM v5 — "Warm Ink Buddies"
+   WELP ICON SYSTEM v5, "Warm Ink Buddies"
    ------------------------------------------------------------
    Bahasa konstruksi (satu aturan untuk semua ikon):
    1. DUA TIER.
@@ -61,10 +61,10 @@ const Spark = ({ x, y, s = 3, fill = F.honey }) => (
 );
 
 /* ============================================================
-   TIER A — BUDDY ICONS (fitur & navigasi WELP)
+   TIER A, BUDDY ICONS (fitur & navigasi WELP)
    ============================================================ */
 
-/* KASIR — mesin kasir tersenyum + kilau "cha-ching" */
+/* KASIR, mesin kasir tersenyum + kilau "cha-ching" */
 export const Kasir = (p) => (
   <Bud {...p}>
     <Spark x={8} y={8} s={3.4} />
@@ -77,7 +77,7 @@ export const Kasir = (p) => (
   </Bud>
 );
 
-/* HPP — kartu resep + koin senyum */
+/* HPP, kartu resep + koin senyum */
 export const HppCalc = (p) => (
   <Bud {...p}>
     <rect x="9" y="7" width="21" height="32" rx="4.5" fill={F.cream} {...O} />
@@ -92,7 +92,7 @@ export const HppCalc = (p) => (
   </Bud>
 );
 
-/* RIWAYAT — gulungan struk + jam */
+/* RIWAYAT, gulungan struk + jam */
 export const Riwayat = (p) => (
   <Bud {...p}>
     <path d="M13 7h18q4 0 4 4v20.5l-3.5-2.7-3.5 2.7-3.5-2.7-3.5 2.7-3.5-2.7L14 31.5l-3.5 2.7L9 31.5V11q0-4 4-4Z" fill={F.cream} {...O} />
@@ -104,7 +104,7 @@ export const Riwayat = (p) => (
   </Bud>
 );
 
-/* KAS KELUAR — dompet + koin melompat keluar */
+/* KAS KELUAR, dompet + koin melompat keluar */
 export const KasKeluar = (p) => (
   <Bud {...p}>
     <path d="M25.5 13.5h4.5" stroke={F.cocoa} strokeWidth="2.2" strokeLinecap="round" opacity=".55" />
@@ -117,7 +117,7 @@ export const KasKeluar = (p) => (
   </Bud>
 );
 
-/* DISKON — label harga kedip + jebikan gunting */
+/* DISKON, label harga kedip + jebikan gunting */
 export const Diskon = (p) => (
   <Bud {...p}>
     <path d="M36.5 7.5l4.5 4.5M41 7.5L36.5 12" stroke={F.blush} strokeWidth="2.4" strokeLinecap="round" />
@@ -132,7 +132,7 @@ export const Diskon = (p) => (
   </Bud>
 );
 
-/* STOK — peti terbuka, isintukintir menyembam */
+/* STOK, peti terbuka, isintukintir menyembam */
 export const Stok = (p) => (
   <Bud {...p}>
     <path d="M18.6 21a5.4 5.4 0 0 1 10.8 0Z" fill={F.cream} {...O} />
@@ -146,7 +146,7 @@ export const Stok = (p) => (
   </Bud>
 );
 
-/* OPNAME — papan ceklis + pensel */
+/* OPNAME, papan ceklis + pensel */
 export const Opname = (p) => (
   <Bud {...p}>
     <rect x="11" y="9" width="23" height="31" rx="4.5" fill={F.peach} {...O} />
@@ -164,7 +164,7 @@ export const Opname = (p) => (
   </Bud>
 );
 
-/* MASUK-KELUAR — gudang + kotak masuk */
+/* MASUK-KELUAR, gudang + kotak masuk */
 export const InOut = (p) => (
   <Bud {...p}>
     <rect x="8" y="14.5" width="32" height="23.5" rx="4.5" fill={F.cream} {...O} />
@@ -175,7 +175,7 @@ export const InOut = (p) => (
   </Bud>
 );
 
-/* RIWAYAT STOK — stoples kadaluarsa (mata X_X) + chip kalender */
+/* RIWAYAT STOK, stoples kadaluarsa (mata X_X) + chip kalender */
 export const StokRiwayat = (p) => (
   <Bud {...p}>
     <rect x="30" y="7.5" width="11.5" height="10.5" rx="3" fill={F.cream} {...O} />
@@ -188,7 +188,7 @@ export const StokRiwayat = (p) => (
   </Bud>
 );
 
-/* SUPPLIER — truk tersenyum + garis kecepatan */
+/* SUPPLIER, truk tersenyum + garis kecepatan */
 export const Supplier = (p) => (
   <Bud {...p}>
     <path d="M2 19.5h4M1 24.5h3.5M2 29.5h4" stroke={F.blush} strokeWidth="2.4" strokeLinecap="round" />
@@ -203,7 +203,7 @@ export const Supplier = (p) => (
   </Bud>
 );
 
-/* LAPORAN — kertas grafik menanjak + bintang */
+/* LAPORAN, kertas grafik menanjak + bintang */
 export const Laporan = (p) => (
   <Bud {...p}>
     <rect x="10" y="7" width="28" height="34" rx="4.5" fill={F.cream} {...O} />
@@ -215,7 +215,7 @@ export const Laporan = (p) => (
   </Bud>
 );
 
-/* KARYAWAN — kartu ID dengan tali gantung */
+/* KARYAWAN, kartu ID dengan tali gantung */
 export const Karyawan = (p) => (
   <Bud {...p}>
     <path d="M17 4l4.5 8M31 4l-4.5 8" stroke={F.blush} strokeWidth="2.6" strokeLinecap="round" />
@@ -227,7 +227,7 @@ export const Karyawan = (p) => (
   </Bud>
 );
 
-/* OUTLET — dua toko, depan & belakang */
+/* OUTLET, dua toko, depan & belakang */
 export const Outlet = (p) => (
   <Bud {...p}>
     <rect x="26" y="17" width="16" height="21" rx="3.5" fill={F.peach} {...O} />
@@ -239,7 +239,7 @@ export const Outlet = (p) => (
   </Bud>
 );
 
-/* TOKO — etalase dengan awning strips + bendera */
+/* TOKO, etalase dengan awning strips + bendera */
 export const Toko = (p) => (
   <Bud {...p}>
     <path d="M36 14.5V6.5" stroke={F.cocoa} strokeWidth="2.4" strokeLinecap="round" />
@@ -252,7 +252,7 @@ export const Toko = (p) => (
   </Bud>
 );
 
-/* BAYAR — dompet dengan kartu berjoget */
+/* BAYAR, dompet dengan kartu berjoget */
 export const Bayar = (p) => (
   <Bud {...p}>
     <g transform="rotate(-8 22 15)"><rect x="13" y="9" width="17" height="11" rx="2.5" fill={F.honey} {...O2} /></g>
@@ -264,7 +264,7 @@ export const Bayar = (p) => (
   </Bud>
 );
 
-/* ALAT — printer dengan kertas tersenyum */
+/* ALAT, printer dengan kertas tersenyum */
 export const Alat = (p) => (
   <Bud {...p}>
     <rect x="15" y="6" width="18" height="13" rx="2.5" fill={F.cream} {...O} />
@@ -278,7 +278,7 @@ export const Alat = (p) => (
   </Bud>
 );
 
-/* SETELAN — papan slider, bukan gir */
+/* SETELAN, papan slider, bukan gir */
 export const Setelan = (p) => (
   <Bud {...p}>
     <rect x="8" y="9" width="32" height="30" rx="6" fill={F.cream} {...O} />
@@ -292,7 +292,7 @@ export const Setelan = (p) => (
   </Bud>
 );
 
-/* TERANG — matahari senyum */
+/* TERANG, matahari senyum */
 export const Terang = (p) => (
   <Bud {...p}>
     <path d="M24 6.5v4M24 37.5v4M6.5 24h4M37.5 24h4M11.6 11.6l2.8 2.8M33.6 33.6l2.8 2.8M36.4 11.6l-2.8 2.8M14.4 33.6l-2.8 2.8" stroke={F.honey} strokeWidth="3" strokeLinecap="round" />
@@ -303,7 +303,7 @@ export const Terang = (p) => (
   </Bud>
 );
 
-/* GELAP — bulan ngantuk zzZ */
+/* GELAP, bulan ngantuk zzZ */
 export const Gelap = (p) => (
   <Bud {...p}>
     <path d="M30.5 7A16.5 16.5 0 1 0 41 28.5 13 13 0 0 1 30.5 7Z" fill={F.honey} {...O} />
@@ -314,7 +314,7 @@ export const Gelap = (p) => (
   </Bud>
 );
 
-/* KELUAR — pintu terbuka + panah pamit */
+/* KELUAR, pintu terbuka + panah pamit */
 export const Keluar = (p) => (
   <Bud {...p}>
     <rect x="8" y="9" width="18" height="30" rx="4.5" fill={F.cream} {...O} />
@@ -327,7 +327,7 @@ export const Keluar = (p) => (
   </Bud>
 );
 
-/* BERANDA — rumah senyum berpipi */
+/* BERANDA, rumah senyum berpipi */
 export const Beranda = (p) => (
   <Bud {...p}>
     <rect x="32.5" y="10" width="5.5" height="8" rx="1.8" fill={F.peach} {...O2} />
@@ -340,7 +340,7 @@ export const Beranda = (p) => (
   </Bud>
 );
 
-/* PINDAI — scanner handheld + sinar */
+/* PINDAI, scanner handheld + sinar */
 export const Pindai = (p) => (
   <Bud {...p}>
     <path d="M34.5 14.5h6.5M33 20h8M34.5 25.5h6.5" stroke={F.honey} strokeWidth="2.8" strokeLinecap="round" />
@@ -350,7 +350,7 @@ export const Pindai = (p) => (
   </Bud>
 );
 
-/* KERANJANG — keranjang miring tersenyum */
+/* KERANJANG, keranjang miring tersenyum */
 export const Keranjang = (p) => (
   <Bud {...p}>
     <g transform="rotate(-4 24 24)">
@@ -361,7 +361,7 @@ export const Keranjang = (p) => (
   </Bud>
 );
 
-/* UANG — lembar bill dengan wajah di oval */
+/* UANG, lembar bill dengan wajah di oval */
 export const Uang = (p) => (
   <Bud {...p}>
     <rect x="6" y="14" width="36" height="20" rx="4.5" fill={F.cream} {...O} />
@@ -374,7 +374,7 @@ export const Uang = (p) => (
   </Bud>
 );
 
-/* QRIS — ubin QR ramah */
+/* QRIS, ubin QR ramah */
 export const Qris = (p) => (
   <Bud {...p}>
     <rect x="7" y="7" width="34" height="34" rx="7" fill={F.cream} {...O} />
@@ -390,7 +390,7 @@ export const Qris = (p) => (
   </Bud>
 );
 
-/* DOMPET — dompet tebal untuk e-wallet */
+/* DOMPET, dompet tebal untuk e-wallet */
 export const Dompet = (p) => (
   <Bud {...p}>
     <rect x="8" y="13" width="32" height="23" rx="6.5" fill={F.flame} {...O} />
@@ -427,14 +427,14 @@ export const Perhatian = (p) => (
 );
 
 /* ============================================================
-   KATEGORI PRODUK — keluarga ikon WELP (Buddy tier).
+   KATEGORI PRODUK, keluarga ikon WELP (Buddy tier).
    Setiap kategori punya bentuk asli sendiri (bukan kotak
-   generik): konstruksi sama dengan ikon fitur — grid 48,
+   generik): konstruksi sama dengan ikon fitur, grid 48,
    outline 3 currentColor, flat fill 2-3 tone, sudut bulat,
    wajah hanya pada objek, aksen flame/honey yang sengaja.
    ============================================================ */
 
-/* MAKANAN — burger berlapis, biji sesame, senyum di top bun */
+/* MAKANAN, burger berlapis, biji sesame, senyum di top bun */
 export const KatMakanan = (p) => (
   <Bud {...p}>
     <path d="M10 23q0-9.5 14-9.5T38 23q0 2.4-2.4 2.4H12.4Q10 25.4 10 23Z" fill={F.honey} {...O} />
@@ -445,7 +445,7 @@ export const KatMakanan = (p) => (
   </Bud>
 );
 
-/* MINUMAN — gelas minuman dingin, sedotan miring, gelembung */
+/* MINUMAN, gelas minuman dingin, sedotan miring, gelembung */
 export const KatMinuman = (p) => (
   <Bud {...p}>
     <path d="M16.5 8.5 26 12" stroke={F.cocoa} strokeWidth="2.4" strokeLinecap="round" />
@@ -456,7 +456,7 @@ export const KatMinuman = (p) => (
   </Bud>
 );
 
-/* FASHION — kaos berkerah dengan label harga kecil */
+/* FASHION, kaos berkerah dengan label harga kecil */
 export const KatFashion = (p) => (
   <Bud {...p}>
     <path d="M18 9.5 24 12l6-2.5 9.5 5.5-2.8 6.5-3.7-1.5V38q0 1.5-1.5 1.5h-15Q15 39.5 15 38V20l-3.7 1.5L8.5 15Z" fill={F.flame} {...O} />
@@ -467,7 +467,7 @@ export const KatFashion = (p) => (
   </Bud>
 );
 
-/* JASA — kunci pas yang bekerja + percikan hasil */
+/* JASA, kunci pas yang bekerja + percikan hasil */
 export const KatJasa = (p) => (
   <Bud {...p}>
     <Spark x={37} y={10} s={3} />
@@ -478,7 +478,7 @@ export const KatJasa = (p) => (
   </Bud>
 );
 
-/* GROCERIES — keranjang belanja berisi roti & sayur */
+/* GROCERIES, keranjang belanja berisi roti & sayur */
 export const KatGroceries = (p) => (
   <Bud {...p}>
     <path d="M20.5 13.5q4-3.4 7 0" stroke={F.leaf} strokeWidth="2.6" strokeLinecap="round" fill="none" />
@@ -489,7 +489,7 @@ export const KatGroceries = (p) => (
   </Bud>
 );
 
-/* ELEKTRONIK — ponsel mengisi daya, layar tersenyum */
+/* ELEKTRONIK, ponsel mengisi daya, layar tersenyum */
 export const KatElektronik = (p) => (
   <Bud {...p}>
     <rect x="14" y="6.5" width="20" height="35" rx="5" fill={F.cream} {...O} />
@@ -500,7 +500,7 @@ export const KatElektronik = (p) => (
   </Bud>
 );
 
-/* OTOMOTIF — mobil kecil gembira, roda bulat */
+/* OTOMOTIF, mobil kecil gembira, roda bulat */
 export const KatOtomotif = (p) => (
   <Bud {...p}>
     <path d="M10.5 28q0-4 4-4.4l3-4.6q1-1.5 2.8-1.5h7.4q1.8 0 2.8 1.5l3 4.6q4 .4 4 4.4v4.5q0 1.5-1.5 1.5h-24q-1.5 0-1.5-1.5Z" fill={F.flame} {...O} />
@@ -510,7 +510,7 @@ export const KatOtomotif = (p) => (
   </Bud>
 );
 
-/* RUMAH TANGGA — rumah dengan hati hangat */
+/* RUMAH TANGGA, rumah dengan hati hangat */
 export const KatRumahTangga = (p) => (
   <Bud {...p}>
     <path d="M9.5 23.5 24 11l14.5 12.5" stroke={F.flame} strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
@@ -519,7 +519,7 @@ export const KatRumahTangga = (p) => (
   </Bud>
 );
 
-/* KESEHATAN — kapsul plus apotek */
+/* KESEHATAN, kapsul plus apotek */
 export const KatKesehatan = (p) => (
   <Bud {...p}>
     <g transform="rotate(-38 24 24)">
@@ -530,7 +530,7 @@ export const KatKesehatan = (p) => (
   </Bud>
 );
 
-/* HOBI — controller game beraksi */
+/* HOBI, controller game beraksi */
 export const KatHobi = (p) => (
   <Bud {...p}>
     <path d="M14.5 15.5h19q6.5 0 7.5 7l1 9q.4 4.5-3.4 4.5-2.4 0-3.6-2l-2-3.5H15l-2 3.5q-1.2 2-3.6 2-3.8 0-3.4-4.5l1-9q1-7 7.5-7Z" fill={F.honey} {...O} />
@@ -539,7 +539,7 @@ export const KatHobi = (p) => (
   </Bud>
 );
 
-/* BUKU — buku terbuka, halaman berkibar */
+/* BUKU, buku terbuka, halaman berkibar */
 export const KatBuku = (p) => (
   <Bud {...p}>
     <path d="M24 13.5q-4.5-3-11.5-3-1.5 0-1.5 1.5V33q0 1.5 1.5 1.5 7 0 11.5 3Z" fill={F.peach} {...O} />
@@ -548,7 +548,7 @@ export const KatBuku = (p) => (
   </Bud>
 );
 
-/* IBU & BAYI — botol susu dengan takaran */
+/* IBU & BAYI, botol susu dengan takaran */
 export const KatIbuBayi = (p) => (
   <Bud {...p}>
     <path d="M20 7.5h8v4h-8Z" fill={F.honey} {...O} />
@@ -559,7 +559,7 @@ export const KatIbuBayi = (p) => (
   </Bud>
 );
 
-/* HEWAN — jejak kaki sahabat */
+/* HEWAN, jejak kaki sahabat */
 export const KatHewan = (p) => (
   <Bud {...p}>
     <ellipse cx="16.5" cy="17" rx="3.4" ry="4.4" fill={F.honey} {...O} />
@@ -570,7 +570,7 @@ export const KatHewan = (p) => (
   </Bud>
 );
 
-/* MAINAN — bola mainan bergaris + balok kayu */
+/* MAINAN, bola mainan bergaris + balok kayu */
 export const KatMainan = (p) => (
   <Bud {...p}>
     <circle cx="21.5" cy="20" r="10.5" fill={F.cream} {...O} />
@@ -581,7 +581,7 @@ export const KatMainan = (p) => (
   </Bud>
 );
 
-/* HADIAH — kado dengan pita melompat */
+/* HADIAH, kado dengan pita melompat */
 export const KatHadiah = (p) => (
   <Bud {...p}>
     <path d="M22.5 13.5q-4.5-6 1-6.8 3.4-.4 5.2 4.4M26 13.5q4.5-6-1-6.8" stroke={F.flame} strokeWidth="2.6" strokeLinecap="round" fill="none" />
@@ -592,7 +592,7 @@ export const KatHadiah = (p) => (
   </Bud>
 );
 
-/* LAINNYA — label serbaguna dengan bintang WELP */
+/* LAINNYA, label serbaguna dengan bintang WELP */
 export const KatLainnya = (p) => (
   <Bud {...p}>
     <path d="M25.5 8.5h9q2 0 3.5 1.5t1.5 3.5v9q0 2-1.4 3.4L24.4 39.6q-1.8 1.8-3.9-.3L8.7 27.5q-2.1-2.1-.3-3.9Z" fill={F.peach} {...O} />
@@ -630,7 +630,7 @@ export const CategoryIcon = ({ name, className = 'w-5 h-5', ...rest }) => {
 
 /* __WELPIE__ */
 /* ============================================================
-   TIER B — UTILITY ICONS (24 grid, stroke 2.4, currentColor)
+   TIER B, UTILITY ICONS (24 grid, stroke 2.4, currentColor)
    Aksi & kontrol: sengaja polos agar buddy icons menonjol.
    ============================================================ */
 const U = ({ className = 'w-5 h-5', children, ...rest }) => (
@@ -640,7 +640,7 @@ const U = ({ className = 'w-5 h-5', children, ...rest }) => (
 
 export const X = (p) => <U {...p}><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" /></U>;
 export const Check = (p) => <U {...p}><path d="M5 12.8 10 17.5 19 7" /></U>;
-// v21 — ikon domain finansial (void & refund)
+// v21, ikon domain finansial (void & refund)
 export const Ban = (p) => <U {...p}><circle cx="12" cy="12" r="8.5" /><path d="M6 6l12 12" /></U>;
 export const Undo2 = (p) => <U {...p}><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></U>;
 export const Plus = (p) => <U {...p}><path d="M12 5.5v13M5.5 12h13" /></U>;
@@ -717,7 +717,7 @@ export const Sun = Terang;
 export const Moon = Gelap;
 
 /* ============================================================
-   TIER A+ — BUDDY ICONS GENERASI 2 (v8)
+   TIER A+, BUDDY ICONS GENERASI 2 (v8)
    Semua ikon FITUR wajib Buddy (permintaan user, tanpa kecuali):
    biaya variabel, bahan baku, saran harga jual, cek kompetitor,
    lisensi, mode retail/F&B, omzet, laba kotor, absensi, gaji,
@@ -737,7 +737,7 @@ const Fingerprint = ({ x = 24, y = 25 }) => (
   </g>
 );
 
-/* BIAYA VARIABEL — label harga + persen + koin */
+/* BIAYA VARIABEL, label harga + persen + koin */
 export const BiayaVariabel = (p) => (
   <Bud {...p}>
     <path d="M12 10h17q2 0 3.4 1.4l6 6q1.6 1.6 0 3.2l-12 12q-1.4 1.4-3.2 0l-6-6Q15.8 25.2 15.8 23V12q0-2-2-2Z" fill={F.cream} transform="translate(-2 -2)" {...O} />
@@ -750,7 +750,7 @@ export const BiayaVariabel = (p) => (
   </Bud>
 );
 
-/* BAHAN BAKU — karung tepung tersenyum */
+/* BAHAN BAKU, karung tepung tersenyum */
 export const BahanBaku = (p) => (
   <Bud {...p}>
     <path d="M16 13c-4.5 7-6 22-1 26.5q1 1 2.4 1h13.2q1.4 0 2.4-1c5-4.5 3.5-19.5-1-26.5" fill={F.cream} {...O} />
@@ -760,7 +760,7 @@ export const BahanBaku = (p) => (
   </Bud>
 );
 
-/* SARAN HARGA JUAL — tag + bintang + panah naik */
+/* SARAN HARGA JUAL, tag + bintang + panah naik */
 export const HargaJual = (p) => (
   <Bud {...p}>
     <path d="M8 22V11q0-2 2-2h11q1.6 0 2.8 1.2l13 13q1.4 1.4 0 2.8l-11 11q-1.4 1.4-2.8 0l-13-13Q8 23.6 8 22Z" fill={F.flame} {...O} />
@@ -770,7 +770,7 @@ export const HargaJual = (p) => (
   </Bud>
 );
 
-/* CEK KOMPETITOR — teropong mengamati */
+/* CEK KOMPETITOR, teropong mengamati */
 export const Kompetitor = (p) => (
   <Bud {...p}>
     <path d="M14 8h6q2 0 2 2v8h-10v-8q0-2 2-2ZM28 8h6q2 0 2 2v8H26v-8q0-2 2-2Z" fill={F.cocoa} {...O} />
@@ -783,7 +783,7 @@ export const Kompetitor = (p) => (
   </Bud>
 );
 
-/* LISENSI — sertifikat + segel pita */
+/* LISENSI, sertifikat + segel pita */
 export const Lisensi = (p) => (
   <Bud {...p}>
     <rect x="7" y="7" width="30" height="24" rx="4" fill={F.cream} {...O} />
@@ -794,7 +794,7 @@ export const Lisensi = (p) => (
   </Bud>
 );
 
-/* MODE RETAIL — rak toko berisi barang */
+/* MODE RETAIL, rak toko berisi barang */
 export const ModeRetail = (p) => (
   <Bud {...p}>
     <path d="M8 20v17q0 2 2 2h28q2 0 2-2V20" fill={F.cream} {...O} />
@@ -804,7 +804,7 @@ export const ModeRetail = (p) => (
   </Bud>
 );
 
-/* MODE F&B — burger + minuman (logo makanan) */
+/* MODE F&B, burger + minuman (logo makanan) */
 export const ModeFnb = (p) => (
   <Bud {...p}>
     <path d="M9 20q0-9 12-9t12 9Z" fill={F.honey} {...O} />
@@ -816,7 +816,7 @@ export const ModeFnb = (p) => (
   </Bud>
 );
 
-/* OMZET — tumpukan koin + panah naik */
+/* OMZET, tumpukan koin + panah naik */
 export const Omzet = (p) => (
   <Bud {...p}>
     <ellipse cx="17" cy="34" rx="11" ry="4.5" fill={F.honey} {...O} />
@@ -828,7 +828,7 @@ export const Omzet = (p) => (
   </Bud>
 );
 
-/* LABA KOTOR — kantong uang tersenyum */
+/* LABA KOTOR, kantong uang tersenyum */
 export const LabaKotor = (p) => (
   <Bud {...p}>
     <path d="M19 10h10l-2.5 5q7.5 4.5 7.5 14 0 8-10 8t-10-8q0-9.5 7.5-14Z" fill={F.flame} {...O} />
@@ -839,7 +839,7 @@ export const LabaKotor = (p) => (
   </Bud>
 );
 
-/* PENGAJIAN — slip gaji + koin */
+/* PENGAJIAN, slip gaji + koin */
 export const Penggajian = (p) => (
   <Bud {...p}>
     <path d="M12 6h20q2 0 2 2v32l-3.5-2.5L27 40l-3.5-2.5L20 40l-3.5-2.5L13 40l-3-.5V8q0-2 2-2Z" fill={F.cream} {...O} />
@@ -849,7 +849,7 @@ export const Penggajian = (p) => (
   </Bud>
 );
 
-/* ABSENSI — sidik jari terverifikasi */
+/* ABSENSI, sidik jari terverifikasi */
 export const Absensi = (p) => (
   <Bud {...p}>
     <rect x="7" y="7" width="34" height="34" rx="9" fill={F.cream} {...O} />
@@ -859,7 +859,7 @@ export const Absensi = (p) => (
   </Bud>
 );
 
-/* ABSEN MASUK — sidik jari + matahari */
+/* ABSEN MASUK, sidik jari + matahari */
 export const AbsenMasuk = (p) => (
   <Bud {...p}>
     <Fingerprint x={21} y={27} />
@@ -868,7 +868,7 @@ export const AbsenMasuk = (p) => (
   </Bud>
 );
 
-/* ABSEN PULANG — sidik jari + bulan */
+/* ABSEN PULANG, sidik jari + bulan */
 export const AbsenPulang = (p) => (
   <Bud {...p}>
     <Fingerprint x={21} y={27} />
@@ -877,7 +877,7 @@ export const AbsenPulang = (p) => (
   </Bud>
 );
 
-/* CABANG — toko + pin lokasi */
+/* CABANG, toko + pin lokasi */
 export const Cabang = (p) => (
   <Bud {...p}>
     <path d="M6 18v18q0 2 2 2h20q2 0 2-2V18" fill={F.cream} {...O} />
@@ -888,7 +888,7 @@ export const Cabang = (p) => (
   </Bud>
 );
 
-/* TIM — kartu ID karyawan */
+/* TIM, kartu ID karyawan */
 export const Tim = (p) => (
   <Bud {...p}>
     <rect x="16" y="7" width="26" height="34" rx="5" fill={F.cream} {...O} />
@@ -901,7 +901,7 @@ export const Tim = (p) => (
   </Bud>
 );
 
-/* BUKTI TRANSFER — uang + foto bukti */
+/* BUKTI TRANSFER, uang + foto bukti */
 export const BuktiTransfer = (p) => (
   <Bud {...p}>
     <rect x="6" y="8" width="30" height="20" rx="4" fill={F.cream} {...O} transform="rotate(-4 21 18)" />
@@ -912,7 +912,7 @@ export const BuktiTransfer = (p) => (
   </Bud>
 );
 
-/* SLIP GAJI — printer mencetak slip */
+/* SLIP GAJI, printer mencetak slip */
 export const SlipGaji = (p) => (
   <Bud {...p}>
     <path d="M13 6h22v9H13z" fill={F.peach} {...O2} />
@@ -923,7 +923,7 @@ export const SlipGaji = (p) => (
   </Bud>
 );
 
-/* LOKASI — pin peta tersenyum */
+/* LOKASI, pin peta tersenyum */
 export const Lokasi = (p) => (
   <Bud {...p}>
     <path d="M24 4q10 0 10 10 0 8-8.6 18.4a1.9 1.9 0 0 1-2.8 0Q14 22 14 14 14 4 24 4Z" fill={F.flame} {...O} />
@@ -933,7 +933,7 @@ export const Lokasi = (p) => (
   </Bud>
 );
 
-/* KREDENSI — kunci tersenyum (password & PIN cabang) */
+/* KREDENSI, kunci tersenyum (password & PIN cabang) */
 export const Kredensial = (p) => (
   <Bud {...p}>
     <circle cx="16" cy="16" r="9" fill={F.honey} {...O} />
@@ -943,7 +943,7 @@ export const Kredensial = (p) => (
   </Bud>
 );
 
-/* QRIS DINAMIS — QR + koin (nominal otomatis) */
+/* QRIS DINAMIS, QR + koin (nominal otomatis) */
 export const QrDinamis = (p) => (
   <Bud {...p}>
     <rect x="6" y="6" width="14" height="14" rx="3.5" fill={F.cocoa} {...O} />
@@ -958,7 +958,7 @@ export const QrDinamis = (p) => (
   </Bud>
 );
 
-/* UNGGAH QRIS — QR + panah unggah */
+/* UNGGAH QRIS, QR + panah unggah */
 export const UnggahQris = (p) => (
   <Bud {...p}>
     <rect x="6" y="6" width="14" height="14" rx="3.5" fill={F.cocoa} {...O} />
@@ -972,7 +972,7 @@ export const UnggahQris = (p) => (
   </Bud>
 );
 
-/* PERANGKAT TERIKAT — HP + centang (1 device per sesi meja) */
+/* PERANGKAT TERIKAT, HP + centang (1 device per sesi meja) */
 export const Perangkat = (p) => (
   <Bud {...p}>
     <rect x="10" y="4" width="22" height="40" rx="6" fill={F.cream} {...O} />
@@ -982,7 +982,7 @@ export const Perangkat = (p) => (
   </Bud>
 );
 
-/* WAKTU REALTIME — jam + denyut */
+/* WAKTU REALTIME, jam + denyut */
 export const WaktuReal = (p) => (
   <Bud {...p}>
     <circle cx="24" cy="25" r="17" fill={F.cream} {...O} />
@@ -992,7 +992,7 @@ export const WaktuReal = (p) => (
   </Bud>
 );
 
-/* MONITOR PUSAT — layar memantau dua cabang */
+/* MONITOR PUSAT, layar memantau dua cabang */
 export const MonitorPusat = (p) => (
   <Bud {...p}>
     <rect x="4" y="6" width="40" height="27" rx="5" fill={F.cocoa} {...O} />
@@ -1004,7 +1004,20 @@ export const MonitorPusat = (p) => (
   </Bud>
 );
 
-/* PAKET — kotak (harga grosir) */
+/* MONITOR OPNAME, papan cek stok lintas cabang (v21.3) */
+export const MonitorBuddy = (p) => (
+  <Bud {...p}>
+    <rect x="7" y="7" width="34" height="28" rx="5" fill={F.honey} {...O} />
+    <rect x="11" y="11.5" width="26" height="19" rx="3" fill={F.cream} stroke="none" />
+    <path d="M15 17h10M15 22h14M15 27h8" {...O2} stroke={F.cocoa} />
+    <circle cx="30.5" cy="17" r="2.6" fill={F.leaf} stroke="none" />
+    <circle cx="33.5" cy="27" r="2.6" fill={F.flame} stroke="none" />
+    <path d="M24 35v6M16 43q8-3.5 16 0" {...O} />
+    <Face x={24} y={24} s={0.9} w={1.4} />
+  </Bud>
+);
+
+/* PAKET, kotak (harga grosir) */
 export const PaketBuddy = (p) => (
   <Bud {...p}>
     <path d="M8 17 24 9l16 8v15l-16 8-16-8Z" fill={F.peach} {...O} />
@@ -1014,7 +1027,7 @@ export const PaketBuddy = (p) => (
   </Bud>
 );
 
-/* ORANG — pelanggan (harga ecer) */
+/* ORANG, pelanggan (harga ecer) */
 export const OrangBuddy = (p) => (
   <Bud {...p}>
     <circle cx="24" cy="16" r="9" fill={F.peach} {...O} />
@@ -1024,7 +1037,7 @@ export const OrangBuddy = (p) => (
   </Bud>
 );
 
-/* ROKET — harga app online (ojol) */
+/* ROKET, harga app online (ojol) */
 export const RoketBuddy = (p) => (
   <Bud {...p}>
     <path d="M20 30q-6-12 4-21 12-2 12-2t-2 12q-9 10-14 11Z" fill={F.cream} {...O} />
@@ -1035,7 +1048,7 @@ export const RoketBuddy = (p) => (
   </Bud>
 );
 
-/* STRUK CETAK — struk bergigi tersenyum */
+/* STRUK CETAK, struk bergigi tersenyum */
 export const StrukCetak = (p) => (
   <Bud {...p}>
     <path d="M12 5h24q2 0 2 2v33l-4-2.6-4 2.6-4-2.6-4 2.6-4-2.6-4 2.6-4-2.6V7q0-2 2-2Z" fill={F.cream} {...O} />
@@ -1044,7 +1057,7 @@ export const StrukCetak = (p) => (
   </Bud>
 );
 
-/* KAMERA — kamera tersenyum */
+/* KAMERA, kamera tersenyum */
 export const KameraBuddy = (p) => (
   <Bud {...p}>
     <path d="M16 12l2.5-4h11L32 12h6q3 0 3 3v20q0 3-3 3H10q-3 0-3-3V15q0-3 3-3Z" fill={F.cocoa} {...O} />
@@ -1055,7 +1068,7 @@ export const KameraBuddy = (p) => (
   </Bud>
 );
 
-/* UNDUH — tray + panah turun */
+/* UNDUH, tray + panah turun */
 export const UnduhBuddy = (p) => (
   <Bud {...p}>
     <path d="M8 30v6q0 3 3 3h26q3 0 3-3v-6" fill={F.cream} {...O} />
@@ -1064,7 +1077,7 @@ export const UnduhBuddy = (p) => (
   </Bud>
 );
 
-/* UNGGAH — tray + panah naik */
+/* UNGGAH, tray + panah naik */
 export const UnggahBuddy = (p) => (
   <Bud {...p}>
     <path d="M8 30v6q0 3 3 3h26q3 0 3-3v-6" fill={F.cream} {...O} />
@@ -1073,7 +1086,7 @@ export const UnggahBuddy = (p) => (
   </Bud>
 );
 
-/* KOIN — koin berlapis tersenyum */
+/* KOIN, koin berlapis tersenyum */
 export const KoinBuddy = (p) => (
   <Bud {...p}>
     <circle cx="19" cy="24" r="13" fill={F.honey} {...O} />
@@ -1084,7 +1097,7 @@ export const KoinBuddy = (p) => (
   </Bud>
 );
 
-/* GRAFIK NAIK — bar chart + tren naik */
+/* GRAFIK NAIK, bar chart + tren naik */
 export const GrafikNaik = (p) => (
   <Bud {...p}>
     <rect x="7" y="26" width="8" height="15" rx="2.5" fill={F.peach} {...O2} />
@@ -1095,7 +1108,7 @@ export const GrafikNaik = (p) => (
   </Bud>
 );
 
-/* JARINGAN — database + sinkron */
+/* JARINGAN, database + sinkron */
 export const JaringanBuddy = (p) => (
   <Bud {...p}>
     <ellipse cx="22" cy="9" rx="14" ry="5" fill={F.cocoa} {...O} />
@@ -1105,7 +1118,7 @@ export const JaringanBuddy = (p) => (
   </Bud>
 );
 
-/* LAYAR — monitor + HP */
+/* LAYAR, monitor + HP */
 export const LayarBuddy = (p) => (
   <Bud {...p}>
     <path d="M4 10q0-3 3-3h22q3 0 3 3v14H4Z" fill={F.cocoa} {...O} />
@@ -1118,7 +1131,7 @@ export const LayarBuddy = (p) => (
   </Bud>
 );
 
-/* MEDALI — terlaris / terbaik */
+/* MEDALI, terlaris / terbaik */
 export const MedaliBuddy = (p) => (
   <Bud {...p}>
     <path d="M14 5l5 10M34 5l-5 10" {...O} stroke={F.flame} />
@@ -1128,7 +1141,7 @@ export const MedaliBuddy = (p) => (
   </Bud>
 );
 
-/* BAHAYA — peringatan khawatir */
+/* BAHAYA, peringatan khawatir */
 export const BahayaBuddy = (p) => (
   <Bud {...p}>
     <path d="M20.5 9 6.5 33q-1.6 3 1.4 4.8h28.2q3-1.8 1.4-4.8l-14-24q-1.7-2.8-3.5 0Z" fill={F.honey} {...O} />
@@ -1136,7 +1149,7 @@ export const BahayaBuddy = (p) => (
   </Bud>
 );
 
-/* FILE EXCEL — spreadsheet */
+/* FILE EXCEL, spreadsheet */
 export const FileExcelBuddy = (p) => (
   <Bud {...p}>
     <path d="M11 5h17l9 9v27q0 2-2 2H11q-2 0-2-2V7q0-2 2-2Z" fill={F.cream} {...O} />
@@ -1146,7 +1159,7 @@ export const FileExcelBuddy = (p) => (
   </Bud>
 );
 
-/* GEMBOK — keamanan tersenyum */
+/* GEMBOK, keamanan tersenyum */
 export const GembokBuddy = (p) => (
   <Bud {...p}>
     <rect x="10" y="20" width="28" height="22" rx="6" fill={F.flame} {...O} />
@@ -1156,7 +1169,7 @@ export const GembokBuddy = (p) => (
   </Bud>
 );
 
-/* GEMBOK TERBUKA — akses dibuka */
+/* GEMBOK TERBUKA, akses dibuka */
 export const GembokBuka = (p) => (
   <Bud {...p}>
     <rect x="10" y="20" width="28" height="22" rx="6" fill={F.leaf} {...O} />
@@ -1166,7 +1179,7 @@ export const GembokBuka = (p) => (
   </Bud>
 );
 
-/* PERISAI — PIN/akses terverifikasi */
+/* PERISAI, PIN/akses terverifikasi */
 export const PerisaiBuddy = (p) => (
   <Bud {...p}>
     <path d="M24 4q10 4 16 4 0 20-16 34Q8 28 8 8q6 0 16-4Z" fill={F.flame} {...O} />
@@ -1174,7 +1187,7 @@ export const PerisaiBuddy = (p) => (
   </Bud>
 );
 
-/* HAPUS — backspace tersenyum (keypad PIN) */
+/* HAPUS, backspace tersenyum (keypad PIN) */
 export const HapusBuddy = (p) => (
   <Bud {...p}>
     <path d="M17 8h19q3 0 3 3v26q0 3-3 3H17L4 24Z" fill={F.cream} {...O} />
@@ -1183,7 +1196,7 @@ export const HapusBuddy = (p) => (
   </Bud>
 );
 
-/* STOK MASUK — barang masuk gudang */
+/* STOK MASUK, barang masuk gudang */
 export const StokMasuk = (p) => (
   <Bud {...p}>
     <path d="M8 24h10v10q0 2 2 2h8q2 0 2-2V24h10v14q0 3-3 3H11q-3 0-3-3Z" fill={F.peach} {...O} />
@@ -1191,7 +1204,7 @@ export const StokMasuk = (p) => (
   </Bud>
 );
 
-/* STOK KELUAR — barang keluar gudang */
+/* STOK KELUAR, barang keluar gudang */
 export const StokKeluar = (p) => (
   <Bud {...p}>
     <path d="M8 24h10v10q0 2 2 2h8q2 0 2-2V24h10v14q0 3-3 3H11q-3 0-3-3Z" fill={F.peach} {...O} />
@@ -1199,7 +1212,7 @@ export const StokKeluar = (p) => (
   </Bud>
 );
 
-/* WIFI — sinyal tersenyum */
+/* WIFI, sinyal tersenyum */
 export const WifiBuddy = (p) => (
   <Bud {...p}>
     <path d="M5 18q19-17 38 0M11 25q13-11 26 0M17 32q7-6 14 0" {...O2} />
@@ -1208,7 +1221,7 @@ export const WifiBuddy = (p) => (
   </Bud>
 );
 
-/* BLUETOOTH — koneksi printer */
+/* BLUETOOTH, koneksi printer */
 export const BluetoothBuddy = (p) => (
   <Bud {...p}>
     <rect x="7" y="7" width="34" height="34" rx="9" fill={F.sky} {...O} />

@@ -1,5 +1,5 @@
 // ============================================================
-// COMMAND CENTER WELP v20 — pusat kendali perusahaan.
+// COMMAND CENTER WELP v20, pusat kendali perusahaan.
 // Semua angka diambil dari data nyata (pos_history_db, expense_db,
 // product_stock_db) + data realtime Firestore: pengajuan payroll &
 // cuti yang menunggu keputusan, kehadiran hari ini, pengumuman
@@ -87,7 +87,19 @@ export const HomeTab = ({ licenseInfo, setActive, activeTab, perms }) => {
 
     const lowStock = products.filter(p => (p.stock || 0) <= threshold).sort((a, b) => (a.stock || 0) - (b.stock || 0));
 
-    setSnapshot({ txs, todayTxs, omzetToday, expenseToday, grossProfit, profitKnown, lowStock, products });
+    // v21.4 RADAR: omzet kemarin + produk juara 7 hari (utk kartu radar)
+    const yestKey = new Date(Date.now() - 86400000).toDateString();
+    const omzetYest = txs.filter(t2 => { const d = new Date(t2.date); return countsAsSale(t2) && d.toDateString() === yestKey; }).reduce((s, t2) => s + netTotalOf(t2), 0);
+    const prodMap = new Map();
+    txs.forEach(t2 => {
+      if (!countsAsSale(t2)) return;
+      const age = Date.now() - (new Date(t2.date).getTime() || 0);
+      if (age > 7 * 86400000) return;
+      (t2.items || []).forEach(i => prodMap.set(i.name, (prodMap.get(i.name) || 0) + Number(i.qty || 0)));
+    });
+    const topProduct = [...prodMap.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+
+    setSnapshot({ txs, todayTxs, omzetToday, expenseToday, grossProfit, profitKnown, lowStock, products, omzetYest, topProduct });
   }, [activeTab]);
 
   if (!snapshot) return <div className="max-w-6xl mx-auto w-full pb-24" />;
@@ -156,7 +168,30 @@ export const HomeTab = ({ licenseInfo, setActive, activeTab, perms }) => {
         )}
       </div>
 
-      {/* v20: PUSAT KENDALI — persetujuan, organisasi, kehadiran */}
+      {/* v21.4: RADAR BISNIS RINGKAS (detail lengkap di menu Promo & Loyalitas > Radar) */}
+      {(() => {
+        const delta = snapshot.omzetYest > 0 ? Math.round(((snapshot.omzetToday - snapshot.omzetYest) / snapshot.omzetYest) * 100) : (snapshot.omzetToday > 0 ? 100 : 0);
+        const tips = [];
+        if (snapshot.omzetYest > 0) tips.push(`Omzet ${delta >= 0 ? 'naik' : 'turun'} ${Math.abs(delta)}% dibanding kemarin${snapshot.topProduct ? ` · juara 7 hari: ${snapshot.topProduct[0]} (${snapshot.topProduct[1]} pcs)` : ''}.`);
+        else if (snapshot.topProduct) tips.push(`Produk juara 7 hari terakhir: ${snapshot.topProduct[0]} (${snapshot.topProduct[1]} pcs).`);
+        if (snapshot.lowStock.length > 0) tips.push(`${snapshot.lowStock.length} produk stok kritis, misal ${snapshot.lowStock.slice(0, 2).map(p => p.name).join(' & ')}. Buat PO sebelum habis.`);
+        if (!tips.length) return null;
+        return (
+          <div className="card p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="kicker flex items-center gap-1.5"><RoketBuddy className="w-4 h-4 text-flame-500 dark:text-apricot" /> Radar Bisnis</p>
+              <button onClick={() => setActive('growth')} className="text-[10.5px] font-extrabold text-flame-600 dark:text-apricot hover:underline">Buka Radar Lengkap</button>
+            </div>
+            <div className="space-y-1.5">
+              {tips.map((s, i) => (
+                <p key={i} className="text-[11.5px] font-bold text-ink-soft dark:text-ink-inv/75 flex gap-2"><span className="text-flame-500 shrink-0">·</span>{s}</p>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* v20: PUSAT KENDALI, persetujuan, organisasi, kehadiran */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {canSeeApproval && (
           <button onClick={() => setActive('approval')} className={`card p-4 sm:p-5 text-left transition press hover:border-flame-300 dark:hover:border-flame-600 ${pendingTotal > 0 ? '!border-gold/60' : ''}`}>

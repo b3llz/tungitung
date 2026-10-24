@@ -234,3 +234,38 @@ keamanan.**
 
 ## VERIFIKASI
 - `npm test` → 69/69 PASS · `npm run build` PASS · `npm run security:smoke` PASS
+
+---
+
+## v21.4.0 ENTERPRISE GROWTH PACK (2026-10-24)
+Fitur bisnis baru (ekosistem kompleks, UI tetap simpel):
+1. PROMO & LOYALITAS (menu baru, izin crm.manage)
+   - Poin member otomatis dari transaksi kasir (aturan earn/redeem bisa diatur)
+   - Tier otomatis: Bronze / Silver / Gold / Platinum dari akumulasi belanja
+   - Tukar poin jadi potongan harga langsung di Kasir (batas aman otomatis)
+   - RADAR BISNIS: omzet vs kemarin, produk terlaris 7 hari, jam tersibuk, stok kritis
+2. VOUCHER & PROMO
+   - Kode voucher persen/nominal + min belanja, maks potongan, periode, kuota, per cabang
+   - Dipakai langsung di Kasir; kuota & periode divalidasi ulang saat checkout
+3. PEMBELIAN & TRANSFER (menu baru, izin purchasing.manage)
+   - Purchase Order + terima barang parsial; stok & HPP rata-rata bergerak otomatis
+   - Hutang Supplier (PO tempo) + bayar sebagian/lunas, kas keluar tercatat otomatis
+   - Transfer Stok antar cabang: nota kirim-terima dengan riwayat
+4. OPERASIONAL TIM (menu baru, izin employee.manage)
+   - Jadwal Shift mingguan (tap ganti shift, salin minggu lalu)
+   - Target Omzet per cabang/kasir + Leaderboard dari penjualan nyata
+   - Pengumuman internal (semua / role / cabang) dengan tanda belum dibaca
+   - Checklist Buka/Tutup Toko harian + rekap 7 hari
+5. KASIR (POS)
+   - Tombol Pilih Member + tukar poin + kode voucher di panel checkout
+   - Poin masuk otomatis saat lunas, tercatat di struk & riwayat poin
+   - Tombol Bagikan WA (struk digital via WhatsApp) di modal struk
+6. EMPLOYEE AREA
+   - Kartu baru: Pengumuman (badge belum baca), Jadwal Saya, Poin Saya, Target Saya
+7. BERANDA: kartu Radar Bisnis ringkas dengan tautan ke Radar lengkap
+
+Koleksi Firestore baru (mirror lokal otomatis): loyalty_cfg, loyalty_log, voucher,
+purchase_order, hutang, transfer_stok, jadwal_shift, target_omzet, pengumuman,
+checklist_template, checklist_log.
+Izin baru memakai domain lama (tanpa migrasi role): crm.manage, purchasing.manage,
+employee.manage.

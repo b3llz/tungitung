@@ -1,11 +1,11 @@
 // ============================================================
-// WELP BUSINESS — CUSTOMER / CRM v20
+// WELP BUSINESS, CUSTOMER / CRM v20
 // ------------------------------------------------------------
 // Database pelanggan terpusat per tenant:
 //   { cid, name, phone, email, address, birthday, note, tags[],
 //     createdAt, serverAt }
 // Statistik belanja REAL dihitung dari pos_history (transaksi kasir
-// nyata) dengan pencocokan nama pembeli — tanpa data dummy.
+// nyata) dengan pencocokan nama pembeli, tanpa data dummy.
 // CRUD dijaga permission granular (crm.view/create/edit/delete).
 // ============================================================
 import React, { useState, useMemo } from 'react';
@@ -24,7 +24,7 @@ const fmtDT = (ms) => new Date(ms).toLocaleString('id-ID', { day: '2-digit', mon
 
 export const CustomersTab = ({ licenseInfo, triggerAlert, perms }) => {
   const { items: customers, live, addRow, updateRow, removeRow } = useTenantCol(licenseInfo, 'customers', 'customers_db');
-  // Transaksi nyata dari POS (sumber data core — bukan duplikat).
+  // Transaksi nyata dari POS (sumber data core, bukan duplikat).
   const { items: history } = useTenantCol(licenseInfo, 'pos_history', 'pos_history_db');
 
   const [q, setQ] = useState('');

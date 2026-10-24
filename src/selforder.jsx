@@ -1,9 +1,9 @@
 // ============================================================
-// SELF-ORDER PELANGGAN v8 WELP — halaman ?meja=N.
+// SELF-ORDER PELANGGAN v8 WELP, halaman ?meja=N.
 // KEAMANAN BARU (anti-fraud):
 //  • QR meja kini membawa token sesi unik (?k=) + tenant (?lic=).
 //  • Hanya PERANGKAT PERTAMA yang memindai QR yang bisa memesan
-//    (device binding di Firestore) — share link tidak berlaku.
+//    (device binding di Firestore), share link tidak berlaku.
 //  • Mengubah angka meja di URL tanpa token sah → tidak bisa order.
 //  • Sesi ditutup/di-reset kasir → otomatis tidak bisa order.
 //  • Pesanan disinkronkan realtime ke kasir (tenants/{lic}/self_orders).
@@ -49,7 +49,7 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showValidationQR, setShowValidationQR] = useState(false);
 
-  // v15 F0: perangkat pelanggan punya sesi anonymous Firebase —
+  // v15 F0: perangkat pelanggan punya sesi anonymous Firebase  
   // prasyarat rules v15 (auth != null) untuk baca menu & tulis self_orders.
   useEffect(() => { ensureAuth(); }, []);
 
@@ -142,7 +142,7 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
   };
 
   // v15 F1/B2b: status pesanan LIVE dari kasir (validated → paid)
-  // — siklus pesanan pelanggan tidak lagi putus.
+  //, siklus pesanan pelanggan tidak lagi putus.
   const [orderId, setOrderId] = useState(null);
   useEffect(() => {
     if (!lic || !db || !orderId) return;
@@ -178,7 +178,7 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
   const updateQty = (lineId, d) => setCart(prev => prev.map(i => (i.lineId || i.id) === lineId ? { ...i, qty: Math.max(1, i.qty + d) } : i));
   const removeFromCart = (lineId) => setCart(prev => prev.filter(i => (i.lineId || i.id) !== lineId));
 
-  // v21.1: self-order hormati Stock Tracking — OFF → semua produk tetap
+  // v21.1: self-order hormati Stock Tracking, OFF → semua produk tetap
   // tampil/laku tanpa blokir stok (spec #10).
   const trackStock = stockTrackingOn();
   const available = trackStock ? products.filter(p => p.stock > 0) : products;
@@ -340,7 +340,7 @@ const SelfOrderApp = ({ tableNo, profile: profileProp, lic, token }) => {
       {/* Re-use Cart Popup (Tanpa Cash) */}
       <CartPopup showCart={showCartPopup} setShowCart={setShowCartPopup} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile} isLoading={isLoading} orderType="Dine-in" setOrderType={() => { }} tableNo={tableNo} setTableNo={() => { }} notes={notes} setNotes={setNotes} cashTendered={0} setCashTendered={() => { }} isSelfOrder={true} />
 
-      {/* v21.1 — Modifier Sheet pelanggan (produk configurable) */}
+      {/* v21.1, Modifier Sheet pelanggan (produk configurable) */}
       {modProduct && <ModifierSheet product={modProduct} groups={modGroups} onClose={() => setModProduct(null)} onAdd={addModToCart} />}
 
       <div className="fixed bottom-0 left-0 right-0 bg-surface/95 dark:bg-chrome-deep/95 backdrop-blur border-t border-line dark:border-chrome-edge flex justify-around p-2 z-50 pb-safe">

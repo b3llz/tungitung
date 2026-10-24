@@ -1,5 +1,5 @@
 // ============================================================
-// TAB BISNIS & PENGATURAN v5 WELP — Multi Outlet, Hardware
+// TAB BISNIS & PENGATURAN v5 WELP, Multi Outlet, Hardware
 // (printer thermal + scanner), Profil Toko, Metode Pembayaran,
 // Pengaturan. Logika 100% dipertahankan (Web Bluetooth ESC/POS,
 // BarcodeDetector, backup/restore tervalidasi, QR meja, dsb).
@@ -13,6 +13,7 @@ import {
   ModeRetail, ModeFnb, Setelan, BadgeCheck, Check, UnggahQris, WaktuReal, KoinBuddy
 } from './welp-icons.jsx';
 import { safeParse, formatIDR, getLang, qrDataUrl, useQr, WALLET_TYPES, decodeQrFromImage, parseEmv, qrisMeta, verifyQrisCrc, makeTableToken, db, dbSet, dbSetDoc, useDbSync, hydrateDb, getBizConfig, stockTrackingOn, auditLog } from './core.jsx';
+import { connectPrinter, disconnectPrinter, printerConnected, printerName, onPrinterChange, kickCashDrawer, escposReceipt, printReceiptBytes, haptic } from './welp-core/posprinter.js';
 import { ingestPaymentEvent } from './welp-core/paymentOps.js';
 import { MATCH_STATUS, MATCH_STATUS_META, PAYMENT_EVENT_SOURCES, PAYMENT_EVENT_SOURCE_META, collectIntents } from './welp-core/payment.js';
 import { doc as fsDoc, setDoc as fsSetDoc } from 'firebase/firestore';
@@ -20,14 +21,19 @@ import { Button, Card, PageTitle, NumericInput, Select, Toggle, Badge, EmptyStat
 
 /* Multi Outlet pindah ke src/team.jsx (monitoring terpusat realtime) */
 
-/* ================= ALAT TAMBAHAN (HARDWARE) ================= */
+/* ================= ALAT TAMBAHAN (HARDWARE) =================
+   v21.3: printer memakai sesi BERSAMA (welp-core/posprinter.js) —
+   koneksi yang sama dipakai kasir untuk struk & buka laci otomatis.
+   Kartu CASH DRAWER baru: buka laci manual + saklar buka-otomatis
+   saat transaksi tunai. */
 export const HardwareTab = ({ licenseInfo, triggerAlert, activeTab }) => {
   const isActive = activeTab === 'hardware';   // v15 F4-H6
   const [connType, setConnType] = useState('bluetooth');
   const [paperSize, setPaperSize] = useState(localStorage.getItem('printer_paper') || '58mm');
-  const [printerChar, setPrinterChar] = useState(null);
-  const [printerStatus, setPrinterStatus] = useState('disconnected');
-  const [printerName, setPrinterName] = useState('');
+  const [printerStatus, setPrinterStatus] = useState(printerStatus0());
+  const [printerNameS, setPrinterNameS] = useState(printerName0());
+  const [drawerAuto, setDrawerAuto] = useState(localStorage.getItem('cash_drawer_auto') === '1');
+  const [drawerBusy, setDrawerBusy] = useState(false);
   const [netIp, setNetIp] = useState(localStorage.getItem('printer_ip') || '');
   const [scanActive, setScanActive] = useState(false);
   const [scannedOrder, setScannedOrder] = useState(null);
@@ -37,69 +43,49 @@ export const HardwareTab = ({ licenseInfo, triggerAlert, activeTab }) => {
   const usbBufferRef = useRef('');
   const hasBT = typeof navigator !== 'undefined' && !!navigator.bluetooth;
 
-  const escposReceipt = ({ title, lines, paper }) => {
-    const enc = new TextEncoder();
-    const width = paper === '80mm' ? 48 : 32;
-    const out = [];
-    const push = (arr) => arr.forEach(b => out.push(b));
-    const text = (str) => push(Array.from(enc.encode(str)));
-    push([0x1B, 0x40]);
-    push([0x1B, 0x61, 0x01]);
-    push([0x1B, 0x21, 0x30]); text((title || 'WELP') + '\n');
-    push([0x1B, 0x21, 0x00]);
-    text('-'.repeat(width) + '\n');
-    push([0x1B, 0x61, 0x00]);
-    (lines || []).forEach(l => text(l + '\n'));
-    text('-'.repeat(width) + '\n');
-    push([0x1B, 0x61, 0x01]); text('Terima kasih\n');
-    push([0x0A, 0x0A, 0x0A]);
-    push([0x1D, 0x56, 0x00]);
-    return new Uint8Array(out);
-  };
+  function printerStatus0() { try { return printerConnected() ? 'connected' : 'disconnected'; } catch (e) { return 'disconnected'; } }
+  function printerName0() { try { return printerName(); } catch (e) { return ''; } }
 
-  const connectPrinter = async () => {
-    if (!hasBT) { triggerAlert('Browser tidak mendukung Web Bluetooth. Gunakan Chrome di Android/Desktop.', 'error'); return; }
+  // ikuti status printer global (mis. dihubungkan dari halaman Kasir)
+  useEffect(() => onPrinterChange((s, n) => { setPrinterStatus(s); setPrinterNameS(n); }), []);
+
+  const connectP = async () => {
     try {
-      setPrinterStatus('connecting');
-      const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb', '0000ff00-0000-1000-8000-00805f9b34fb', 'e7810a71-73ae-499d-8c15-faa9aef0c3f2', '49535343-fe7d-4ae5-8fa9-9fafd205e455'] });
-      device.addEventListener('gattserverdisconnected', () => { setPrinterStatus('disconnected'); setPrinterChar(null); });
-      const server = await device.gatt.connect();
-      const services = await server.getPrimaryServices();
-      let writeChar = null;
-      for (const svc of services) {
-        const chars = await svc.getCharacteristics();
-        for (const c of chars) { if (c.properties.write || c.properties.writeWithoutResponse) { writeChar = c; break; } }
-        if (writeChar) break;
-      }
-      if (!writeChar) throw new Error('Karakteristik tulis tidak ditemukan di printer');
-      setPrinterChar(writeChar); setPrinterName(device.name || 'Bluetooth Printer'); setPrinterStatus('connected');
-      triggerAlert('Printer terhubung: ' + (device.name || 'Bluetooth'), 'success');
-    } catch (e) { setPrinterStatus('error'); triggerAlert('Gagal konek printer: ' + e.message, 'error'); }
-  };
-
-  const writeToPrinter = async (bytes) => {
-    if (!printerChar) throw new Error('Printer belum terhubung');
-    const CHUNK = 180;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      const slice = bytes.slice(i, i + CHUNK);
-      if (printerChar.properties.writeWithoutResponse) await printerChar.writeValueWithoutResponse(slice);
-      else await printerChar.writeValue(slice);
-      await new Promise(r => setTimeout(r, 18));
-    }
+      const name = await connectPrinter();
+      triggerAlert('Printer terhubung: ' + name, 'success');
+    } catch (e) { triggerAlert('Gagal konek printer: ' + (e.message || e), 'error'); }
   };
 
   const testPrint = async () => {
     const profile = safeParse('store_profile', {});
     const bytes = escposReceipt({ title: profile.name || 'WELP', lines: ['TEST PRINT BERHASIL', 'Tanggal: ' + new Date().toLocaleString('id-ID'), 'Kertas: ' + paperSize, 'Printer siap dipakai.'], paper: paperSize });
     if (printerStatus === 'connected') {
-      try { await writeToPrinter(bytes); triggerAlert('Struk test terkirim ke printer.', 'success'); }
-      catch (e) { triggerAlert('Gagal print: ' + e.message, 'error'); }
+      const ok = await printReceiptBytes(bytes);
+      triggerAlert(ok ? 'Struk test terkirim ke printer.' : 'Gagal print: coba hubungkan ulang printer.', ok ? 'success' : 'error');
     } else if (connType === 'wifi') {
       triggerAlert('Mode WiFi/LAN: kirim ke ' + (netIp || 'IP belum diisi') + ' (butuh print server lokal).', netIp ? 'success' : 'error');
     } else {
       triggerAlert('Printer belum terhubung. Membuka dialog cetak browser...', 'success');
       window.print();
     }
+  };
+
+  // v21.3: CASH DRAWER, buka manual (butuh printer terhubung; drawer
+  // terpasang ke printer thermal via kabel RJ11 standar).
+  const openDrawerNow = async () => {
+    setDrawerBusy(true);
+    haptic(18);
+    const res = await kickCashDrawer();
+    setDrawerBusy(false);
+    if (res === 'opened') triggerAlert('Laci kas terbuka. Ambil uang sesuai transaksi, ya.', 'success');
+    else triggerAlert('Laci belum bisa dibuka. Hubungkan printer thermal dulu (drawer terpasang ke printer).', 'error');
+  };
+
+  const toggleDrawerAuto = () => {
+    const next = !drawerAuto;
+    setDrawerAuto(next);
+    localStorage.setItem('cash_drawer_auto', next ? '1' : '0');
+    triggerAlert(next ? 'Laci otomatis terbuka setiap transaksi TUNAI selesai.' : 'Laci hanya terbuka lewat tombol Buka Laci.', 'success');
   };
 
   const handleScanValue = (val) => {
@@ -152,7 +138,7 @@ export const HardwareTab = ({ licenseInfo, triggerAlert, activeTab }) => {
   useEffect(() => {
     const onKey = (e) => {
       // v15 F4-H6: listener scanner USB hanya aktif saat tab Hardware terbuka
-      // — tidak lagi menangkap ketikan+Enter di halaman lain (toast palsu).
+      //, tidak lagi menangkap ketikan+Enter di halaman lain (toast palsu).
       if (!isActive || scanActive) return;
       if (e.key === 'Enter') { if (usbBufferRef.current.length > 2) handleScanValue(usbBufferRef.current); usbBufferRef.current = ''; }
       else if (e.key && e.key.length === 1) usbBufferRef.current += e.key;
@@ -176,9 +162,9 @@ export const HardwareTab = ({ licenseInfo, triggerAlert, activeTab }) => {
       <Card title="Printer Kasir (Thermal)" icon={Alat}>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
               <span className={`w-2.5 h-2.5 rounded-full ${printerStatus === 'connected' ? 'bg-leaf animate-pulse-dot' : printerStatus === 'connecting' ? 'bg-gold animate-pulse-dot' : printerStatus === 'error' ? 'bg-brick' : 'bg-ink-faint/40'}`}></span>
-              <span className="text-[13px] font-extrabold text-ink dark:text-ink-inv">{printerName || 'Printer Bluetooth'}</span>
+              <span className="text-[13px] font-extrabold text-ink dark:text-ink-inv truncate">{printerNameS || 'Printer Bluetooth'}</span>
             </div>
             <span className={`badge ${statusMap[printerStatus][1]}`}>{statusMap[printerStatus][0]}</span>
           </div>
@@ -187,8 +173,8 @@ export const HardwareTab = ({ licenseInfo, triggerAlert, activeTab }) => {
             <button onClick={() => setConnType('wifi')} className={`flex-1 py-2 text-xs font-extrabold rounded-lg flex justify-center gap-2 items-center transition ${connType === 'wifi' ? 'bg-surface dark:bg-surface-dark shadow-card text-flame-700 dark:text-apricot' : 'text-ink-faint'}`}><WifiBuddy className="w-3.5 h-3.5" /> WiFi / LAN</button>
           </div>
           <div className="flex gap-3">
-            <div className="flex-1"><Select label="Ukuran Kertas" value={paperSize} options={['58mm', '80mm']} onChange={(v) => { setPaperSize(v); localStorage.setItem('printer_paper', v); }} /></div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0"><Select label="Ukuran Kertas" value={paperSize} options={['58mm', '80mm']} onChange={(v) => { setPaperSize(v); localStorage.setItem('printer_paper', v); }} /></div>
+            <div className="flex-1 min-w-0">
               <label className="kicker block mb-1.5 ml-0.5">{connType === 'bluetooth' ? 'Status' : 'Alamat IP Printer'}</label>
               {connType === 'wifi' ? (
                 <input value={netIp} onChange={e => { setNetIp(e.target.value); localStorage.setItem('printer_ip', e.target.value); }} className="field" placeholder="192.168.1.50" />
@@ -200,14 +186,34 @@ export const HardwareTab = ({ licenseInfo, triggerAlert, activeTab }) => {
           <div className="flex gap-2">
             {connType === 'bluetooth' ? (
               printerStatus === 'connected'
-                ? <Button className="flex-1 py-3" variant="secondary" onClick={() => { setPrinterChar(null); setPrinterStatus('disconnected'); triggerAlert('Printer diputus.', 'success'); }}>Putuskan</Button>
-                : <Button className="flex-1 py-3" onClick={connectPrinter}>Hubungkan Printer</Button>
+                ? <Button className="flex-1 py-3" variant="secondary" onClick={() => { disconnectPrinter(); triggerAlert('Printer diputus.', 'success'); }}>Putuskan</Button>
+                : <Button className="flex-1 py-3" onClick={connectP}>Hubungkan Printer</Button>
             ) : (
               <Button className="flex-1 py-3" onClick={() => triggerAlert(netIp ? ('Tersimpan: ' + netIp) : 'Isi IP printer dulu', netIp ? 'success' : 'error')}>Simpan IP</Button>
             )}
             <Button className="flex-1 py-3" variant="secondary" onClick={testPrint}>Test Print</Button>
           </div>
           <p className="text-[10px] text-ink-faint leading-relaxed font-semibold">Mendukung printer thermal ESC/POS via Web Bluetooth (Chrome Android/Desktop). Jika tidak terhubung, Test Print memakai dialog cetak browser sebagai cadangan.</p>
+        </div>
+      </Card>
+
+      {/* v21.3: CASH DRAWER, laci kas yang terpasang ke printer thermal */}
+      <Card title="Cash Drawer (Laci Kas)" icon={KoinBuddy}
+        help="Laci uang terpasang ke printer thermal lewat kabel RJ11. Bila printer terhubung, WELP membuka laci lewat perintah ESC/POS standar. Saklar otomatis membuka laci setiap transaksi tunai selesai.">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3 bg-paper dark:bg-white/[.03] border border-line dark:border-line-dark rounded-2xl p-3.5">
+            <div className="min-w-0">
+              <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv">Buka otomatis saat tunai</p>
+              <p className="text-[10px] text-ink-faint font-semibold leading-snug mt-0.5">Setiap pembayaran Tunai yang lunas langsung membuka laci kas.</p>
+            </div>
+            <Toggle on={drawerAuto} onClick={toggleDrawerAuto} />
+          </div>
+          <Button onClick={openDrawerNow} disabled={drawerBusy} className="w-full py-3.5" icon={KoinBuddy}>
+            {drawerBusy ? 'Membuka laci...' : 'Buka Laci Sekarang'}
+          </Button>
+          <p className="text-[10px] text-ink-faint leading-relaxed font-semibold">
+            Status printer: {printerStatus === 'connected' ? <span className="text-leaf-deep dark:text-leaf font-extrabold">terhubung, laci siap</span> : <span className="font-extrabold">belum terhubung (hubungkan printer dulu)</span>}. Di mode Kasir, laci juga terbuka otomatis di akhir transaksi tunai bila saklar aktif.
+          </p>
         </div>
       </Card>
 
@@ -489,7 +495,7 @@ export const PaymentTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTa
           <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => { if (e.target.files[0]) { const r = new FileReader(); r.onload = v => setCropSrc(v.target.result); r.readAsDataURL(e.target.files[0]); } }} />
         </div>
 
-        {/* QRIS DINAMIS — payload EMVCo dibaca dari gambar, nominal otomatis saat checkout */}
+        {/* QRIS DINAMIS, payload EMVCo dibaca dari gambar, nominal otomatis saat checkout */}
         <div className="mt-4 p-4 rounded-2xl border border-line dark:border-line-dark bg-paper dark:bg-white/[.03]">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -606,7 +612,7 @@ export const PaymentTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTa
         </div>
       </Card>
 
-      {/* v21.1 — WELP PAYMENT CORE LAB: simulator event + intent + ledger */}
+      {/* v21.1, WELP PAYMENT CORE LAB: simulator event + intent + ledger */}
       <PaymentLab licenseInfo={licenseInfo} triggerAlert={triggerAlert} />
 
       {cropSrc && (
@@ -623,7 +629,7 @@ export const PaymentTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTa
 
 
 /* ================= PAYMENT LAB (v21.1, spec #25 & #28–31) =================
-   Simulator event pembayaran utk fase PWA — menguji arsitektur Payment
+   Simulator event pembayaran utk fase PWA, menguji arsitektur Payment
    Core TANPA native capability: Order → QR → Simulated Event →
    Internal Webhook → Matching → PAID / AMBIGUOUS. Semua hasil
    ter-audit di ledger payment_events. BUKAN integrasi pembayaran nyata. */
@@ -660,7 +666,7 @@ const PaymentLab = ({ licenseInfo, triggerAlert }) => {
     setLastResult(res);
     force(v => v + 1);
     const tone = (res.status === MATCH_STATUS.CONFIRMED || res.status === MATCH_STATUS.DUPLICATE) ? 'success' : 'error';
-    triggerAlert(`Event ${res.status}: ${MATCH_STATUS_META[res.status]?.label || ''}${res.reason ? ' — ' + res.reason : ''}`, tone);
+    triggerAlert(`Event ${res.status}: ${MATCH_STATUS_META[res.status]?.label || ''}${res.reason ? ', ' + res.reason : ''}`, tone);
   };
 
   const toneCls = (st) => st === MATCH_STATUS.CONFIRMED ? 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf'
@@ -669,8 +675,8 @@ const PaymentLab = ({ licenseInfo, triggerAlert }) => {
         : 'bg-brick-soft dark:bg-brick/10 text-brick-deep dark:text-brick';
 
   return (
-    <Card title="Payment Lab — Simulator Event (Testing)" icon={Qris}
-      help="Fase PWA TIDAK bisa membaca notifikasi Android — itu tugas Native Notification Bridge nanti. Di sini arsitektur diuji: event → webhook internal → matching → keputusan. Nominal sama TIDAK pernah auto-confirm.">
+    <Card title="Payment Lab, Simulator Event (Testing)" icon={Qris}
+      help="Fase PWA TIDAK bisa membaca notifikasi Android, itu tugas Native Notification Bridge nanti. Di sini arsitektur diuji: event → webhook internal → matching → keputusan. Nominal sama TIDAK pernah auto-confirm.">
       <div className="space-y-4">
         <div>
           <p className="kicker mb-1.5">PaymentIntent Aktif (menunggu bayar)</p>
@@ -702,7 +708,7 @@ const PaymentLab = ({ licenseInfo, triggerAlert }) => {
           <div>
             <label className="kicker block mb-1.5">Teks Notifikasi Mentah (simulasi bridge)</label>
             <textarea className="field" rows={2} placeholder="Contoh: QRIS debit Rp25.000. Ref WELP-XXXX..." value={rawText} onChange={e => setRawText(e.target.value)} />
-            <p className="text-[9.5px] font-bold text-ink-faint mt-1">Bridge native nanti membaca notifikasi perangkat lalu mengirim event ke webhook WELP — bukan webhook jaringan.</p>
+            <p className="text-[9.5px] font-bold text-ink-faint mt-1">Bridge native nanti membaca notifikasi perangkat lalu mengirim event ke webhook WELP, bukan webhook jaringan.</p>
           </div>
         )}
         <div className="flex flex-wrap gap-2">
@@ -941,7 +947,7 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
             <div className="w-24 shrink-0"><NumericInput value={lowStock} onChange={v => { setLowStock(v); localStorage.setItem('low_stock_threshold', String(v || 0)); }} /></div>
           </div>
 
-          {/* v21.1 — INVENTORY OPTIONAL (spec #9–11): Stock Tracking ON/OFF */}
+          {/* v21.1, INVENTORY OPTIONAL (spec #9–11): Stock Tracking ON/OFF */}
           <div className="flex justify-between items-center gap-3 px-5 py-4">
             <div className="flex items-center gap-3 pr-3">
               <div className="w-9 h-9 rounded-xl bg-paper dark:bg-white/5 text-ink-faint flex items-center justify-center"><Stok className="w-4 h-4" /></div>
@@ -956,7 +962,7 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
                 const next = { ...cfg, stockTracking: cfg.stockTracking === false ? true : false };
                 dbSetDoc(licenseInfo?.id, 'discount_tax_db', next);
                 auditLog(licenseInfo, 'STOCK_TRACKING_TOGGLE', { status: next.stockTracking === false ? 'OFF' : 'ON' });
-                triggerAlert(next.stockTracking === false ? 'Stock Tracking OFF — POS tidak lagi memblokir/menurunkan stok.' : 'Stock Tracking ON — stok turun otomatis saat penjualan.', 'success');
+                triggerAlert(next.stockTracking === false ? 'Stock Tracking OFF, POS tidak lagi memblokir/menurunkan stok.' : 'Stock Tracking ON, stok turun otomatis saat penjualan.', 'success');
               }} />
             </div>
           </div>
@@ -977,7 +983,7 @@ export const SettingsTab = ({ licenseInfo, triggerAlert }) => {
         </div>
         <div className="px-5 pb-5 pt-4">
           {/* v15 F4/K2: aksi paling destruktif kini pakai ConfirmDialog +
-              ketik HAPUS — satu-satunya salinan data tidak lagi bisa
+              ketik HAPUS, satu-satunya salinan data tidak lagi bisa
               hilang karena satu klik ceroboh. */}
           <Button onClick={() => setConfirmReset(true)} variant="danger" icon={BahayaBuddy} className="w-full py-3">Zona Bahaya : Reset Aplikasi</Button>
           <p className="text-[9.5px] text-ink-faint font-semibold mt-2 leading-relaxed text-center">Menghapus seluruh data di perangkat ini (termasuk data komersial yang belum tersinkron ke server). Data yang sudah masuk Firestore tetap aman &amp; kembali setelah login.</p>

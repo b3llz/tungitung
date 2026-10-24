@@ -1,5 +1,5 @@
 // ============================================================
-// WELP APP ROOT v20 — SATU PLATFORM, DUA APLIKASI, SATU CORE
+// WELP APP ROOT v20, SATU PLATFORM, DUA APLIKASI, SATU CORE
 // ------------------------------------------------------------
 // WELP Business  = pusat kendali perusahaan (management)
 // WELP Cashier   = POS + Employee Area
@@ -14,7 +14,7 @@
 //   untuk perangkat station & integrasi lama.
 //
 // v20:
-//   • Login "Cabang" (password/PIN bersama) DIHAPUS dari lock screen —
+//   • Login "Cabang" (password/PIN bersama) DIHAPUS dari lock screen  
 //     cabang adalah unit organisasi, bukan akun. Semua orang memakai
 //     akun pribadi (Akun WELP) atau jalur kompatibilitas yang tetap
 //     berbasis identitas pribadi (Owner legacy / Employee ID+PIN).
@@ -42,13 +42,17 @@ import { HomeTab } from './home';
 import { CalculatorTab } from './hpp';
 import { PosTab } from './pos';
 import { ReportTab } from './report';
-import { StockTab, OpnameTab, InOutTab, StockHistoryTab, SupplierTab } from './inventory';
+import { StockTab, OpnameTab, InOutTab, StockHistoryTab, SupplierTab, OpnameMonitorTab } from './inventory';
 import { HistoryTab, CashOutTab, DiscountTab } from './ops';
 import { HardwareTab, ProfileTab, PaymentTab, SettingsTab } from './settings';
 import { BranchTab, KaryawanTab, OutletTab, AbsensiTab, PayrollTab, PerusahaanTab } from './team';
 import { AbsensiApp, EmployeeArea } from './absensi-app';
 import { CustomersTab } from './business/crm.jsx';
 import { OrganizationTab, RolesTab, ApprovalTab, AuditTab } from './business/governance.jsx';
+import { GrowthTab } from './business/growth.jsx';        // v21.4: promo, voucher & loyalitas
+import { SupplyTab } from './business/supply.jsx';        // v21.4: PO, hutang, transfer
+import { PeoplePlusTab } from './business/peopleplus.jsx'; // v21.4: jadwal, target, pengumuman
+import { EmpExtras } from './business/empextras.jsx';     // v21.4: kartu info di Employee Area
 import { FinanceTab } from './finance.jsx';   // v21: Settlement · Rekonsiliasi · Kas & Shift
 import { Sidebar, BottomNav, MenuSheet, NAV_GROUPS, navAllowed } from './shell';
 import { SelfOrderApp } from './selforder';
@@ -82,6 +86,14 @@ const MainAdminApp = ({ mode = 'management' }) => {
 
   const triggerAlert = useCallback((message, type = 'success') => {
     setPopup({ show: true, message, type });
+  }, []);
+
+  // v21.3: ganti tab = selalu mulai dari ATAS halaman. Dulu posisi
+  // scroll lama dipertahankan antar tab, jadi halaman baru terasa
+  // "sudah keburu scroll" dan dianggap ribet oleh user baru.
+  const goTab = useCallback((id) => {
+    setActive(id);
+    try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch (e) { window.scrollTo(0, 0); }
   }, []);
 
   // Monitor lisensi real-time (toleran offline: snapshot cache tidak mengunci sesi sah).
@@ -168,7 +180,7 @@ const MainAdminApp = ({ mode = 'management' }) => {
 
   const handleUnlock = (data) => {
     if (isBanned) return triggerAlert("Akses Ditolak.", "error");
-    // SECURITY v15 F0: satu pintu sanitasi — password, ownerPin, cred,
+    // SECURITY v15 F0: satu pintu sanitasi, password, ownerPin, cred,
     // dan seluruh kredensial cabang (_branchList) TIDAK PERNAH masuk
     // localStorage. Metadata cabang (cid/name/role) tetap dipertahankan.
     const safeSession = sanitizeSession(data);
@@ -210,7 +222,7 @@ const MainAdminApp = ({ mode = 'management' }) => {
     return () => clearInterval(interval);
   }, [licenseInfo]);
 
-  // v15 F1: data komersial tersinkron ke Firestore — import sekali dari
+  // v15 F1: data komersial tersinkron ke Firestore, import sekali dari
   // localStorage (device pertama pindah ke v15) atau hidrasi mirror dari
   // Firestore (device kedua dst). Dipanggil setiap sesi login berubah.
   useEffect(() => {
@@ -233,7 +245,7 @@ const MainAdminApp = ({ mode = 'management' }) => {
     return () => window.removeEventListener('welp_session_update', onSess);
   }, []);
 
-  // v20: GUARD TAB — bila permission tab aktif dicabut saat sesi berjalan,
+  // v20: GUARD TAB, bila permission tab aktif dicabut saat sesi berjalan,
   // kembalikan ke beranda aplikasi (home utk business, pos utk cashier).
   useEffect(() => {
     if (!licenseInfo) return;
@@ -246,7 +258,7 @@ const MainAdminApp = ({ mode = 'management' }) => {
   if (isLocked) return <LockScreen onUnlock={handleUnlock} id={licenseInfo?.id} />;
 
   // ============================================================
-  // v20 — WORKSPACE ROUTER: ke mana user ini mendarat?
+  // v20, WORKSPACE ROUTER: ke mana user ini mendarat?
   // Dipanggil setiap render setelah sesi sah; perangkat station
   // tetap ke POS, employee → Employee Area, lainnya sesuai izin.
   // ============================================================
@@ -273,11 +285,11 @@ const MainAdminApp = ({ mode = 'management' }) => {
       <div className="min-h-screen w-full bg-paper dark:bg-night text-ink dark:text-ink-inv transition-colors">
 
         {/* SIDEBAR DOCK (desktop) */}
-        <Sidebar role={role} perms={perms} active={active} setActive={setActive} licenseInfo={licenseInfo} dark={dark} toggleDark={toggleDarkMode} onLogout={handleLogout} lowStockCount={lowStockCount} editing={isEditingMode} scope={scope} settingsRows={settingsRows} isStation={!!licenseInfo?.isStation} />
+        <Sidebar role={role} perms={perms} active={active} setActive={goTab} licenseInfo={licenseInfo} dark={dark} toggleDark={toggleDarkMode} onLogout={handleLogout} lowStockCount={lowStockCount} editing={isEditingMode} scope={scope} settingsRows={settingsRows} isStation={!!licenseInfo?.isStation} />
 
         <div className="lg:pl-[260px]">
 
-          {/* HEADER (mobile/tablet) — tanpa hamburger: menu hanya dari BottomNav */}
+          {/* HEADER (mobile/tablet), tanpa hamburger: menu hanya dari BottomNav */}
           <div className={`sticky top-0 px-4 py-2.5 flex justify-between items-center max-w-screen-xl mx-auto transition-all duration-300 lg:hidden ${isEditingMode ? 'z-0 opacity-40 blur-sm pointer-events-none' : 'z-40 bg-paper/85 dark:bg-night/85 backdrop-blur-md border-b border-line dark:border-line-dark'}`}>
             <div className="flex items-center gap-2.5 min-w-0">
               <BrandLogo size="sm" />
@@ -288,7 +300,7 @@ const MainAdminApp = ({ mode = 'management' }) => {
             </button>
           </div>
 
-          {/* KONTEN — pola mount keep-alive dipertahankan */}
+          {/* KONTEN, pola mount keep-alive dipertahankan */}
           <main className="px-4 sm:px-6 pt-5 pb-40 lg:pb-12 lg:px-8 max-w-[1400px] mx-auto">
             <div className={active === 'home' ? 'block' : 'hidden'}><HomeTab licenseInfo={licenseInfo} setActive={setActive} activeTab={active} perms={perms} /></div>
             <div className={active === 'pos' ? 'block' : 'hidden'}><PosTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
@@ -300,6 +312,9 @@ const MainAdminApp = ({ mode = 'management' }) => {
             <div className={active === 'cashout' ? 'block' : 'hidden'}><CashOutTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
             <div className={active === 'discount' ? 'block' : 'hidden'}><DiscountTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
             <div className={active === 'customers' ? 'block' : 'hidden'}><CustomersTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
+            <div className={active === 'growth' ? 'block' : 'hidden'}><GrowthTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
+            <div className={active === 'supply' ? 'block' : 'hidden'}><SupplyTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
+            <div className={active === 'peopleplus' ? 'block' : 'hidden'}><PeoplePlusTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
             <div className={active === 'employee' ? 'block' : 'hidden'}><BranchTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
             <div className={active === 'karyawan' ? 'block' : 'hidden'}><KaryawanTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
             <div className={active === 'absensi' ? 'block' : 'hidden'}><AbsensiTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} sessionRole={role} sessionBranchId={licenseInfo?.branchId || 'PUSAT'} /></div>
@@ -315,6 +330,7 @@ const MainAdminApp = ({ mode = 'management' }) => {
               <StockTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} />
             </div>
             <div className={active === 'opname' ? 'block' : 'hidden'}><OpnameTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
+            <div className={active === 'opnamemonitor' ? 'block' : 'hidden'}><OpnameMonitorTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
             <div className={active === 'inout' ? 'block' : 'hidden'}><InOutTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
             <div className={active === 'stockhistory' ? 'block' : 'hidden'}><StockHistoryTab activeTab={active} /></div>
             <div className={active === 'supplier' ? 'block' : 'hidden'}><SupplierTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
@@ -329,13 +345,13 @@ const MainAdminApp = ({ mode = 'management' }) => {
         </div>
 
         {/* MENU SHEET (mobile drawer, RBAC sama) */}
-        <MenuSheet open={isMenuOpen} onClose={() => setIsMenuOpen(false)} role={role} perms={perms} active={active} setActive={setActive} licenseInfo={licenseInfo} onLogout={handleLogout} dark={dark} toggleDark={toggleDarkMode} scope={scope} settingsRows={settingsRows} isStation={!!licenseInfo?.isStation} />
+        <MenuSheet open={isMenuOpen} onClose={() => setIsMenuOpen(false)} role={role} perms={perms} active={active} setActive={goTab} licenseInfo={licenseInfo} onLogout={handleLogout} dark={dark} toggleDark={toggleDarkMode} scope={scope} settingsRows={settingsRows} isStation={!!licenseInfo?.isStation} />
 
         {/* TOAST GLOBAL */}
         {popup.show && <Toast message={popup.message} type={popup.type} onClose={() => setPopup({ ...popup, show: false })} />}
 
         {/* BOTTOM NAV (mobile) */}
-        <BottomNav active={active} setActive={setActive} onMenu={() => setIsMenuOpen(true)} lowStockCount={lowStockCount} scope={scope} perms={perms} isStation={!!licenseInfo?.isStation} />
+        <BottomNav active={active} setActive={goTab} onMenu={() => setIsMenuOpen(true)} lowStockCount={lowStockCount} scope={scope} perms={perms} isStation={!!licenseInfo?.isStation} />
 
       </div>
     </div>
@@ -349,9 +365,9 @@ const App = () => {
   if (urlParams.get('dev') === 'panel') return <DeveloperPanel />;
 
   // WELP punya dua aplikasi resmi + satu area internal:
-  //   WELP Business   (default)      — pusat kendali perusahaan
-  //   WELP Cashier    /?app=pos      — POS + Employee Area
-  //   Employee Area   /?app=employee — kompatibilitas QR lama (?absen=1)
+  //   WELP Business   (default)     , pusat kendali perusahaan
+  //   WELP Cashier    /?app=pos     , POS + Employee Area
+  //   Employee Area   /?app=employee, kompatibilitas QR lama (?absen=1)
   // Keputusan workspace final tetap dari ROLE user (resolveWorkspace);
   // parameter URL hanya override untuk perangkat khusus.
   const pathMode = window.location.pathname.replace(/^\/+|\/+$/g, '');

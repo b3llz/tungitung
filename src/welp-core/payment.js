@@ -1,13 +1,13 @@
 // ============================================================
-// WELP CORE — WELP PAYMENT CORE v21.1 (spesifikasi #15–27)
+// WELP CORE, WELP PAYMENT CORE v21.1 (spesifikasi #15–27)
 // ------------------------------------------------------------
-// Domain pembayaran milik WELP — TIDAK bergantung pada payment
+// Domain pembayaran milik WELP, TIDAK bergantung pada payment
 // gateway pihak ketiga sebagai fondasi. Provider (bila ada) hanya
 // ADAPTER opsional; sumber event masuk lewat abstraksi yang sama:
 //
 //   PaymentEventSource
 //     ├── PWA_SIMULATOR                 (fase PWA sekarang)
-//     ├── ANDROID_NOTIFICATION_BRIDGE   (fase native — abstraction)
+//     ├── ANDROID_NOTIFICATION_BRIDGE   (fase native, abstraction)
 //     ├── PROVIDER_WEBHOOK              (adapter opsional)
 //     └── MANUAL                        (kasir/finance, ter-audit)
 //
@@ -15,12 +15,12 @@
 //   → Match → Confirm/AMBIGUOUS → Ledger → Audit
 //
 // ATURAN INTI:
-//   • PaymentIntent punya paymentReference UNIK — nominal BUKAN id.
+//   • PaymentIntent punya paymentReference UNIK, nominal BUKAN id.
 //   • Dua order Rp25.000 = dua intent berbeda, tidak pernah tertukar.
 //   • Nominal saja TIDAK PERNAH cukup utk auto-confirm (spec #19):
 //     bukti lemah → PAYMENT_MATCH_AMBIGUOUS → review manual.
 //   • 1 eventId hanya diproses SEKALI (idempotency, spec #21).
-//   • PURE FUNCTION — tanpa React/Firestore; I/O di paymentOps.js.
+//   • PURE FUNCTION, tanpa React/Firestore; I/O di paymentOps.js.
 // ============================================================
 
 import { uid } from './tx.js';
@@ -54,32 +54,32 @@ export const MATCH_STATUS = {
 export const MATCH_STATUS_META = {
   CONFIRMED: { label: 'Terkonfirmasi', tone: 'green' },
   AMBIGUOUS: { label: 'Perlu Review (Ambigu)', tone: 'gold' },
-  DUPLICATE: { label: 'Duplikat — diabaikan', tone: 'grey' },
+  DUPLICATE: { label: 'Duplikat, diabaikan', tone: 'grey' },
   EXPIRED: { label: 'Intent Kedaluwarsa', tone: 'red' },
   NO_MATCH: { label: 'Tidak Ada Kandidat', tone: 'red' },
   REJECTED: { label: 'Ditolak', tone: 'red' },
 };
 
 // ------------------------------------------------------------
-// 2. PAYMENT REFERENCE — identitas pembayaran unik (spec #18)
+// 2. PAYMENT REFERENCE, identitas pembayaran unik (spec #18)
 // ------------------------------------------------------------
 // Nominal BUKAN identifier. Reference unik per intent, aman dari
 // bentrokan lintas perangkat/cabang, dan muat di QRIS tag 62/07
 // (Bill Number, maks ~25 char EMVCo).
 export const newPaymentReference = () => uid('WELP').replace('WELP_', 'WELP-').toUpperCase();
 
-// Fingerprint deterministik — fallback dedup bila eventId tidak ada.
+// Fingerprint deterministik, fallback dedup bila eventId tidak ada.
 export const eventFingerprint = (e) => [
   e?.source || '', e?.providerRef || '', e?.reference || '',
   Number(e?.amount) || 0, Number(e?.timestamp) || 0,
 ].join('|');
 
 // ------------------------------------------------------------
-// 3. PAYMENT EVENT — normalisasi semua sumber (spec #22)
+// 3. PAYMENT EVENT, normalisasi semua sumber (spec #22)
 // ------------------------------------------------------------
 // Input mentah apa pun (simulator, notification bridge, webhook)
 // dinormalkan ke SATU bentuk. Notification bridge (spec #23–24)
-// mengirim teks notifikasi mentah — field `rawText` dipertahankan
+// mengirim teks notifikasi mentah, field `rawText` dipertahankan
 // utk audit & matching berbasis teks di masa depan.
 export const normalizePaymentEvent = (raw) => {
   const r = raw && typeof raw === 'object' ? raw : {};
@@ -113,7 +113,7 @@ export const validatePaymentEvent = (event) => {
 };
 
 // ------------------------------------------------------------
-// 4. PAYMENT INTENT — proyeksi dari order.payments[]
+// 4. PAYMENT INTENT, proyeksi dari order.payments[]
 // ------------------------------------------------------------
 // Intent TIDAK disimpan terpisah di klien: ia hidup di dalam
 // payment record order (payments[].paymentReference dst). Proyeksi
@@ -150,7 +150,7 @@ export const collectIntents = (orders) => {
   return out;
 };
 
-// fallback normalizePayments ringan (hindari import silang dgn tx.js —
+// fallback normalizePayments ringan (hindari import silang dgn tx.js  
 // tx.js diimport penuh oleh UI; di sini cukup bentuk minimal).
 const normalizeOrderPayments = (order) => {
   if (!order) return [];
@@ -164,20 +164,20 @@ const normalizeOrderPayments = (order) => {
 };
 
 // ------------------------------------------------------------
-// 5. MATCHING ENGINE (spec #19–20) — prioritas ketat
+// 5. MATCHING ENGINE (spec #19–20), prioritas ketat
 // ------------------------------------------------------------
 //   1. paymentReference  (bukti kuat → auto-confirm)
 //   2. providerRef       (bukti kuat → auto-confirm)
 //   3. reference di dalam teks notifikasi (bridge) → auto-confirm
 //   4. amount + method + window + merchant  (bukti LEMAH → AMBIGUOUS,
-//      walau kandidatnya hanya satu — nominal tidak pernah cukup)
+//      walau kandidatnya hanya satu, nominal tidak pernah cukup)
 //
 // Return { status: MATCH_STATUS, intent?, reason }
 export const matchPaymentEvent = ({ event, intents, now = Date.now(), matchWindowMs = 24 * 3600e3 }) => {
   const ref = (event.reference || '').toUpperCase();
   const pref = (event.providerRef || '').toUpperCase();
 
-  // 1) Reference match — bukti terkuat. intentDecision memutuskan
+  // 1) Reference match, bukti terkuat. intentDecision memutuskan
   //    PENDING → CONFIRMED / sudah final → DUPLICATE / expired → EXPIRED.
   if (ref) {
     const hit = intents.find(i => (i.paymentReference || '').toUpperCase() === ref);
@@ -197,7 +197,7 @@ export const matchPaymentEvent = ({ event, intents, now = Date.now(), matchWindo
   }
 
   // 4) Bukti lemah: amount (+method/merchant/window). TIDAK PERNAH
-  //    auto-confirm — selalu AMBIGUOUS agar manusia memutuskan.
+  //    auto-confirm, selalu AMBIGUOUS agar manusia memutuskan.
   const windowMs = matchWindowMs;
   const cands = intents.filter(i =>
     i.status === 'PENDING'
@@ -216,7 +216,7 @@ export const matchPaymentEvent = ({ event, intents, now = Date.now(), matchWindo
   return {
     status: MATCH_STATUS.AMBIGUOUS,
     intents: cands,
-    reason: `nominal sama dgn ${cands.length} order — butuh konfirmasi manual (nominal bukan identitas)`,
+    reason: `nominal sama dgn ${cands.length} order, butuh konfirmasi manual (nominal bukan identitas)`,
   };
 };
 
@@ -232,7 +232,7 @@ const intentDecision = (intent, event, now, reason) => {
 };
 
 // ------------------------------------------------------------
-// 6. IDEMPOTENCY (spec #21) — satu event, satu konfirmasi
+// 6. IDEMPOTENCY (spec #21), satu event, satu konfirmasi
 // ------------------------------------------------------------
 // processedEvents: Map/objek { [eventId]: { processedAt, matchStatus } }
 export const isDuplicateEvent = (event, processedEvents) => {
@@ -242,7 +242,7 @@ export const isDuplicateEvent = (event, processedEvents) => {
 };
 
 // ------------------------------------------------------------
-// 7. APLIKASI HASIL MATCH KE ORDER (pure — tanpa I/O)
+// 7. APLIKASI HASIL MATCH KE ORDER (pure, tanpa I/O)
 // ------------------------------------------------------------
 // CONFIRMED → payment record jadi CONFIRMED + jejak event.
 // Return order baru (immutable) atau null bila tidak berlaku.
@@ -279,7 +279,7 @@ export const applyMatchedEvent = (order, match, event, { actor = 'system', now =
 // 8. PWA PAYMENT EVENT SIMULATOR (spec #25)
 // ------------------------------------------------------------
 // Membangun event uji DARI intent nyata. Sumber eksplisit
-// PWA_SIMULATOR — hasilnya ter-audit sbg simulasi, tidak pernah
+// PWA_SIMULATOR, hasilnya ter-audit sbg simulasi, tidak pernah
 // dianggap pembayaran nyata dari jaringan.
 export const buildSimulatedEvent = ({ intent, amount, variant = 'exact', now = Date.now() }) => {
   const amt = Number(amount) || Number(intent.amount) || 0;
@@ -298,7 +298,7 @@ export const buildSimulatedEvent = ({ intent, amount, variant = 'exact', now = D
     ev.reference = intent.paymentReference;
     ev.eventId = 'evt_fixed_dup_001';                // eventId sama → uji dedup
   } else if (variant === 'amountOnly') {
-    // tanpa reference — uji aturan "nominal saja tidak cukup"
+    // tanpa reference, uji aturan "nominal saja tidak cukup"
   } else if (variant === 'wrongAmount') {
     ev.amount = amt + 1000;
     ev.reference = intent.paymentReference;          // reference benar, dana beda → AMBIGUOUS (selisih wajib review)
@@ -308,7 +308,7 @@ export const buildSimulatedEvent = ({ intent, amount, variant = 'exact', now = D
   return ev;
 };
 
-// Batas umur intent QRIS (menit) — dipakai saat membuat payment record.
+// Batas umur intent QRIS (menit), dipakai saat membuat payment record.
 export const INTENT_TTL_MIN = 30;
 export const intentExpiryOf = (createdAtMs = Date.now()) =>
   createdAtMs + INTENT_TTL_MIN * 60e3;

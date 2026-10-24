@@ -1,5 +1,5 @@
 // ============================================================
-// TAB OPERASIONAL v8 WELP — Riwayat Transaksi, Kas Keluar,
+// TAB OPERASIONAL v8 WELP, Riwayat Transaksi, Kas Keluar,
 // Diskon/Pajak. Manajemen Karyawan pindah ke src/team.jsx.
 // ============================================================
 import React, { useState, useEffect } from 'react';
@@ -10,7 +10,7 @@ import {
 } from './welp-icons.jsx';
 import { safeParse, formatIDR, dbSet, dbSetDoc, useDbSync } from './core.jsx';
 import { Button, Card, PageTitle, NumericInput, Select, Badge, EmptyState } from './ui';
-// v21 — domain transaksi & komponen finansial bersama
+// v21, domain transaksi & komponen finansial bersama
 import {
   TX_STATE, txStateOf, countsAsSale, netTotalOf, refundedAmountOf,
   canVoid as canVoidTx, canRefund as canRefundTx,
@@ -153,7 +153,7 @@ export const HistoryTab = ({ activeTab, licenseInfo, triggerAlert }) => {
               )}
               {(selectedTx.refunds || []).map(r => (
                 <div key={r.refundId} className="flex justify-between items-center gap-2 text-[10px] font-bold text-ink-faint">
-                  <span>Refund {r.method} · {r.status === 'REFUNDED' ? `selesai${r.providerRef ? ` (ref ${r.providerRef})` : ''}` : r.status === 'REFUND_PROCESSING' ? 'diproses' : r.status}{r.reason ? ` — ${r.reason}` : ''}</span>
+                  <span>Refund {r.method} · {r.status === 'REFUNDED' ? `selesai${r.providerRef ? ` (ref ${r.providerRef})` : ''}` : r.status === 'REFUND_PROCESSING' ? 'diproses' : r.status}{r.reason ? `, ${r.reason}` : ''}</span>
                   <span className="flex items-center gap-2 shrink-0">
                     <span className="money">{formatIDR(r.amount)}</span>
                     {r.status === 'REFUND_PROCESSING' && r.status !== 'REFUNDED' && (
@@ -164,9 +164,9 @@ export const HistoryTab = ({ activeTab, licenseInfo, triggerAlert }) => {
                 </div>
               ))}
               {selectedTx.voidInfo && (
-                <p className="text-[10.5px] font-bold text-brick leading-relaxed">Dibatalkan (void) oleh {selectedTx.voidInfo.requestedBy || '-'} — {selectedTx.voidInfo.reason}</p>
+                <p className="text-[10.5px] font-bold text-brick leading-relaxed">Dibatalkan (void) oleh {selectedTx.voidInfo.requestedBy || '-'}, {selectedTx.voidInfo.reason}</p>
               )}
-              {/* v21.1 — paymentReference + jejak event (Payment Core) */}
+              {/* v21.1, paymentReference + jejak event (Payment Core) */}
               {(selectedTx.payments || []).some(pp => pp.paymentReference) && (
                 <div className="text-[9px] font-mono text-ink-faint/90 leading-relaxed">
                   Ref: {(selectedTx.payments.find(pp => pp.paymentReference) || {}).paymentReference}

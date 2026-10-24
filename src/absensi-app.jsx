@@ -1,13 +1,13 @@
 // ============================================================
-// WELP — APLIKASI KARYAWAN STANDALONE (v14)
+// WELP, APLIKASI KARYAWAN STANDALONE (v14)
 // ------------------------------------------------------------
 // Terpisah dari aplikasi kasir (?absen=1). Login memakai sistem
 // utama WELP: ID Toko → cabang → PIN cabang → nama + PIN pribadi.
 // Identitas (role, perusahaan, cabang) dikenali otomatis dari
-// akun karyawan. Semua data difilter ketat milik sendiri —
+// akun karyawan. Semua data difilter ketat milik sendiri  
 // karyawan tidak bisa melihat data karyawan lain.
 //
-// v14: dipakai SELURUH pekerja — kasir, admin, sampai owner.
+// v14: dipakai SELURUH pekerja, kasir, admin, sampai owner.
 // Yang membedakan cuma role-nya: atasan punya panel persetujuan
 // cuti di tab Ajukan, semua orang punya hak cuti tahunan
 // (default 12 hari sesuai UU, bisa dioverride), slip gaji premium
@@ -32,7 +32,7 @@ import {
   Cabang, Tim, PerisaiBuddy, GembokBuddy, BahayaBuddy, Check,
   Kredensial, Perangkat, Lisensi, Keluar, Terang, Gelap, Riwayat,
   Beranda, Penggajian, Plus, BuktiTransfer, SlipGaji, MedaliBuddy,
-  GembokBuka, KoinBuddy, Toko
+  GembokBuka, KoinBuddy, Toko, ArrowLeft
 } from './welp-icons.jsx';
 import {
   db, safeParse, useTenantCol, trustedTime, getLocation, distanceMeters,
@@ -43,13 +43,14 @@ import {
   normShifts, shiftsForBranch, shiftById, shiftOfMs, fmtShiftRange,
   shiftDurMin, fmtJam, pairWorkMinutes, hkTargetOf,
   cutiPolicyOf, hakCutiOf, usedCutiDays, hariKerjaOf, hariLabelOf,
-  kontrakOf, buildSlipHtml, writeBrandMirror,
+  kontrakOf, buildSlipHtml, writeBrandMirror, withTimeout,
   ensureAuth, verifyCred, credIsLegacy, upgradeCred, makeCred, pinGate, pinGateMsg,   // v15 F0
   empBranchIds, roleLabelOfV15, isAtasanRole, openDataUrl,   // v15 F2/F3/F4
   reverseGeocode, uploadMedia, makeEmpId   // v15 F5
 } from './core.jsx';
 import { Button, Toast, Mascot, Badge } from './ui';
 import { BrandLogo, useBrandState } from './brand.jsx';
+import { EmpExtras } from './business/empextras.jsx';   // v21.4: pengumuman, jadwal, poin, target
 
 /* ---------- util ---------- */
 const fmtTime = (ms) => new Date(ms).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
@@ -84,17 +85,17 @@ const LateBadge = ({ ms, aturan }) => {
 };
 
 /* ============================================================
-   LOGIN — sistem utama WELP:
+   LOGIN, sistem utama WELP:
    ID Toko → cabang → PIN cabang → nama karyawan → PIN pribadi.
    Identitas otomatis: role, perusahaan, cabang dari akun karyawan.
    ============================================================ */
 const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
-  // v15 F2: LOGIN AKUN PRIBADI MURNI — ID Toko → Employee ID + PIN pribadi
+  // v15 F2: LOGIN AKUN PRIBADI MURNI, ID Toko → Employee ID + PIN pribadi
   // (tanpa PIN cabang). Bila karyawan terkait >1 cabang, muncul pemilih
   // cabang BERBASIS RELASI (branchIds). Jalur "pilih nama + PIN cabang"
   // dihapus (menutup temuan C1/C3).
   const [step, setStep] = useState('lic');           // lic | login | branch
-  // v15 F2: "ingat ID toko & Employee ID" (bukan PIN) — dibaca sekali saat mount
+  // v15 F2: "ingat ID toko & Employee ID" (bukan PIN), dibaca sekali saat mount
   const lastLogin = (() => { try { return JSON.parse(localStorage.getItem('welp_absen_last') || 'null'); } catch (e) { return null; } })();
   const [licId, setLicId] = useState(preLic || lastLogin?.lic || '');
   const [empIdInput, setEmpIdInput] = useState(lastLogin?.empId || '');
@@ -113,7 +114,7 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
     if (!licId.trim()) return setErr('Isi ID Toko dulu, ya!');
     setBusy(true);
     try {
-      // v15 F0: sesi anonymous Firebase dulu — prasyarat rules v15.
+      // v15 F0: sesi anonymous Firebase dulu, prasyarat rules v15.
       await ensureAuth();
       const snap = await getDoc(doc(db, 'licenses', licId.trim().toLowerCase()));
       if (!snap.exists()) { setErr('ID Toko tidak ditemukan. Coba cek lagi.'); setBusy(false); return; }
@@ -231,7 +232,7 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
             </div>
           )}
 
-          {/* v15 F2: LOGIN PRIBADI — Employee ID + PIN (tanpa PIN cabang) */}
+          {/* v15 F2: LOGIN PRIBADI, Employee ID + PIN (tanpa PIN cabang) */}
           {step === 'login' && (
             <div className="space-y-4">
               <StepTitle n={2}>Masuk ke akun pribadimu</StepTitle>
@@ -265,7 +266,7 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
             </div>
           )}
 
-          {/* v15 F2: PEMILIH CABANG BERBASIS RELASI — muncul hanya bila
+          {/* v15 F2: PEMILIH CABANG BERBASIS RELASI, muncul hanya bila
               karyawan tercatat di lebih dari satu cabang */}
           {step === 'branch' && emp && (
             <div className="space-y-4">
@@ -296,7 +297,7 @@ const AbsenLogin = ({ preLic, onDone, dark, toggleDark }) => {
 };
 
 /* ============================================================
-   FLOW ABSEN — kamera framing 3:4 WYSIWYG + mirror kamera depan
+   FLOW ABSEN, kamera framing 3:4 WYSIWYG + mirror kamera depan
    + stempel foto dari data sistem (logo, perusahaan, jam, GPS).
    ============================================================ */
 const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClose, onSubmit }) => {
@@ -313,6 +314,16 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
   const addressPromiseRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState('');   // v16: progres pengiriman yang jelas
+  // v21.3: AUTO-SIMPAN, setelah foto terstempel, absen langsung dikirim
+  // sendiri (hitungan 3). Tidak perlu tombol tambahan -> karyawan tidak
+  // mungkin "stuck karena lupa/lupa bisa simpan". Batal masih bisa.
+  const [countdown, setCountdown] = useState(null);
+  const autoRef = useRef(null);
+  const submittedRef = useRef(false);
+  const photoRef = useRef(null);
+
+  const clearAuto = () => { if (autoRef.current) { clearInterval(autoRef.current); autoRef.current = null; } setCountdown(null); };
+  useEffect(() => () => clearAuto(), []);
 
   const grabGeo = async () => {
     setGeoErr(null);
@@ -378,7 +389,8 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
 
   /* Potret: crop 3:4 PERSIS seperti preview (object-cover center),
      kamera depan di-mirror biar hasilnya natural seperti yang
-     dilihat karyawan. Kualitas 720px JPEG — jelas tapi hemat. */
+     dilihat karyawan. Kualitas 720px JPEG, jelas tapi hemat.
+     v21.3: setelah foto terstempel -> AUTO-SIMPAN 3 detik. */
   const shoot = async () => {
     const v = videoRef.current;
     if (!v || !v.videoWidth || busy) return;
@@ -407,7 +419,7 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
       try { addr = await Promise.race([addressPromiseRef.current, new Promise(res => setTimeout(() => res(null), 3500))]); } catch (_) {}
     }
     if (addr && !geoAddress) setGeoAddress(addr);
-    // stempel dari data sistem — bukan input manual.
+    // stempel dari data sistem, bukan input manual.
     const stamped = await stampAbsenPhoto({
       dataUrl: raw, company: session.tenant, branchName,
       employeeName: session.employeeName, employeeId: session.empId, type, atMs: trustedNow(), geo,
@@ -415,35 +427,56 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
     });
     setBusy(false);
     setPhoto(stamped);
+    photoRef.current = stamped;
     stopCam();
+    startAutoSend();
     } finally {
       setBusy(false);
     }
   };
 
+  // v21.3: hitung mundur lalu kirim otomatis (dibatalkan bila user menekan Batal)
+  const startAutoSend = () => {
+    clearAuto();
+    let left = 3;
+    setCountdown(left);
+    autoRef.current = setInterval(() => {
+      left -= 1;
+      if (left <= 0) {
+        clearAuto();
+        submit(true);
+      } else setCountdown(left);
+    }, 1000);
+  };
 
   const dist = geo && branch?.lat != null ? distanceMeters(geo, { lat: branch.lat, lng: branch.lng }) : null;
   const outOfRadius = dist != null && dist > aturan.radius;
 
-  const submit = async () => {
-    if (!photo || busy) return;
+  const submit = async (auto = false) => {
+    clearAuto();
+    const p = photoRef.current || photo;
+    if (!p || busy || submittedRef.current) return;
     if (!geo) { setCamErr('Lokasi wajib aktif untuk absensi. Izinkan lokasi lalu coba lagi.'); return; }
     if (!branch?.lat || !branch?.lng) { setCamErr('Lokasi cabang belum diatur owner. Absensi belum dapat diverifikasi.'); return; }
     if (geo.acc && geo.acc > 100) { setCamErr(`Akurasi GPS terlalu rendah (±${geo.acc}m). Pindah ke area terbuka lalu coba lagi.`); return; }
     if (outOfRadius) { setCamErr(`Kamu berada ${dist}m dari cabang. Absensi hanya bisa dilakukan di dalam radius cabang.`); return; }
+    submittedRef.current = true;
     setBusy(true);
-    // v15.3: setiap tahap memberi kabar di tombol, dan busy SELALU
-    // di-reset (try/finally) sehingga tombol tidak pernah mentok di
-    // status mengirim gara-gara GPS lambat atau upload foto gagal.
+    // v21.3: penjaga waktu 45 detik, apapun yang macet (GPS, upload,
+    // Firestore), tombol TIDAK PERNAH menggantung selamanya. Pesan
+    // gagal selalu tampil sehingga karyawan tahu harus apa.
     try {
       setStage('Menyiapkan data absen...');
-      // v20 FIX: alamat hasil reverse-geocode diteruskan ke onSubmit —
-      // dulu doSubmit di root merujuk `geoAddress` yang tidak ada di scope-nya
-      // (ReferenceError setiap submit absensi dgn GPS aktif → absen gagal).
-      await onSubmit({ photo, geo, geoStatus: 'ok', dist, outOfRadius: false, type, address: geoAddress, onStage: setStage });
+      const guard = new Promise((_, rej) => setTimeout(() => rej(new Error('Pengiriman absen melebihi 45 detik. Cek koneksi internet lalu ambil foto ulang.')), 45000));
+      await Promise.race([
+        onSubmit({ photo: p, geo, geoStatus: 'ok', dist, outOfRadius: false, type, address: geoAddress, onStage: setStage }),
+        guard,
+      ]);
     } catch (e) {
       setStage('');
       setBusy(false);
+      submittedRef.current = false;
+      setCamErr(e?.message || 'Gagal mengirim absensi. Coba lagi.');
       return;
     }
     setStage('');
@@ -451,8 +484,8 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-[120] bg-chrome-deep/75 dark:bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center animate-fade-in" onClick={onClose}>
-      <div className="w-full sm:max-w-md bg-surface dark:bg-surface-dark rounded-t-[1.75rem] sm:rounded-[1.75rem] p-5 max-h-[92vh] overflow-y-auto custom-scrollbar animate-slide-up" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[120] bg-chrome-deep/75 dark:bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center animate-fade-in" onClick={busy ? undefined : onClose}>
+      <div className="w-full sm:max-w-md bg-surface dark:bg-surface-dark rounded-t-[1.75rem] sm:rounded-[1.75rem] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] max-h-[92vh] overflow-y-auto custom-scrollbar animate-slide-up" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
             <span className={`w-10 h-10 rounded-2xl flex items-center justify-center ${type === 'in' ? 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf' : 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold'}`}>
@@ -463,10 +496,10 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
               <p className="text-[10px] font-bold text-ink-faint">{session.employeeName}, {branchName}</p>
             </div>
           </div>
-          <button onClick={onClose} className="w-9 h-9 rounded-full bg-paper dark:bg-white/5 text-ink-faint flex items-center justify-center">✕</button>
+          {!busy && <button onClick={onClose} aria-label="Tutup" className="w-9 h-9 rounded-full bg-paper dark:bg-white/5 text-ink-faint flex items-center justify-center shrink-0" style={{ minWidth: 36, minHeight: 36 }}>✕</button>}
         </div>
 
-        {/* KAMERA / PREVIEW SELFIE — framing wajah nyaman, tidak terpotong */}
+        {/* KAMERA / PREVIEW SELFIE, framing wajah nyaman, tidak terpotong */}
         {!photo ? (
           <div>
             <div className="relative rounded-2xl overflow-hidden bg-night aspect-[3/4] max-h-80 mx-auto border border-line dark:border-line-dark">
@@ -503,9 +536,25 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
             <div className="relative rounded-2xl overflow-hidden border border-line dark:border-line-dark max-h-80 mx-auto">
               <img src={photo} alt="Selfie absensi dengan stempel waktu" className="w-full object-cover" />
               <span className="absolute top-2.5 left-2.5 bg-leaf text-white text-[9px] font-extrabold px-2 py-1 rounded-full flex items-center gap-1"><Check className="w-3 h-3" /> Foto distempel otomatis</span>
+              {countdown != null && !busy && (
+                <span className="absolute top-2.5 right-2.5 bg-chrome-deep/85 text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-full flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-leaf animate-pulse-dot" /> Otomatis terkirim {countdown}d
+                </span>
+              )}
+              {busy && (
+                <span className="absolute inset-0 bg-chrome-deep/55 flex flex-col items-center justify-center gap-2">
+                  <WaktuReal className="w-7 h-7 text-white animate-spin" />
+                  <span className="text-white text-[11px] font-extrabold px-3 text-center">{stage || 'Menyimpan absen...'}</span>
+                </span>
+              )}
             </div>
-            <p className="text-[9.5px] text-ink-faint font-semibold text-center mt-2">Tanggal, jam, lokasi, nama perusahaan & logo WELP tertulis di foto dari data sistem.</p>
-            <button onClick={() => { setPhoto(null); startCam(); }} className="w-full py-2.5 mt-1 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition">Ambil ulang foto</button>
+            {!busy && (
+              <div className="flex items-center gap-2 mt-2">
+                <Button onClick={() => submit(false)} className="flex-1 py-3.5 text-sm" icon={type === 'in' ? AbsenMasuk : AbsenPulang}>Kirim Sekarang</Button>
+                <button onClick={() => { clearAuto(); setPhoto(null); photoRef.current = null; submittedRef.current = false; startCam(); }} className="py-2.5 px-3 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition shrink-0">Ambil ulang</button>
+              </div>
+            )}
+            {!busy && <p className="text-[9.5px] text-ink-faint font-semibold text-center mt-2">Absen dikirim otomatis beberapa detik setelah foto jadi. Tanggal, jam, alamat lengkap & koordinat GPS tertulis di foto.</p>}
           </div>
         )}
 
@@ -523,12 +572,14 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
                 {geo.lat.toFixed(5)}, {geo.lng.toFixed(5)}
                 {dist != null && <>, {dist}m dari cabang</>}
               </p>
-              {addressLoading && <p className="text-[10px] font-bold text-flame-600 dark:text-apricot">Membaca nama jalan, kelurahan, kecamatan, dan kota...</p>}
+              {addressLoading && <p className="text-[10px] font-bold text-flame-600 dark:text-apricot">Membaca nama jalan, RT/RW, kelurahan, kecamatan, kota, provinsi & kode pos...</p>}
               {geoAddress && (
                 <div className="rounded-xl bg-white/70 dark:bg-white/[.04] border border-line dark:border-line-dark p-2.5">
-                  <p className="text-[10.5px] font-extrabold text-ink dark:text-ink-inv leading-relaxed">{geoAddress.jalan || geoAddress.displayName}</p>
+                  <p className="text-[10.5px] font-extrabold text-ink dark:text-ink-inv leading-relaxed">
+                    {[geoAddress.jalan, geoAddress.nomor && `No. ${geoAddress.nomor}`, geoAddress.rt && geoAddress.rw && `RT ${geoAddress.rt} / RW ${geoAddress.rw}`].filter(Boolean).join(', ') || geoAddress.displayName}
+                  </p>
                   <p className="text-[9.5px] font-semibold text-ink-faint leading-relaxed mt-0.5">
-                    {[geoAddress.kelurahan, geoAddress.kecamatan && `Kec. ${geoAddress.kecamatan}`, geoAddress.kota && `Kota/Kab. ${geoAddress.kota}`, geoAddress.provinsi, geoAddress.kodepos].filter(Boolean).join(' · ')}
+                    {[geoAddress.kelurahan && `Kel. ${geoAddress.kelurahan}`, geoAddress.kecamatan && `Kec. ${geoAddress.kecamatan}`, geoAddress.kota && `Kota/Kab. ${geoAddress.kota}`, geoAddress.provinsi, geoAddress.kodepos].filter(Boolean).join(', ') || 'Detail wilayah menyusul'}
                   </p>
                 </div>
               )}
@@ -548,21 +599,30 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
           )}
         </div>
 
-        {/* GPS + kamera wajib untuk attendance terverifikasi */}
-        <Button onClick={submit} disabled={!photo || busy} className="w-full py-4 mt-4 text-sm" icon={busy ? WaktuReal : (type === 'in' ? AbsenMasuk : AbsenPulang)}>
-          {busy ? (stage || 'Mengirim...') : `Kirim Absen ${type === 'in' ? 'Masuk' : 'Pulang'}`}
-        </Button>
-        <p className="text-[9.5px] text-ink-faint font-semibold text-center mt-2.5 leading-relaxed flex items-center justify-center gap-1.5">
-          <Perangkat className="w-3.5 h-3.5 shrink-0" />
-          Jam resmi diambil dari server saat data terkirim. Jam di foto adalah jam kamera terverifikasi.
-        </p>
+        {/* Kirim: otomatis setelah foto; tombol darurat tetap ada */}
+        {photo && !busy && (
+          <Button onClick={() => submit(false)} className="w-full py-4 mt-4 text-sm" icon={type === 'in' ? AbsenMasuk : AbsenPulang}>
+            {countdown != null ? `Kirim Sekarang (otomatis ${countdown}d)` : `Kirim Absen ${type === 'in' ? 'Masuk' : 'Pulang'}`}
+          </Button>
+        )}
+        {busy && (
+          <div className="w-full py-3.5 mt-4 rounded-2xl bg-flame-600 text-white font-extrabold text-sm flex items-center justify-center gap-2">
+            <WaktuReal className="w-4.5 h-4.5 animate-spin" /> {stage || 'Menyimpan absen...'}
+          </div>
+        )}
+        {!photo && (
+          <p className="text-[10px] text-ink-faint font-semibold text-center mt-3.5 leading-relaxed flex items-center justify-center gap-1.5">
+            <Perangkat className="w-3.5 h-3.5 shrink-0" />
+            Jam resmi dikunci server saat data terkirim. Foto distempel tanggal, jam, alamat lengkap & koordinat.
+          </p>
+        )}
       </div>
     </div>
   );
 };
 
 /* ============================================================
-   BERANDA KARYAWAN — jam realtime, status hari ini, tombol absen,
+   BERANDA KARYAWAN, jam realtime, status hari ini, tombol absen,
    ringkasan gaji & pengajuan.
    ============================================================ */
 const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak }) => {
@@ -635,7 +695,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
           </div>
         </div>
 
-        {/* SLIP GAJI BARU (v14) — gaji dibayar otomatis masuk ke akunmu */}
+        {/* SLIP GAJI BARU (v14), gaji dibayar otomatis masuk ke akunmu */}
         {newSlip && (
           <button onClick={() => goTab('gaji')} className="card !rounded-3xl p-4.5 w-full text-left hover:border-flame-300 transition press flex items-center gap-3 border-gold/50 !bg-gold-soft dark:!bg-gold/10">
             <span className="w-10 h-10 rounded-2xl bg-gold text-white flex items-center justify-center shrink-0 animate-pulse-dot"><KoinBuddy className="w-5 h-5" /></span>
@@ -665,7 +725,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
           </div>
         ) : null}
 
-        {/* TARGET HK BULAN INI (v13) — progres hadir vs target atasan */}
+        {/* TARGET HK BULAN INI (v13), progres hadir vs target atasan */}
         {myTarget > 0 && (() => {
           const mStart = new Date().setDate(1); const _d = new Date();
           const msStart = new Date(_d.getFullYear(), _d.getMonth(), 1).getTime();
@@ -924,7 +984,7 @@ const EmpAbsensi = ({ session, target = 0 }) => {
 };
 
 /* ============================================================
-   TAB GAJI PRIBADI — hanya slip milik sendiri
+   TAB GAJI PRIBADI, hanya slip milik sendiri
    ============================================================ */
 const EmpGaji = ({ session }) => {
   const { items: payroll } = useTenantCol({ id: session.lic }, 'payroll', 'payroll_db');
@@ -934,7 +994,7 @@ const EmpGaji = ({ session }) => {
   const mine = [...payroll].filter(p => p.employeeCid === session.employeeCid)
     .sort((a, b) => trustedTime(b).ms - trustedTime(a).ms);
 
-  // Slip gaji premium otomatis masuk ke akun karyawan — begitu owner
+  // Slip gaji premium otomatis masuk ke akun karyawan, begitu owner
   // menandai Dibayar, slipnya langsung muncul di sini (realtime).
   // Tandai "sudah dilihat" supaya kartu notifikasi di Beranda hilang.
   useEffect(() => {
@@ -942,7 +1002,7 @@ const EmpGaji = ({ session }) => {
     if (paid) { try { localStorage.setItem(`welp_seen_slip_${session.employeeCid}`, paid.cid); } catch (e) { } }
   }, [mine.length, session.employeeCid]);
 
-  // v20 FIX: buildSlipHtml kini async (QR verifikasi lokal) — slip
+  // v20 FIX: buildSlipHtml kini async (QR verifikasi lokal), slip
   // karyawan men-await HTML final sebelum document.write.
   const printSlip = async (rec) => {
     const w = window.open('', '_blank', 'width=560,height=800');
@@ -991,16 +1051,17 @@ const EmpGaji = ({ session }) => {
         </div>
       )}
 
-      {/* MODAL RINCIAN SLIP */}
+      {/* MODAL RINCIAN SLIP, v21.3: ruang bawah aman (safe-area) supaya
+          baris terakhir TIDAK PERNAH tertutup navbar / home indicator */}
       {view && (
         <div className="fixed inset-0 z-[120] bg-chrome-deep/75 dark:bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center animate-fade-in" onClick={() => setView(null)}>
-          <div className="w-full sm:max-w-md bg-surface dark:bg-surface-dark rounded-t-[1.75rem] sm:rounded-[1.75rem] p-5 max-h-[92vh] overflow-y-auto custom-scrollbar animate-slide-up" onClick={e => e.stopPropagation()}>
+          <div className="w-full sm:max-w-md bg-surface dark:bg-surface-dark rounded-t-[1.75rem] sm:rounded-[1.75rem] p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] max-h-[92vh] overflow-y-auto custom-scrollbar animate-slide-up" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-start mb-4">
               <div>
                 <p className="kicker">Slip Gaji</p>
                 <p className="font-extrabold text-[15px] text-ink dark:text-ink-inv">Periode {view.period}</p>
               </div>
-              <button onClick={() => setView(null)} className="w-9 h-9 rounded-full bg-paper dark:bg-white/5 text-ink-faint flex items-center justify-center">✕</button>
+              <button onClick={() => setView(null)} aria-label="Tutup rincian gaji" className="w-9 h-9 rounded-full bg-paper dark:bg-white/5 text-ink-faint flex items-center justify-center shrink-0" style={{ minWidth: 36, minHeight: 36 }}>✕</button>
             </div>
             <div className="p-4 rounded-2xl bg-flame-50 dark:bg-flame-900/25 text-center mb-3">
               <p className="kicker">Total Diterima</p>
@@ -1030,11 +1091,11 @@ const EmpGaji = ({ session }) => {
 };
 
 /* ============================================================
-   TAB PENGAJUAN (v14) — sakit / izin / cuti + upload surat dokter.
+   TAB PENGAJUAN (v14), sakit / izin / cuti + upload surat dokter.
    Status: Diajukan → Ditinjau → Disetujui / Ditolak (dgn alasan).
    Baru: hak cuti tahunan (default 12 hari sesuai UU) dengan sisa
    kuota live, dan PANEL PERSETUJUAN untuk atasan (Owner/Admin)
-   — semua orang pakai app yang sama, bedanya cuma role.
+  , semua orang pakai app yang sama, bedanya cuma role.
    ============================================================ */
 const EmpAjukan = ({ session, me }) => {
   const { items: pengajuan, addRow, updateRow } = useTenantCol({ id: session.lic }, 'pengajuan', 'pengajuan_db');
@@ -1197,15 +1258,17 @@ const EmpAjukan = ({ session, me }) => {
             )}
           </div>
 
-          {/* v15.3: sel grid diberi min-w-0 supaya input tanggal ikut menyusut di HP */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* v21.3: kolom tanggal disusun VERTIKAL di HP, dulu 2 kolom
+              saling menabrak (lebar minimum input tanggal Safari/iOS
+              lebih besar dari kolomnya). Mulai tablet baru sejajar. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div className="min-w-0">
-              <label className="kicker block mb-1.5">Mulai</label>
-              <input type="date" className="field !px-3 w-full" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+              <label className="kicker block mb-1.5">Tanggal Mulai</label>
+              <input type="date" className="field !px-3 w-full max-w-full" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
             </div>
             <div className="min-w-0">
-              <label className="kicker block mb-1.5">Sampai</label>
-              <input type="date" className="field !px-3 w-full" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+              <label className="kicker block mb-1.5">Tanggal Selesai</label>
+              <input type="date" className="field !px-3 w-full max-w-full" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
             </div>
           </div>
 
@@ -1311,7 +1374,7 @@ const EmpAjukan = ({ session, me }) => {
             </div>
           )}
 
-          {/* v15 F2: RESET PIN KARYAWAN OLEH ATASAN — langsung dari app,
+          {/* v15 F2: RESET PIN KARYAWAN OLEH ATASAN, langsung dari app,
               dengan audit log. PIN baru ditampilkan SEKALI. */}
           <div className="mt-4 pt-4 border-t border-line dark:border-line-dark">
             <button type="button" onClick={() => setShowResetPin(!showResetPin)}
@@ -1376,7 +1439,7 @@ const EmpAjukan = ({ session, me }) => {
 };
 
 /* ============================================================
-   TAB PROFIL — identitas, dokumen pribadi, ganti PIN, tema.
+   TAB PROFIL, identitas, dokumen pribadi, ganti PIN, tema.
    ============================================================ */
 const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
   const { items: employees, updateRow } = useTenantCol({ id: session.lic }, 'karyawan', 'karyawan_db');
@@ -1462,7 +1525,7 @@ const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
         </div>
       </div>
 
-      {/* DOKUMEN PERUSAHAAN (v14) — yang dibagikan owner ke seluruh karyawan */}
+      {/* DOKUMEN PERUSAHAAN (v14), yang dibagikan owner ke seluruh karyawan */}
       <div className="card !rounded-3xl p-5">
         <p className="font-extrabold text-[13px] flex items-center gap-2 mb-3"><Toko className="w-4 h-4 text-flame-600 dark:text-apricot" /> Dokumen Perusahaan</p>
         {(() => {
@@ -1559,11 +1622,11 @@ const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
 };
 
 /* ============================================================
-   ROOT APLIKASI KARYAWAN — bottom nav 5 tab + tema + sesi
+   ROOT APLIKASI KARYAWAN, bottom nav 5 tab + tema + sesi
    ============================================================ */
 
 /* ============================================================
-   v20 — JADWAL & SHIFT (Employee Area)
+   v20, JADWAL & SHIFT (Employee Area)
    Menampilkan sistem shift cabang, penugasan karyawan, dan
    posisi shift saat ini. Data: doc cabang (shifts) atau
    pengaturan 'shift_pusat' untuk Cabang Pusat.
@@ -1621,11 +1684,11 @@ const EmpJadwalSection = ({ session }) => {
 };
 
 /* ============================================================
-   v20 — INFO KARYAWAN: Pengumuman · Dokumen · Aktivitas
-   (Employee Area — konten dari pusat untuk karyawan)
+   v20, INFO KARYAWAN: Pengumuman · Dokumen · Aktivitas
+   (Employee Area, konten dari pusat untuk karyawan)
    ============================================================ */
 const SEEN_ANNOUNCE_KEY = 'welp_announce_seen_at';
-const EmpInfo = ({ session }) => {
+const EmpInfo = ({ session, goBack }) => {
   const [seg, setSeg] = useState('pengumuman');
   const { items: pengumuman } = useTenantCol({ id: session.lic }, 'pengumuman', 'pengumuman_db');
   const { items: dokumen } = useTenantCol({ id: session.lic }, 'dokumen', 'dokumen_db');
@@ -1656,7 +1719,16 @@ const EmpInfo = ({ session }) => {
 
   return (
     <div className="max-w-md mx-auto px-4 pb-32 pt-4 space-y-4">
-      <h2 className="font-display font-extrabold text-lg text-ink dark:text-ink-inv flex items-center gap-2"><Toko className="w-5 h-5 text-flame-600 dark:text-apricot" /> Info Perusahaan</h2>
+      {/* v21.3: TOMBOL KEMBALI, halaman info tidak ada di navbar bawah,
+          jadi tanpa tombol ini user "terjebak" tidak tahu cara keluar */}
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-display font-extrabold text-lg text-ink dark:text-ink-inv flex items-center gap-2 min-w-0"><Toko className="w-5 h-5 text-flame-600 dark:text-apricot shrink-0" /> <span className="truncate">Info Perusahaan</span></h2>
+        {goBack && (
+          <button onClick={goBack} className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface dark:bg-white/5 border border-line dark:border-line-dark text-[11px] font-extrabold text-ink-soft dark:text-ink-inv/75 hover:border-flame-300 transition press">
+            <ArrowLeft className="w-3.5 h-3.5" /> Kembali
+          </button>
+        )}
+      </div>
 
       <div className="flex gap-1.5 p-1 bg-paper dark:bg-white/5 rounded-2xl">
         {segItems.map(it => (
@@ -1738,7 +1810,7 @@ const EmpInfo = ({ session }) => {
               })}
             </div>
           )}
-          <p className="text-[9px] font-semibold text-ink-faint mt-3 leading-relaxed">Riwayat aktivitas bersifat audit — tidak dapat diubah atau dihapus oleh siapa pun.</p>
+          <p className="text-[9px] font-semibold text-ink-faint mt-3 leading-relaxed">Riwayat aktivitas bersifat audit, tidak dapat diubah atau dihapus oleh siapa pun.</p>
         </div>
       )}
     </div>
@@ -1754,7 +1826,7 @@ const TABS = [
 ];
 
 export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark }) => {
-  // Waktu terpercaya di-offset sejak awal (header host) — dipakai
+  // Waktu terpercaya di-offset sejak awal (header host), dipakai
   // watermark foto absensi sebelum data terkirim ke server.
   useEffect(() => { syncTrustedTime(); }, []);
 
@@ -1763,7 +1835,7 @@ export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark }) => {
   const [popup, setPopup] = useState({ show: false, message: '', type: 'success' });
   const alert = (message, type = 'success') => { setPopup({ show: true, message, type }); };
 
-  // data utk flow absen (branch + aturan + shift) — dibaca sekali di root
+  // data utk flow absen (branch + aturan + shift), dibaca sekali di root
   const { items: branches } = useTenantCol(session ? { id: session.lic } : null, 'cabang', 'cabang_db');
   const { items: karyawan } = useTenantCol(session ? { id: session.lic } : null, 'karyawan', 'karyawan_db');
   const { items: settings } = useTenantCol(session ? { id: session.lic } : null, 'pengaturan', 'pengaturan_db');
@@ -1774,7 +1846,7 @@ export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark }) => {
   const aturan = getAturan(branch);
 
   // Custom Aplikasi (v14): terapkan logo & warna perusahaan dari
-  // pengaturan tenant — Employee Area ikut white-label seperti app utama.
+  // pengaturan tenant, Employee Area ikut white-label seperti app utama.
   useEffect(() => {
     if (!settings || settings.length === 0) return;
     const rec = settings.find(s => s.key === 'branding');
@@ -1800,48 +1872,77 @@ export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark }) => {
       // v15 F4-H11: telat dihitung dari waktu terpercaya (offset server)
       const li = lateInfo(trustedNow(), aturan);
       const sh = myShift || shiftOfMs(branchShifts, Date.now());   // shift tercatat di absensi
-      // v20 FIX: alamat dari AbsenFlow (sudah di-resolve saat foto diambil).
-      // Bila kosong, fallback reverse-geocode sekali di sini — TIDAK lagi
-      // merujuk variabel `geoAddress` yang tidak pernah ada di scope ini.
+      // v21.3: alamat lengkap (jalan, no, RT/RW, kelurahan, kecamatan,
+      // kota, provinsi, kode pos). Bila AbsenFlow belum selesai
+      // reverse-geocode, coba sekali lagi di sini (maksimal tunggu 4s).
       let alamat = address || null;
       if (geo && geo.lat != null && !alamat) {
-        try { if (onStage) onStage('Memastikan alamat lokasi...'); alamat = await reverseGeocode(geo.lat, geo.lng); } catch (_) { alamat = null; }
+        try { if (onStage) onStage('Memastikan alamat lokasi...'); alamat = await Promise.race([reverseGeocode(geo.lat, geo.lng), new Promise(res => setTimeout(() => res(null), 4000))]); } catch (_) { alamat = null; }
       }
-      // v15 F5/J3: foto diunggah ke Storage (URL hemat kuota baca);
-      // bila Storage belum siap → fallback base64 inline seperti sebelumnya.
-      let photoUrl = null;
-      if (photo) {
-        try { if (onStage) onStage('Mengunggah foto selfie...'); } catch (_) { }
-        photoUrl = await uploadMedia(session.lic, `absensi/${todayKey()}/${session.employeeCid}_${Date.now()}.jpg`, photo);
-      }
-      try { if (onStage) onStage('Menyimpan absen...'); } catch (_) { }
       const captureId = randomId('capture');
-      const photoHash = await sha256Hex(photo);
       const attendanceId = randomId('abs');
-      const evidence = {
-        captureId, photoHash, captureMode: 'welp-camera', liveMotionCheck: true,
+      const base = {
+        captureId, captureMode: 'welp-camera', liveMotionCheck: true,
         employeeName: session.employeeName, employeeCid: session.employeeCid, empId: session.empId || '', role: session.role,
         branchId: session.branchId, branchName, date: todayKey(), type,
         shiftId: sh?.id || null, shiftNama: sh?.nama || null,
         lat: geo.lat, lng: geo.lng, acc: geo.acc ?? null,
         dist: dist ?? null, far: false, geoStatus: 'verified', alamat,
         addressDisplay: alamat?.displayName || null,
-        addressRoad: alamat?.jalan || null, addressKelurahan: alamat?.kelurahan || null,
+        addressRoad: alamat?.jalan || null, addressNo: alamat?.nomor || null,
+        addressRt: alamat?.rt || null, addressRw: alamat?.rw || null,
+        addressKelurahan: alamat?.kelurahan || null,
         addressKecamatan: alamat?.kecamatan || null, addressKota: alamat?.kota || null,
         addressProvinsi: alamat?.provinsi || null, addressKodepos: alamat?.kodepos || null,
         lateMin: type === 'in' ? li.telatMin : null, lateStatus: type === 'in' ? li.status : null,
-        photo: photoUrl ? null : photo, photoUrl,
+        photoUrl: null,
         deviceId: session.deviceId || getDeviceId(), deviceTs: Date.now(),
         createdAt: Date.now(), serverAt: serverTimestamp(),
-        evidenceVersion: 2, status: 'verified'
+        evidenceVersion: 3, status: 'verified'
       };
-      await setDoc(doc(db, 'tenants', session.lic, 'absensi', attendanceId), evidence);
+      // v21.3 FIX "TOMBOL SIMPAN STUCK / ABSEN GAK MASUK":
+      // 1) ABSEN DISIMPAN DULU ke Firestore (foto inline, max ~400KB
+      //    supaya ringan) DENGAN PENJAGA WAKTU 20 detik. Begitu langkah
+      //    ini sukses, absen PASTI tercatat walau internet lemah.
+      // 2) Upload foto ke Storage dilakukan SETELAHNYA sebagai
+      //    peningkatan; gagal = catatan tetap aman dgn foto inline.
+      // 3) Hash bukti tetap dihitung lokal (tidak bisa gagal).
+      let inlinePhoto = photo || null;
+      if (inlinePhoto && inlinePhoto.length > 560 * 1024) {
+        // foto stempel 720px biasanya < 300KB; bila lebih, kompres ringan
+        try {
+          inlinePhoto = await new Promise((res) => {
+            const im = new Image();
+            im.onload = () => {
+              const cv = document.createElement('canvas');
+              const sc = Math.min(1, 640 / Math.max(im.width, im.height));
+              cv.width = Math.round(im.width * sc); cv.height = Math.round(im.height * sc);
+              cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+              res(cv.toDataURL('image/jpeg', 0.62));
+            };
+            im.onerror = () => res(photo);
+            im.src = photo;
+          });
+        } catch (_) { inlinePhoto = photo; }
+      }
+      const evidenceFirst = { ...base, photo: inlinePhoto, photoHash: await sha256Hex(photo || '') };
+      try { if (onStage) onStage('Menyimpan absen...'); } catch (_) { }
+      await withTimeout(setDoc(doc(db, 'tenants', session.lic, 'absensi', attendanceId), evidenceFirst), 20000, 'Menyimpan absen');
+      // 2) peningkatan: URL foto di Storage (hemat kuota baca), gagal = abaikan
+      if (photo) {
+        try {
+          const photoUrl = await uploadMedia(session.lic, `absensi/${todayKey()}/${session.employeeCid}_${Date.now()}.jpg`, photo, { timeoutMs: 14000 });
+          if (photoUrl) {
+            await withTimeout(setDoc(doc(db, 'tenants', session.lic, 'absensi', attendanceId), { photo: null, photoUrl }, { merge: true }), 12000, 'Memperbarui foto');
+          }
+        } catch (_) { /* foto inline tetap terpakai */ }
+      }
       auditLog({ id: session.lic, tenant: session.tenant, currentUserRole: session.role, branchId: session.branchId, employeeName: session.employeeName },
         'ABSEN_' + (type === 'in' ? 'MASUK' : 'PULANG'), { jarak: dist, luarRadius: outOfRadius, tanpaGps: !geo, employeeCid: session.employeeCid });
       setFlow(null);
-      alert(`Absen ${type === 'in' ? 'masuk' : 'pulang'} tercatat. Bukti kamera, lokasi, dan waktu server tersimpan.`, 'success');
+      alert(`Absen ${type === 'in' ? 'masuk' : 'pulang'} tercatat! Foto, alamat lengkap, dan waktu server tersimpan.`, 'success');
     } catch (e) {
-      alert('Gagal mengirim absensi: ' + (e.message || 'coba lagi'), 'error');
+      alert('Gagal mengirim absensi: ' + (e.message || 'coba lagi') + '. Foto tidak hilang, silakan kirim ulang.', 'error');
       throw e;   // v15.3: kabarkan ke flow supaya tombol kembali normal
     }
   };
@@ -1851,13 +1952,15 @@ export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark }) => {
       {popup.show && <Toast message={popup.message} type={popup.type} onClose={() => setPopup(p => ({ ...p, show: false }))} />}
 
       {tab === 'home' && <EmpHome session={session} goTab={setTab} openFlow={setFlow} myShift={myShift} hasShifts={branchShifts.length > 0} myTarget={myTarget} myHak={hakCutiOf(cutiPolicyOf(settings), me)} />}
+      {/* v21.4: kartu Pengumuman, Jadwal Saya, Poin Saya, Target Saya */}
+      {tab === 'home' && <EmpExtras session={session} />}
       {tab === 'absensi' && <EmpAbsensi session={session} target={myTarget} />}
       {tab === 'gaji' && <EmpGaji session={session} />}
       {tab === 'ajukan' && <EmpAjukan session={session} me={me} />}
-      {tab === 'info' && <EmpInfo session={session} />}
+      {tab === 'info' && <EmpInfo session={session} goBack={() => setTab('home')} />}
       {tab === 'profil' && <EmpProfil session={session} dark={dark} toggleDark={toggleDark} onLogout={onLogout} />}
 
-      {/* BOTTOM NAV — safe-area aware */}
+      {/* BOTTOM NAV, safe-area aware */}
       <nav className="fixed bottom-0 inset-x-0 z-40 bg-surface/95 dark:bg-chrome-deep/95 backdrop-blur-md border-t border-line dark:border-chrome-edge pb-safe">
         <div className="grid grid-cols-5 max-w-md mx-auto h-16">
           {TABS.map(it => {
@@ -1884,7 +1987,7 @@ export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark }) => {
 };
 
 /* ============================================================
-   ABSENSIAPP STANDALONE (?absen=1 — QR lama tetap berfungsi)
+   ABSENSIAPP STANDALONE (?absen=1, QR lama tetap berfungsi)
    Login: ID Toko → Employee ID + PIN pribadi (v15 F2).
    ============================================================ */
 export const AbsensiApp = ({ preLic = '' }) => {
@@ -1918,7 +2021,7 @@ export const AbsensiApp = ({ preLic = '' }) => {
 };
 
 /* ============================================================
-   EMPLOYEE AREA (v20) — di dalam aplikasi utama WELP
+   EMPLOYEE AREA (v20), di dalam aplikasi utama WELP
    ------------------------------------------------------------
    Dipakai ketika user dengan role karyawan login memakai AKUN
    PRIBADI (Firebase Auth enterprise) dari aplikasi utama. Sistem

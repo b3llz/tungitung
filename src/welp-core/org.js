@@ -1,15 +1,15 @@
-// WELP CORE — ORGANIZATION MODEL v20
+// WELP CORE, ORGANIZATION MODEL v20
 // rbac.js adalah dependensi satu arah (rbac tidak pernah
 // mengimpor org.js) sehingga tidak ada siklus modul.
 import { branchesInScope as _branchesInScope } from './rbac.js';
 
 // ============================================================
-// WELP CORE — ORGANIZATION MODEL v20
+// WELP CORE, ORGANIZATION MODEL v20
 // ------------------------------------------------------------
 // Struktur organisasi: PUSAT → REGION/AREA → CABANG → USER.
 //
 // Prinsip fundamental (requirement arsitektur):
-//   • Cabang adalah ORGANIZATIONAL UNIT dengan branch ID —
+//   • Cabang adalah ORGANIZATIONAL UNIT dengan branch ID  
 //     BUKAN akun login bersama dan BUKAN milik satu orang.
 //   • Semua manusia login dengan AKUN PRIBADI; sistem menentukan
 //     identity, role, region, branch, department & permission
@@ -28,7 +28,7 @@ import { branchesInScope as _branchesInScope } from './rbac.js';
 // ============================================================
 
 // ------------------------------------------------------------
-// REGION — CRUD helpers murni (dipakai bersama UI & halaman lain)
+// REGION, CRUD helpers murni (dipakai bersama UI & halaman lain)
 // ------------------------------------------------------------
 
 // Normalisasi daftar region mentah → bentuk aman + urut nama.
@@ -59,7 +59,7 @@ export const makeRegionId = (name, existing = []) => {
 };
 
 // ------------------------------------------------------------
-// CABANG — linkage region + status
+// CABANG, linkage region + status
 // ------------------------------------------------------------
 
 // Branch dgn konteks region (mengembalikan record + regionName).
@@ -89,11 +89,11 @@ export const branchesByRegion = (branches = [], regions = []) => {
 // Opsi region untuk <Select> (plus opsi tanpa region).
 export const regionOptions = (regions = [], withNone = true) => {
   const opts = normRegions(regions).map(r => ({ value: r.cid, label: r.name }));
-  return withNone ? [{ value: '', label: '— Tanpa Region —' }, ...opts] : opts;
+  return withNone ? [{ value: '', label: 'Tanpa Region' }, ...opts] : opts;
 };
 
 // ------------------------------------------------------------
-// ASSIGNMENT USER — fleksibel, tidak menyentuh cabang
+// ASSIGNMENT USER, fleksibel, tidak menyentuh cabang
 // ------------------------------------------------------------
 
 // Karyawan↔cabang multi (existing core.empBranchIds diperluas di sini
@@ -116,7 +116,7 @@ export const managedBranchesOf = (employee, branches = []) => {
     bids.has(b.cid) || (b.regionId && rids.has(b.regionId)));
 };
 
-// Department — string bebas, dipakai filter scope & laporan HR.
+// Department, string bebas, dipakai filter scope & laporan HR.
 export const DEPARTMENTS = [
   'Operasional', 'Kasir', 'Gudang', 'Purchasing', 'Finance', 'Accounting',
   'HRD', 'Marketing', 'IT', 'Manajemen',
@@ -155,7 +155,7 @@ export const filterByScope = (rows, scope, branches, key = 'branchId') => {
 };
 
 // ------------------------------------------------------------
-// ORG TREE — struktur lengkap utk halaman Organization
+// ORG TREE, struktur lengkap utk halaman Organization
 // ------------------------------------------------------------
 export const buildOrgTree = (branches = [], regions = [], employees = []) => {
   const reg = normRegions(regions);

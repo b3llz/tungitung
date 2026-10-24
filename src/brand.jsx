@@ -1,5 +1,5 @@
 // ============================================================
-// WELP BRAND SYSTEM — satu sumber identitas untuk seluruh app.
+// WELP BRAND SYSTEM, satu sumber identitas untuk seluruh app.
 // ------------------------------------------------------------
 // Aturan pakai:
 //  • WelpWordmark / JustruMark : logo resmi versi VEKTOR HD
@@ -9,7 +9,7 @@
 //  • BrandLogo    : wordmark WELP (tanpa garis dekoratif apa pun).
 //    theme="auto" mengikuti light/dark lewat kelas teks.
 //  • BrandLockup  : WELP (primer) + tagline "We Eventually Love
-//    POS" (font Baloo 2 — satu keluarga dengan bentuk logo)
+//    POS" (font Baloo 2, satu keluarga dengan bentuk logo)
 //    + endorsement "by JUSTru GROUP" (sekunder, selalu tampil,
 //    ukuran jelas terbaca di SEMUA device termasuk mobile).
 //  • Mascot       : maskot resmi WELP (asset PNG asli project).

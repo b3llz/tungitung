@@ -1,5 +1,5 @@
 // ============================================================
-// LAPORAN & ANALISA v5 WELP — strip KPI 4 tile + grafik area
+// LAPORAN & ANALISA v5 WELP, strip KPI 4 tile + grafik area
 // flame. Logika statistik dipertahankan 100%: filter periode,
 // grafik harian, laba kotor dari hppAtSale, margin health,
 // stock velocity nyata, export Excel (ExcelJS).
@@ -340,7 +340,7 @@ export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
         <Kpi icon={Laporan} label="Rata-rata / Hari" value={formatIDR(chart.avg)} note={`${chart.activeDays} hari aktif bulan ini`} />
       </div>
 
-      {/* GRAFIK — kurva halus + area gradien + titik data (gaya referensi) */}
+      {/* GRAFIK, kurva halus + area gradien + titik data (gaya referensi) */}
       <Card title="Penjualan Harian (Bulan Ini)" icon={Laporan} action={<Badge tone="lime">Puncak: Tgl {chart.peak.day || '-'}</Badge>}>
         <div className="relative h-64 w-full select-none">
           {/* tooltip chip gelap: mengikuti titik terfokus, dijepit agar tak terpotong */}

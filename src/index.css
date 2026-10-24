@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 /* ============================================================
-   WELP — DESIGN SYSTEM v6 "FRESH INK"
+   WELP, DESIGN SYSTEM v6 "FRESH INK"
    Neutral dulu: kanvas putih/abu bersih di light mode, charcoal
    netral di dark mode. Orange hanya aksen. Sudut membulat yang
    matang, ikon bertabur karakter, tipografi rounded-friendly.
@@ -15,7 +15,7 @@
   --font-sans: 'Nunito', ui-sans-serif, system-ui, sans-serif;
 
   /* ============================================================
-     PALET BRAND WELP (v14) — sumber tunggal warna flame/apricot.
+     PALET BRAND WELP (v14), sumber tunggal warna flame/apricot.
      Semua kelas Tailwind flame-* / apricot-* membaca var ini.
      Fitur Custom Aplikasi menimpa nilainya saat runtime lewat
      applyBranding() di core.jsx (merah / biru / hijau / kustom).
@@ -26,8 +26,8 @@
   --fl-200: 254 201 164;  /* #FEC9A4 */
   --fl-300: 253 166 113;  /* #FDA671 */
   --fl-400: 251 129 66;   /* #FB8142 */
-  --fl-500: 244 98 46;    /* #F4622E — accent utama */
-  --fl-600: 216 67 18;    /* #D84312 — CTA / hover */
+  --fl-500: 244 98 46;    /* #F4622E, accent utama */
+  --fl-600: 216 67 18;    /* #D84312, CTA / hover */
   --fl-700: 178 53 8;     /* #B23508 */
   --fl-800: 143 44 12;    /* #8F2C0C */
   --fl-900: 116 39 14;    /* #74270E */
@@ -147,7 +147,7 @@ button:disabled { cursor: not-allowed; }
 @keyframes pulse-dot { 0%,100% { opacity:1 } 50% { opacity:.35 } }
 @keyframes wobble { 0%,100% { transform: rotate(-2.5deg) } 50% { transform: rotate(2.5deg) } }
 @keyframes floaty { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-5px) } }
-/* v21 — motion domain kasir: GPU-friendly (transform+opacity), 120–220ms */
+/* v21, motion domain kasir: GPU-friendly (transform+opacity), 120–220ms */
 @keyframes bump { 0% { transform: scale(1) } 35% { transform: scale(1.12) } 100% { transform: scale(1) } }
 @keyframes flash-soft { 0% { opacity: .35 } 100% { opacity: 1 } }
 @keyframes success-pop { 0% { transform: scale(.5); opacity: 0 } 60% { transform: scale(1.15); opacity: 1 } 100% { transform: scale(1); opacity: 1 } }
@@ -158,7 +158,7 @@ button:disabled { cursor: not-allowed; }
 .animate-success-pop { animation: success-pop .2s cubic-bezier(.16,1,.3,1) both; }
 .animate-slide-in-right { animation: slide-in-right .18s cubic-bezier(.16,1,.3,1) both; }
 
-/* v21.1 — bahasa gerak tambahan: transisi angka, sheet spring,
+/* v21.1, bahasa gerak tambahan: transisi angka, sheet spring,
    koreksi (shake), denyut tren gaya ticker saham. Semua compositor-
    friendly (transform+opacity) dan bertahap sesuai konteks:
    angka 140ms · sheet 240ms spring · shake 320ms · tren 220ms. */

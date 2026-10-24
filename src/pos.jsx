@@ -1,5 +1,5 @@
 // ============================================================
-// POS / KASIR v4 — perubahan struktur besar: panel TIKET PESANAN
+// POS / KASIR v4, perubahan struktur besar: panel TIKET PESANAN
 // permanen di kanan (desktop) + bottom-sheet checkout (mobile).
 // Logika kasir dipertahankan 100%: scanner BarcodeDetector nyata,
 // materialUsage saat checkout, restore stok saat batal/edit,
@@ -21,16 +21,16 @@ import {
   auditLog, todayKey, normShifts, shiftsForBranch, shiftById, shiftOfMs,
   verifyCred, credIsLegacy, upgradeCred, pinGate, pinGateMsg,   // v15 F0
   dbSet, dbSetDoc, getDeviceId,   // v15 F1 + v21
-  stockTrackingOn,   // v21.1 — inventory optional
+  stockTrackingOn,   // v21.1, inventory optional
 } from './core.jsx';
-import { Button, Card, Badge, EmptyState } from './ui';
-// v21 — domain transaksi, sync engine, dan komponen finansial bersama
+import { Button, Card, Badge, EmptyState, Modal } from './ui';
+// v21, domain transaksi, sync engine, dan komponen finansial bersama
 import {
   TX_STATE, txStateOf, normalizePayments, newClientTxId, newPaymentId,
   netTotalOf, refundedAmountOf, dateKeyOfMs, canVoid as canVoidTx, canRefund as canRefundTx,
 } from './welp-core/tx.js';
 import { commitFinanceDoc } from './welp-core/sync.js';
-// v21.1 — Modifier Engine + WELP Payment Core
+// v21.1, Modifier Engine + WELP Payment Core
 import {
   productMode, activeGroupsForProduct, needsModifierSheet, defaultSelection,
   validateSelection, lineUnitPrice, lineModifiersPayload, cartLineKey, modifiersLabelByGroup,
@@ -39,7 +39,12 @@ import {
   MATCH_STATUS, MATCH_STATUS_META, newPaymentReference, buildSimulatedEvent, intentExpiryOf,
 } from './welp-core/payment.js';
 import { ingestPaymentEvent, paymentRecWithIntent } from './welp-core/paymentOps.js';
+import { autoKickDrawer, haptic } from './welp-core/posprinter.js';   // v21.3: laci kas & getar kasir
 import { TxStateBadge, SyncPill, ShiftPanel, VoidModal, RefundModal, permsOfSession, commitOrder } from './txactions.jsx';
+// v21.4 Enterprise Growth: member loyalitas, voucher, tukar poin
+import {
+  DEFAULT_LOYALTY, loyaltyCfgOf, poinEarnedOf, poinValueOf, tierOf, findVoucher,
+} from './business/kit.js';
 
 // v15.3: QR pembayaran di-generate lokal (data URL, tanpa layanan luar)
 // agar checkout QRIS tidak bergantung kecepatan layanan pihak ketiga.
@@ -109,12 +114,31 @@ export const CountdownTimer = ({ deadline }) => {
 };
 
 /* ---------- STRUK (print via window.print, z-[80]) ---------- */
-export const ReceiptModal = ({ order, profile, onClose }) => {
+export const ReceiptModal = ({ order, profile, onClose, loyaltyCfg = null }) => {
   if (!order) return null;
   const subtotal = order.subtotal ?? order.items.reduce((a, b) => a + b.price * b.qty, 0);
   const code = String(order.id || 'WELP0000').slice(-8).toUpperCase() || 'WELP0000';
   const method = order.paymentMethod || '-';
   const isCash = method === 'Cash';
+  // v21.4: poin member pada struk (dipakai utk badge + share WhatsApp)
+  const poinEarned = Number(order.poinEarned || 0) ||
+    (order.memberCid ? poinEarnedOf(order.total, loyaltyCfg || DEFAULT_LOYALTY) : 0);
+  const shareWA = () => {
+    const L = [];
+    L.push(`*${profile?.name || 'Toko'}*`);
+    L.push(`No: #${code}`);
+    L.push(new Date(order.date).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }));
+    L.push('------------------------------');
+    (order.items || []).forEach(i => L.push(`${i.qty}x ${i.name} : ${formatIDR(i.price * i.qty)}`));
+    L.push('------------------------------');
+    if (order.discountAmt > 0) L.push(`Diskon: -${formatIDR(order.discountAmt)}`);
+    L.push(`Total: *${formatIDR(order.total)}*`);
+    L.push(`Bayar: ${method}${isCash ? ` (kembali ${formatIDR(order.change || 0)})` : ''}`);
+    if (poinEarned > 0) L.push(`Poin member: +${poinEarned} poin`);
+    L.push('');
+    L.push('Terima kasih sudah berbelanja!');
+    window.open(`https://wa.me/?text=${encodeURIComponent(L.join('\n'))}`, '_blank');
+  };
   return createPortal(
     <div className="fixed inset-0 z-[80] bg-chrome-deep/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
       <div className="bg-white w-full max-w-[390px] rounded-[1.5rem] shadow-pop overflow-hidden animate-pop" onClick={e => e.stopPropagation()}>
@@ -143,7 +167,7 @@ export const ReceiptModal = ({ order, profile, onClose }) => {
               <div key={x} className="grid grid-cols-[1fr_auto] gap-3">
                 <div className="min-w-0">
                   <p className="font-bold text-[10.5px] leading-snug break-words">{i.name}</p>
-                  {/* v21.1 — modifier tersimpan di line item & tampil di struk */}
+                  {/* v21.1, modifier tersimpan di line item & tampil di struk */}
                   {(i.modifiers || []).length > 0 && modifiersLabelByGroup(i.modifiers).map((lbl, mi) => (
                     <p key={mi} className="text-[8.5px] text-slate-500 font-semibold leading-tight">+ {lbl}</p>
                   ))}
@@ -166,7 +190,17 @@ export const ReceiptModal = ({ order, profile, onClose }) => {
             <div><p className="text-[7.5px] uppercase tracking-[.16em] font-black text-slate-400">Pembayaran</p><p className="font-black text-[11px] mt-0.5">{method}</p></div>
             {isCash && <div className="text-right text-[9px]"><p>Bayar {formatIDR(order.cashTendered || order.total)}</p><p className="font-black">Kembali {formatIDR(order.change || 0)}</p></div>}
           </div>
-          {/* v21.1 WELP Payment Core — paymentReference unik (bukan nominal) */}
+          {/* v21.4: poin member di struk */}
+          {Number(order.poinRedeemed || 0) > 0 && (
+            <div className="py-1.5 flex justify-between text-slate-600"><span>Tukar {order.poinRedeemed} poin</span><span>- {formatIDR(order.poinValue || 0)}</span></div>
+          )}
+          {poinEarned > 0 && (
+            <div className="mt-1 rounded-xl bg-slate-100 border border-slate-200 px-3 py-2 text-center">
+              <p className="font-black text-[10px] tracking-wide">+{poinEarned} POIN MEMBER</p>
+              <p className="text-[8px] text-slate-500">Poin otomatis masuk ke akun member</p>
+            </div>
+          )}
+          {/* v21.1 WELP Payment Core, paymentReference unik (bukan nominal) */}
           {(order.payments || []).some(p => p.paymentReference) && (
             <div className="py-2 text-[8px] text-slate-400 font-mono break-all">
               Ref: {(order.payments.find(p => p.paymentReference) || {}).paymentReference}
@@ -183,6 +217,7 @@ export const ReceiptModal = ({ order, profile, onClose }) => {
         </div>
         <div className="no-print p-3 bg-surface dark:bg-surface-dark border-t border-line dark:border-line-dark flex gap-2">
           <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-paper dark:bg-white/10 border border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/80 font-bold text-xs">Tutup</button>
+          <button type="button" onClick={shareWA} className="flex-1 py-2.5 rounded-xl bg-leaf hover:bg-leaf/90 text-white font-bold text-xs flex items-center justify-center gap-2">Bagikan WA</button>
           <button type="button" onClick={() => window.print()} className="flex-1 py-2.5 rounded-xl bg-flame-600 hover:bg-flame-500 text-white font-bold text-xs flex items-center justify-center gap-2"><StrukCetak className="w-4 h-4" /> Cetak / PDF</button>
         </div>
       </div>
@@ -195,10 +230,10 @@ export const ReceiptModal = ({ order, profile, onClose }) => {
    Kontrak prop IDENTIK dengan CartPopup lama (dipakai SelfOrder).
    ============================================================ */
 /* ============================================================
-   QUICK CASHIER MODE — keypad tunai yang menyatu dgn pembayaran.
+   QUICK CASHIER MODE, keypad tunai yang menyatu dgn pembayaran.
    hierarchy: angka netral, koreksi amber, hapus merah lembut,
    BAYAR oranye solid WELP. Nominal terhubung langsung ke state
-   transaksi (cashTendered) — bukan kalkulator berdiri sendiri.
+   transaksi (cashTendered), bukan kalkulator berdiri sendiri.
    ============================================================ */
 const QUICK_ADDS = [
   { label: '+5rb', val: 5000 }, { label: '+10rb', val: 10000 },
@@ -206,10 +241,23 @@ const QUICK_ADDS = [
   { label: '+100rb', val: 100000 },
 ];
 
-export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile, isLoading, orderType, setOrderType, tableNo, setTableNo, notes, setNotes, cashTendered, setCashTendered, isSelfOrder = false, qrisReference = null }) => {
-  const bill = computeOrderTotals(cart);
+export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCart, buyerName, setBuyerName, paymentMethod, setPaymentMethod, handleCheckout, profile, isLoading, orderType, setOrderType, tableNo, setTableNo, notes, setNotes, cashTendered, setCashTendered, isSelfOrder = false, qrisReference = null,
+  // v21.4 GROWTH: member loyalitas + voucher + tukar poin
+  members = [], loyaltyCfg = DEFAULT_LOYALTY, memberSel = null, onPickMember, onClearMember,
+  redeemPoin = 0, maxRedeem = 0, onRedeem, poinWorth = DEFAULT_LOYALTY.poinWorth,
+  voucherCode = '', setVoucherCode, voucherApplied = null, onApplyVoucher, onClearVoucher, voucherMsg = '',
+  showMemberPick = false, setShowMemberPick,
+}) => {
+  const bill = computeOrderTotals(cart, undefined,
+    (Number(voucherApplied?.disc) || 0) + (Number(redeemPoin) || 0) * poinWorth);
   const grandTotal = bill.total;
   const bizMode = localStorage.getItem('biz_mode') || 'retail';
+  // v21.4: pencarian member di picker kasir
+  const [memberQ, setMemberQ] = useState('');
+  const memberList = (members || []).filter(m => {
+    const n = memberQ.trim().toLowerCase();
+    return !n || String(m.name || '').toLowerCase().includes(n) || String(m.phone || '').includes(n);
+  }).slice(0, 8);
   // v21 payment-first: Tunai/QRIS utama, sisanya di balik "Lainnya".
   const [showOther, setShowOther] = useState(false);      // sub-daftar metode lain
   const [showItems, setShowItems] = useState(cart.length <= 4);   // daftar item collapsible
@@ -258,8 +306,8 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
   const canPay = cart.length > 0 && !isLoading && !!paymentMethod && !(paymentMethod === 'Cash' && cashTendered < grandTotal);
   const cashEnough = cashTendered >= grandTotal && grandTotal > 0;
 
-  // v21.1 — QR dinamis + paymentReference (tag 62/07) utk matching engine.
-  // Reference unik per sesi keranjang — nominal sama antar order TIDAK
+  // v21.1, QR dinamis + paymentReference (tag 62/07) utk matching engine.
+  // Reference unik per sesi keranjang, nominal sama antar order TIDAK
   // menghasilkan QR yang sama.
   const dynQris = paymentMethod === 'QRIS' && profile.payment?.qrisPayload ? buildIntentQris(profile.payment.qrisPayload, grandTotal, qrisReference) : null;
   const otherMethods = isSelfOrder
@@ -270,7 +318,7 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
     : (paymentMethod === 'Cash' && !isSelfOrder && cashEnough) ? `BAYAR · kembalian ${formatIDR(cashTendered - grandTotal)}`
       : `BAYAR · ${formatIDR(grandTotal)}`;
 
-  // palet Quick Cashier Mode (light / dark) — angka netral, aksi oranye
+  // palet Quick Cashier Mode (light / dark), angka netral, aksi oranye
   const keyCls = 'py-3.5 sm:py-4 rounded-xl text-lg sm:text-xl font-extrabold select-none transition-all active:scale-95 press border bg-white dark:bg-[#272A2E] text-[#1D1D1B] dark:text-[#F5F5F2] border-[#E1E1DD] dark:border-[#34383D] hover:bg-[#F1F1EE] dark:hover:bg-[#30343A] active:bg-[#E7E7E3] dark:active:bg-[#383C42]';
   const backCls = 'bg-[#FFF6E8] dark:bg-[#3A3021] text-[#A86200] dark:text-[#F2BD6B] border-[#F0E4D0] dark:border-[#4A4030] hover:bg-[#FDEED3] dark:hover:bg-[#463B29]';
   const chipCls = 'shrink-0 px-3 py-1.5 rounded-full text-[10.5px] font-extrabold border transition-all active:scale-95 press bg-white dark:bg-[#272A2E] text-[#1D1D1B]/70 dark:text-[#F5F5F2]/70 border-[#E1E1DD] dark:border-[#34383D] hover:border-flame-400 active:bg-flame-50 dark:active:bg-flame-900/40 active:text-flame-600 dark:active:text-[#FF9A5C]';
@@ -383,7 +431,7 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
                     <span className="absolute -top-2.5 -right-2 flex items-center gap-1 bg-flame-600 text-white text-[8px] font-extrabold px-2 py-1 rounded-full shadow-card"><QrDinamis className="w-3 h-3" /> DINAMIS</span>
                   </div>
                   <p className="text-base mt-2.5 text-flame-700 dark:text-apricot font-extrabold money">{formatIDR(grandTotal)}</p>
-                  <p className="text-[10px] mt-0.5 text-ink-faint font-bold text-center">Pelanggan scan — nominal terisi otomatis.<br />Setelah dibayar, tekan BAYAR untuk menutup transaksi.</p>
+                  <p className="text-[10px] mt-0.5 text-ink-faint font-bold text-center">Pelanggan scan, nominal terisi otomatis.<br />Setelah dibayar, tekan BAYAR untuk menutup transaksi.</p>
                 </>
               ) : profile.payment?.qris ? (
                 <>
@@ -469,6 +517,47 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
               </button>
               {showOpts && (
                 <div className="px-4 pb-3.5 space-y-2.5 animate-rise">
+                  {/* v21.4 GROWTH: member loyalitas (poin otomatis) */}
+                  {!isSelfOrder && (memberSel ? (
+                    <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-flame-50 dark:bg-flame-900/20 border border-flame-200 dark:border-flame-900/40">
+                      <div className="min-w-0">
+                        <p className="font-extrabold text-[12px] truncate">{memberSel.name} · {memberSel.tier || 'Bronze'}</p>
+                        <p className="text-[10px] font-bold text-ink-faint">{Number(memberSel.poin || 0).toLocaleString('id-ID')} poin tersedia</p>
+                      </div>
+                      <button onClick={onClearMember} className="text-[10px] font-extrabold text-brick shrink-0 px-2 py-1">Lepas</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setShowMemberPick && setShowMemberPick(true)} className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border border-dashed border-line dark:border-line-dark text-[11px] font-extrabold text-ink-faint hover:border-flame-400 hover:text-flame-700 dark:hover:text-apricot transition press">
+                      <Tim className="w-4 h-4" /> Pilih Member (poin otomatis)
+                    </button>
+                  ))}
+                  {!isSelfOrder && memberSel && maxRedeem > 0 && (
+                    <div className="flex items-center gap-2">
+                      <input type="number" inputMode="numeric" min="0" className="field !py-2 !text-[11px] flex-1 min-w-0"
+                        placeholder={`Tukar poin (maks ${maxRedeem})`} value={redeemPoin || ''}
+                        onChange={e => onRedeem && onRedeem(Number(e.target.value) || 0)} />
+                      <span className="text-[10px] font-extrabold text-leaf shrink-0 w-20 text-right">{formatIDR(redeemPoin * poinWorth)}</span>
+                    </div>
+                  )}
+                  {/* v21.4 GROWTH: kode voucher */}
+                  {!isSelfOrder && (
+                    <div className="space-y-1.5">
+                      {voucherApplied ? (
+                        <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-leaf-soft dark:bg-leaf/10 border border-leaf/30">
+                          <p className="font-extrabold text-[11.5px] text-leaf-deep dark:text-leaf truncate">{voucherApplied.code} · hemat {formatIDR(voucherApplied.disc)}</p>
+                          <button onClick={onClearVoucher} className="text-brick shrink-0"><X className="w-4 h-4" /></button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <input className="field !py-2 !text-[11px] flex-1 min-w-0 font-mono uppercase" placeholder="Kode voucher"
+                            value={voucherCode} onChange={e => setVoucherCode && setVoucherCode(e.target.value.toUpperCase())} />
+                          <button onClick={onApplyVoucher} disabled={!voucherCode}
+                            className="px-3.5 py-2 rounded-xl bg-chrome-deep text-white text-[11px] font-extrabold disabled:opacity-40 shrink-0 press">Pakai</button>
+                        </div>
+                      )}
+                      {voucherMsg && <p className="text-[10px] font-extrabold text-brick px-1">{voucherMsg}</p>}
+                    </div>
+                  )}
                   <input className="field" placeholder="Nama Pelanggan (Opsional)" value={buyerName} onChange={e => setBuyerName(e.target.value)} />
                   {bizMode === 'fnb' && (
                     <div className="flex gap-2">
@@ -502,13 +591,37 @@ export const CartPopup = ({ showCart, setShowCart, cart, updateQty, removeFromCa
             <p className="text-center text-[10px] font-bold text-[#C83B3B] dark:text-[#FF8B8B] mt-2">Nominal belum cukup. Tambah lewat keypad atau pilih Uang Pas.</p>
           )}
         </div>
+
+        {/* ===== v21.4: PICKER MEMBER (cari nama/HP, tap utk pilih) ===== */}
+        <Modal open={showMemberPick} onClose={() => setShowMemberPick && setShowMemberPick(false)}
+          title="Pilih Member" sub="Poin & tier otomatis terhitung saat transaksi lunas.">
+          <div className="space-y-2">
+            <input className="field" placeholder="Cari nama atau nomor HP" value={memberQ} onChange={e => setMemberQ(e.target.value)} autoFocus />
+            {memberList.length === 0 ? (
+              <p className="text-[11px] font-bold text-ink-faint text-center py-3">Member tidak ditemukan. Tambahkan dulu di menu Customer (CRM).</p>
+            ) : memberList.map(m => (
+              <button key={m.cid} onClick={() => { onPickMember && onPickMember(m); setShowMemberPick && setShowMemberPick(false); setMemberQ(''); }}
+                className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-line dark:border-line-dark bg-paper dark:bg-white/[.03] hover:border-flame-400 transition press text-left">
+                <span className="w-9 h-9 rounded-xl bg-flame-50 dark:bg-flame-900/30 text-flame-700 dark:text-apricot flex items-center justify-center font-extrabold text-[12px] shrink-0">{m.name?.[0] || '?'}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-extrabold text-[12px] truncate">{m.name}</span>
+                  <span className="block text-[9.5px] font-bold text-ink-faint truncate">{m.phone || 'Tanpa HP'}</span>
+                </span>
+                <span className="text-right shrink-0">
+                  <span className="block text-[9px] font-extrabold uppercase text-ink-faint">{tierOf(Number(m.lifetimeSpend || 0), loyaltyCfg)}</span>
+                  <span className="block text-[11px] font-extrabold">{Number(m.poin || 0).toLocaleString('id-ID')} poin</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </Modal>
       </div>
     </div>
   );
 };
 
 /* ============================================================
-   STATION KASIR GATE — identifikasi personal di POS Station.
+   STATION KASIR GATE, identifikasi personal di POS Station.
    Station tetap aktif di monitor; tiap kasir login pribadi dgn
    PIN miliknya (dibuat di Manajemen Karyawan). Transaksi lalu
    tercatat: station_id + branch_id + employee_id + shift_id.
@@ -636,12 +749,12 @@ const StationKasirGate = ({ licenseInfo, onClose, triggerAlert }) => {
    POS TAB
    ============================================================ */
 /* ============================================================
-   MODIFIER SHEET (v21.1, spec #8) — CONFIGURABLE PRODUCT:
+   MODIFIER SHEET (v21.1, spec #8), CONFIGURABLE PRODUCT:
    TAP → Modifier Sheet → Pilih → Tambah Cart.
    • Anchor-aware spring (muncul dari konteks interaksi, bukan fade)
-   • Grup required/min/max divalidasi — tombol mati + alasan jelas
+   • Grup required/min/max divalidasi, tombol mati + alasan jelas
    • Harga live: base + Σ priceDelta (lihat total SEBELUM tambah)
-   • Tidak ada SKU baru — line menyimpan modifiers[]
+   • Tidak ada SKU baru, line menyimpan modifiers[]
    ============================================================ */
 export const ModifierSheet = ({ product, groups, onClose, onAdd }) => {
   const active = activeGroupsForProduct(product, groups);
@@ -768,13 +881,24 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
   const [kasirGate, setKasirGate] = useState(false);   // POS Station: pilih kasir aktif
   const [showVoid, setShowVoid] = useState(null);      // v21: modal void (transaksi lunas)
   const [showRefund, setShowRefund] = useState(null);  // v21: modal refund
-  // v21.1 — Modifier Engine & WELP Payment Core
+  // v21.1, Modifier Engine & WELP Payment Core
   const [modGroups, setModGroups] = useState(() => safeParse('modifier_group_db', []));
   const [modProduct, setModProduct] = useState(null);          // produk menunggu pilihan modifier
   const [qrisReference, setQrisReference] = useState(null);    // paymentReference sesi keranjang
   const qrisRefLive = useRef(null);                            // sinkron dgn state utk checkout
   const trackStock = stockTrackingOn();                        // inventory optional (spec #9–11)
   const posPerms = permsOfSession(licenseInfo);
+
+  // v21.4 GROWTH: member loyalitas, voucher, tukar poin
+  const [members, setMembers] = useState([]);
+  const [vouchers, setVouchers] = useState([]);
+  const [loyaltyCfg, setLoyaltyCfg] = useState(DEFAULT_LOYALTY);
+  const [memberSel, setMemberSel] = useState(null);            // {cid, name, poin, tier}
+  const [redeemPoin, setRedeemPoin] = useState(0);
+  const [voucherCode, setVoucherCode] = useState('');
+  const [voucherApplied, setVoucherApplied] = useState(null);  // {cid, code, disc}
+  const [voucherMsg, setVoucherMsg] = useState('');
+  const [showMemberPick, setShowMemberPick] = useState(false);
 
   // LIVE CAMERA SCANNER STATE
   const [liveScanner, setLiveScanner] = useState({ show: false, mode: '' });
@@ -794,6 +918,10 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     if (activeTab === 'pos') {
       setProducts(safeParse('product_stock_db', []));
       setProfile(safeParse('store_profile', {}));
+      // v21.4: muat data growth (member, voucher, aturan poin)
+      setMembers(safeParse('customers_db', []));
+      setVouchers(safeParse('voucher_db', []));
+      setLoyaltyCfg(loyaltyCfgOf(safeParse('loyalty_cfg_db', [])));
     }
   }, [activeTab]);
 
@@ -809,7 +937,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     if (licenseInfo?.isStation && !licenseInfo?.employeeName) setKasirGate(true);
   }, [licenseInfo?.isStation, licenseInfo?.employeeName]);
 
-  // LOGIKA LIVE CAMERA SCANNER — BarcodeDetector nyata (bukan simulasi).
+  // LOGIKA LIVE CAMERA SCANNER, BarcodeDetector nyata (bukan simulasi).
   useEffect(() => {
     let stream, rafId, stopped = false;
     const cleanup = () => {
@@ -846,11 +974,11 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
             const remote = (table !== null && table !== undefined && remoteSelfOrders.find(o => String(o.tableNo) === String(table))) ||
               (table === null || table === undefined ? remoteSelfOrders[0] : null);
             if (remote) {
-              // tandai tervalidasi di Firestore — HP pelanggan langsung melihat statusnya
+              // tandai tervalidasi di Firestore, HP pelanggan langsung melihat statusnya
               setDoc(doc(db, 'tenants', licenseInfo.id, 'self_orders', remote.cid),
                 { status: 'pending', validatedAt: Date.now(), validatedBy: licenseInfo.employeeName || licenseInfo.stationCode || 'kasir' },
                 { merge: true }).catch(() => { });
-              // cid DIPERTAHANKAN di salinan lokal — dipakai confirmPayment/
+              // cid DIPERTAHANKAN di salinan lokal, dipakai confirmPayment/
               // cancelOrder untuk menulis status balik ke dokumen self_orders.
               const localCopy = { ...remote, status: 'pending' };
               saveActiveOrders([localCopy, ...safeParse('active_orders_db', []).filter(o => o.id !== remote.id)]);
@@ -899,7 +1027,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
   }, []);
   useEffect(() => { if (activeTab === 'pos') setModGroups(safeParse('modifier_group_db', [])); }, [activeTab]);
 
-  // v21.1 FLIGHT-TO-CART — spatial continuity (spec #32–34): produk
+  // v21.1 FLIGHT-TO-CART, spatial continuity (spec #32–34): produk
   // TIDAK teleport; titik kecil terbang dari kartu produk ke keranjang.
   // Compositor-only (transform), 380ms, hormati reduced-motion.
   const flyToCart = (fromEl) => {
@@ -921,7 +1049,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     } catch (e) { /* animasi gagal → abaikan, state tetap jalan */ }
   };
 
-  // v21.1 — addToCart pintar (spec #5–8):
+  // v21.1, addToCart pintar (spec #5–8):
   //   QUICK        → TAP → cart (tanpa modal)
   //   CONFIGURABLE → TAP → Modifier Sheet → cart
   //   Stock Tracking OFF → stok TIDAK memblok penjualan (spec #10)
@@ -932,6 +1060,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     if (priceTier === 'ojol' && p.priceOjol > 0) finalPrice = p.priceOjol;
     const lineKey = cartLineKey(p.id, priceTier, []);
     if (ev && ev.currentTarget) flyToCart(ev.currentTarget);
+    haptic(10);   // v21.3: umpan balik sentuh biar fast-tap yakin masuk
     setCart(prev => {
       const exist = prev.find(i => i.lineId === lineKey);
       const qtyInCart = exist ? exist.qty : 0;
@@ -971,15 +1100,40 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
 
   const removeFromCart = (lineId) => setCart(prev => prev.filter(i => (i.lineId || i.id) !== lineId));
 
+  // ===== v21.4 GROWTH: derivasi tukar poin + voucher =====
+  const pWorth = Number(loyaltyCfg?.poinWorth) > 0 ? Number(loyaltyCfg.poinWorth) : DEFAULT_LOYALTY.poinWorth;
+  const cartSubtotal = cart.reduce((a, b) => a + (Number(b.price) || 0) * (Number(b.qty) || 0), 0);
+  const maxRedeem = (memberSel && loyaltyCfg?.aktif !== false)
+    ? Math.max(0, Math.min(Number(memberSel.poin) || 0, Math.floor(cartSubtotal / Math.max(1, pWorth))))
+    : 0;
+  const redeemEff = Math.max(0, Math.min(Number(redeemPoin) || 0, maxRedeem));
+  const extraDisc = (Number(voucherApplied?.disc) || 0) + redeemEff * pWorth;
+
+  const applyVoucherNow = () => {
+    const res = findVoucher(vouchers, voucherCode, { subtotal: cartSubtotal, branchId: licenseInfo?.branchId || BRANCH_ID });
+    if (!res.ok) { setVoucherMsg(res.reason); setVoucherApplied(null); return; }
+    setVoucherApplied({ cid: res.voucher.cid, code: res.voucher.code, disc: res.disc });
+    setVoucherMsg('');
+    haptic(15);
+  };
+  const pickMemberNow = (m) => {
+    setMemberSel({ cid: m.cid, name: m.name, poin: Number(m.poin) || 0, tier: tierOf(Number(m.lifetimeSpend || 0), loyaltyCfg) });
+    setBuyerName(m.name || '');
+    setRedeemPoin(0);
+    haptic(15);
+  };
+  const clearMemberNow = () => { setMemberSel(null); setRedeemPoin(0); };
+  const clearVoucherNow = () => { setVoucherApplied(null); setVoucherCode(''); setVoucherMsg(''); };
+
   // v21 IDEMPOTENCY (dua lapis):
-  //  1. lastSaleSigRef — LATCH SINKRON: fast-path tunai selesai tanpa await,
+  //  1. lastSaleSigRef, LATCH SINKRON: fast-path tunai selesai tanpa await,
   //     sehingga double-fire dalam tick yang sama tidak tertahan isLoading.
   //     Latch dibuka kembali saat keranjang benar-benar dikosongkan (commit).
-  //  2. clientTransactionId — kunci idempotensi server: retry sync/offline
+  //  2. clientTransactionId, kunci idempotensi server: retry sync/offline
   //     menulis dokumen Firestore yang SAMA (doc id = ctx).
   const cartTxRef = useRef(null);
   const lastSaleSigRef = useRef(null);
-  // v21.1: signature menyertakan lineKey (produk+modifier) — dua keranjang
+  // v21.1: signature menyertakan lineKey (produk+modifier), dua keranjang
   // berbeda KOMBINASI tidak mungkin dianggap sama (idempotensi tetap ketat).
   const cartSignature = () => cart.map(i => `${i.lineKey || i.id}:${i.qty}:${i.price}`).sort().join('|');
   // Latch terbuka lagi saat keranjang sudah benar-benar dikosongkan setelah sale.
@@ -989,6 +1143,38 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
   // payment → CONFIRMED, tulis ke riwayat via outbox idempoten + audit.
   const finalizePaidOrder = (order) => {
     const paidAt = new Date().toISOString();
+    // ===== v21.4 GROWTH: poin member & pemakaian voucher, SEKALI saat lunas.
+    // Dijalankan SEBELUM commitOrder supaya poinEarned ikut tersimpan di struk.
+    let growthEarned = 0;
+    try {
+      const cfgL = loyaltyCfg || DEFAULT_LOYALTY;
+      const totalNum = Number(order.total || 0);
+      const redeemed = Number(order.poinRedeemed || 0);
+      if (order.memberCid && cfgL.aktif !== false) {
+        growthEarned = poinEarnedOf(totalNum, cfgL);
+        const custs = safeParse('customers_db', []);
+        const ci = custs.findIndex(c => c.cid === order.memberCid);
+        if (ci >= 0) {
+          const c = custs[ci];
+          const spend = Number(c.lifetimeSpend || 0) + totalNum;
+          custs[ci] = { ...c, poin: Math.max(0, Number(c.poin || 0) + growthEarned - redeemed), lifetimeSpend: spend, tier: tierOf(spend, cfgL), lastVisit: paidAt };
+          dbSet(licenseInfo?.id, 'customers_db', custs);
+          setMembers(custs);
+          setMemberSel(m => (m && m.cid === c.cid ? { ...m, poin: custs[ci].poin, tier: custs[ci].tier } : m));
+          const logs = safeParse('loyalty_log_db', []);
+          if (growthEarned > 0) logs.unshift({ cid: `ll_${Date.now().toString(36)}a`, memberCid: c.cid, memberName: c.name, type: 'earn', poin: growthEarned, amount: totalNum, orderId: order.id, note: 'Transaksi kasir', at: Date.now(), by: licenseInfo?.employeeName || 'kasir' });
+          if (redeemed > 0) logs.unshift({ cid: `ll_${Date.now().toString(36)}b`, memberCid: c.cid, memberName: c.name, type: 'redeem', poin: -redeemed, amount: Number(order.poinValue || 0), orderId: order.id, note: 'Tukar poin di kasir', at: Date.now(), by: licenseInfo?.employeeName || 'kasir' });
+          dbSet(licenseInfo?.id, 'loyalty_log_db', logs);
+        }
+      }
+      if (order.voucherCid) {
+        const vs = safeParse('voucher_db', []);
+        const vi = vs.findIndex(v => v.cid === order.voucherCid);
+        if (vi >= 0) { vs[vi] = { ...vs[vi], used: Number(vs[vi].used || 0) + 1 }; dbSet(licenseInfo?.id, 'voucher_db', vs); setVouchers(vs); }
+        auditLog(licenseInfo, 'VOUCHER_USED', { target: order.voucherCode, order: order.id, disc: order.voucherDisc });
+      }
+    } catch (e) { console.warn('[WELP growth]', e); }
+
     const payments = normalizePayments(order).map(p => p.status === 'CONFIRMED' ? p
       : { ...p, status: 'CONFIRMED', paidAt, confirmedAt: Date.now() });
     const paid = {
@@ -996,6 +1182,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       txState: TX_STATE.PAYMENT_CONFIRMED,
       settlementStatus: order.settlementStatus || null,
       syncStatus: 'PENDING',
+      poinEarned: growthEarned || undefined,
     };
     commitOrder(licenseInfo, paid);
     // v21.1: proyeksi intent ikut CONFIRMED (server matching membaca ini)
@@ -1019,6 +1206,9 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
   const resetCartState = () => {
     setCart([]); setBuyerName(''); setNotes(''); setCashTendered(0);
     setPaymentMethod(''); setTableNo('');
+    // v21.4: member, voucher, tukar poin ikut reset per transaksi
+    setMemberSel(null); setRedeemPoin(0);
+    setVoucherCode(''); setVoucherApplied(null); setVoucherMsg('');
     cartTxRef.current = null;
     // v21.1: reference QRIS habis bersama sesi keranjang (nominal sama
     // berikutnya = reference baru = QR baru = intent baru).
@@ -1032,26 +1222,35 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     // Double-fire sinkron: keranjang yang PERSIS sama baru saja diproses.
     if (lastSaleSigRef.current === sig) return;
     if (!paymentMethod) return triggerAlert("Pilih metode pembayaran dulu.", "error");
-    const bill = computeOrderTotals(cart);
+    // v21.4: re-validasi voucher SAAT checkout (kuota bisa habis dari perangkat lain)
+    if (voucherApplied?.cid) {
+      const vres = findVoucher(vouchers, voucherApplied.code, { subtotal: cart.reduce((a, b) => a + (Number(b.price) || 0) * (Number(b.qty) || 0), 0), branchId: licenseInfo?.branchId || BRANCH_ID });
+      if (!vres.ok) {
+        setVoucherApplied(null); setVoucherCode(''); setVoucherMsg(vres.reason);
+        lastSaleSigRef.current = null; setIsLoading(false);
+        return triggerAlert(vres.reason || 'Voucher tidak berlaku lagi. Total dikembalikan normal.', 'error');
+      }
+    }
+    const bill = computeOrderTotals(cart, undefined, extraDisc);
     if (paymentMethod === 'Cash' && cashTendered < bill.total) return triggerAlert("Nominal tunai belum cukup.", "error");
-    lastSaleSigRef.current = sig;   // kunci SEKARANG — sebelum efek apa pun
+    lastSaleSigRef.current = sig;   // kunci SEKARANG, sebelum efek apa pun
     setIsLoading(true);
 
     try {
-      // (v21: delay artifisial 500ms DIHAPUS — kasir harus ngebut.)
+      // (v21: delay artifisial 500ms DIHAPUS, kasir harus ngebut.)
       const ctx = (cartTxRef.current && cartTxRef.current.sig === sig)
         ? cartTxRef.current.ctx : newClientTxId();
       cartTxRef.current = { sig, ctx };
 
-      // Snapshot HPP saat penjualan (hppAtSale) — fondasi laporan laba nyata.
+      // Snapshot HPP saat penjualan (hppAtSale), fondasi laporan laba nyata.
       const orderItems = cart.map(i => ({
         ...i,
         hppAtSale: (typeof i.hppAtSale === 'number' ? i.hppAtSale : (typeof i.hpp === 'number' ? i.hpp : null))
       }));
       const now = Date.now();
-      // Payment record kanonik — status final ditentukan saat konfirmasi.
+      // Payment record kanonik, status final ditentukan saat konfirmasi.
       // v21.1 WELP PAYMENT CORE: QRIS mendapat PaymentIntent dengan
-      // paymentReference UNIK (spec #18) — nominal bukan identitas.
+      // paymentReference UNIK (spec #18), nominal bukan identitas.
       const isQris = paymentMethod === 'QRIS';
       const qrisRef = isQris ? (qrisRefLive.current || newPaymentReference()) : null;
       if (isQris && !qrisRefLive.current) qrisRefLive.current = qrisRef;
@@ -1065,7 +1264,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
         ? paymentRecWithIntent({ paymentRec: { ...basePaymentRec, paymentReference: qrisRef }, merchantId: profile?.payment?.qrisMeta?.merchantId || null, createdAtMs: now })
         : basePaymentRec;
       const newOrder = {
-        // v21: id = clientTransactionId — SATU identitas utk tampilan, mirror
+        // v21: id = clientTransactionId, SATU identitas utk tampilan, mirror
         // lokal, dan doc Firestore. Double-tap/retry menulis dokumen yang
         // SAMA → mustahil jadi dua transaksi.
         id: ctx,
@@ -1090,7 +1289,17 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
         employeeName: licenseInfo?.employeeName || null,
         deviceId: getDeviceId(),
         shiftId: licenseInfo?.shiftId || `${licenseInfo?.stationCode || licenseInfo?.branchId || 'PUSAT'}-${todayKey()}`,
-        shiftNama: licenseInfo?.shiftNama || null
+        shiftNama: licenseInfo?.shiftNama || null,
+        // v21.4 GROWTH: jejak member loyalitas, voucher, tukar poin
+        memberCid: memberSel?.cid || null,
+        memberName: memberSel?.name || null,
+        memberTier: memberSel?.tier || null,
+        voucherCid: voucherApplied?.cid || null,
+        voucherCode: voucherApplied?.code || null,
+        voucherDisc: voucherApplied ? Number(voucherApplied.disc || 0) : 0,
+        poinRedeemed: redeemEff,
+        poinValue: redeemEff * pWorth,
+        extraDisc: extraDisc,
       };
       auditLog(licenseInfo, 'TRANSAKSI_BARU', { target: newOrder.id, clientTxId: ctx, total: bill.total, method: paymentMethod, items: cart.length });
 
@@ -1158,6 +1367,11 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
         // ============ FAST-PATH TUNAI ============
         // Uang diterima tuntas saat checkout → langsung LUNAS + struk.
         // SCAN/KLIK → BAYAR → SELESAI (tanpa layar antara).
+        // v21.3: laci kas terbuka OTOMATIS (bila saklar aktif + printer
+        // terhubung) dan getar sentuh memberi kabar ke kasir. Keduanya
+        // fire-and-forget, tidak pernah memperlambat checkout.
+        haptic(24);
+        autoKickDrawer().then((res) => { if (res === 'opened') triggerAlert('Laci kas terbuka otomatis.', 'success'); });
         const paid = finalizePaidOrder(newOrder);
         resetCartState();
         setShowCart(false);
@@ -1201,7 +1415,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       setSelectedOrder(merged);
       triggerAlert(`Event cocok (paymentReference) → LUNAS otomatis via Payment Core.`, 'success');
     } else {
-      triggerAlert(`Simulasi: ${MATCH_STATUS_META[res.status]?.label || res.status} — ${res.reason || ''}`, res.status === MATCH_STATUS.DUPLICATE ? 'success' : 'error');
+      triggerAlert(`Simulasi: ${MATCH_STATUS_META[res.status]?.label || res.status}, ${res.reason || ''}`, res.status === MATCH_STATUS.DUPLICATE ? 'success' : 'error');
     }
   };
 
@@ -1220,7 +1434,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
   const cancelOrder = (order) => {
     if (confirm("Batalkan pesanan? Stok akan dikembalikan.")) {
       // v21.1: stok hanya dikembalikan saat tracking ON (pesanan saat OFF
-      // tidak pernah menurunkan stok — restore juga tidak dilakukan).
+      // tidak pernah menurunkan stok, restore juga tidak dilakukan).
       if (trackStock) {
         const newStock = products.map(p => {
           const inOrder = order.items.find(i => i.id === p.id);
@@ -1266,7 +1480,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
     triggerAlert("Pesanan dimuat ke keranjang. Ubah item lalu checkout ulang.", "success");
   };
 
-  // v21.1: paymentReference QRIS dibuat saat metode QRIS dipilih — QR yang
+  // v21.1: paymentReference QRIS dibuat saat metode QRIS dipilih, QR yang
   // tampil SUDAH membawa reference (tag 62/07) sebelum BAYAR ditekan.
   useEffect(() => {
     if (paymentMethod === 'QRIS') {
@@ -1316,7 +1530,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
   const pendingCount = mergedOrders.filter(o => o.status === 'pending').length;
   const isFnb = localStorage.getItem('biz_mode') === 'fnb';
 
-  // v15 F4-H4: pencarian mencakup SKU/barcode — sesuai placeholder
+  // v15 F4-H4: pencarian mencakup SKU/barcode, sesuai placeholder
   // "Ketik SKU / Nama Produk..."
   const filteredProducts = products
     .filter(p => {
@@ -1444,7 +1658,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
       {/* ===== STATUS SINKRONISASI + SHIFT KASIR (v21) ===== */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <SyncPill licenseInfo={licenseInfo} />
-        <span className="text-[10px] font-bold text-ink-faint hidden sm:inline">Transaksi tetap aman saat internet putus — antrean lokal tersinkron otomatis.</span>
+        <span className="text-[10px] font-bold text-ink-faint hidden sm:inline">Transaksi tetap aman saat internet putus, antrean lokal tersinkron otomatis.</span>
       </div>
       <ShiftPanel licenseInfo={licenseInfo} triggerAlert={triggerAlert} />
 
@@ -1604,13 +1818,20 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
 
       {/* ===== checkout sheet (dipasang di level root agar bisa dibuka
            dari rail desktop maupun bar mobile) ===== */}
-      <CartPopup showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile} isLoading={isLoading} orderType={orderType} setOrderType={setOrderType} tableNo={tableNo} setTableNo={setTableNo} notes={notes} setNotes={setNotes} cashTendered={cashTendered} setCashTendered={setCashTendered} qrisReference={qrisReference} />
+      <CartPopup showCart={showCart} setShowCart={setShowCart} cart={cart} updateQty={updateQty} removeFromCart={removeFromCart} buyerName={buyerName} setBuyerName={setBuyerName} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} handleCheckout={handleCheckout} profile={profile} isLoading={isLoading} orderType={orderType} setOrderType={setOrderType} tableNo={tableNo} setTableNo={setTableNo} notes={notes} setNotes={setNotes} cashTendered={cashTendered} setCashTendered={setCashTendered} qrisReference={qrisReference}
+        // v21.4 GROWTH
+        members={members} loyaltyCfg={loyaltyCfg} memberSel={memberSel}
+        onPickMember={pickMemberNow} onClearMember={clearMemberNow}
+        redeemPoin={redeemEff} maxRedeem={maxRedeem} onRedeem={setRedeemPoin} poinWorth={pWorth}
+        voucherCode={voucherCode} setVoucherCode={setVoucherCode}
+        voucherApplied={voucherApplied} onApplyVoucher={applyVoucherNow} onClearVoucher={clearVoucherNow} voucherMsg={voucherMsg}
+        showMemberPick={showMemberPick} setShowMemberPick={setShowMemberPick} />
 
-      {/* ===== MODIFIER SHEET (v21.1) — produk configurable ===== */}
+      {/* ===== MODIFIER SHEET (v21.1), produk configurable ===== */}
       {modProduct && <ModifierSheet product={modProduct} groups={modGroups} onClose={() => setModProduct(null)} onAdd={addModToCart} />}
 
       {/* ============ DETAIL PESANAN (modal) ============
-          v8: layout flex — header & tombol aksi TETAP terlihat
+          v8: layout flex, header & tombol aksi TETAP terlihat
           tanpa scroll; hanya daftar item yang scroll. Cetak Struk
           hanya muncul SETELAH pembayaran lunas. QRIS dinamis. */}
       {selectedOrder && (
@@ -1679,7 +1900,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
               {selectedOrder.status === 'pending' ? (
                 <div className="space-y-2">
                   <button onClick={() => confirmPayment(selectedOrder)} className="w-full bg-flame-600 hover:bg-flame-500 text-white py-3.5 rounded-2xl font-extrabold text-sm flex items-center justify-center gap-2 press"><Selesai className="w-4.5 h-4.5" /> Selesaikan Pembayaran</button>
-                  {/* v21.1 — simulator di titik jual: menguji jalur event →
+                  {/* v21.1, simulator di titik jual: menguji jalur event →
                       webhook → matching → PAID dgn intent nyata (spec #25) */}
                   {selectedOrder.paymentMethod === 'QRIS' && (selectedOrder.payments || []).some(p => p.paymentReference) && (
                     <button onClick={() => simulatePaymentForOrder(selectedOrder)}
@@ -1713,9 +1934,9 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
         </div>
       )}
 
-      {showReceipt && <ReceiptModal order={showReceipt} profile={profile} onClose={() => setShowReceipt(null)} />}
+      {showReceipt && <ReceiptModal order={showReceipt} profile={profile} loyaltyCfg={loyaltyCfg} onClose={() => setShowReceipt(null)} />}
 
-      {/* ===== VOID & REFUND (v21) — permission + alasan + audit ===== */}
+      {/* ===== VOID & REFUND (v21), permission + alasan + audit ===== */}
       {showVoid && <VoidModal order={showVoid} licenseInfo={licenseInfo} triggerAlert={triggerAlert}
         onClose={() => setShowVoid(null)} onDone={() => setSelectedOrder(null)} />}
       {showRefund && <RefundModal order={showRefund} licenseInfo={licenseInfo} triggerAlert={triggerAlert}

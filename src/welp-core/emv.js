@@ -1,11 +1,11 @@
 // ============================================================
-// WELP CORE — EMVCo / QRIS ENGINE (pure, tanpa React/Firebase)
+// WELP CORE, EMVCo / QRIS ENGINE (pure, tanpa React/Firebase)
 // ------------------------------------------------------------
 // Satu sumber kebenaran parsing & pembuatan payload QRIS.
 // Dipakai core.jsx (re-export), paymentOps, dan unit test Node.
 //   • parseEmv / crc16CCITT / verifyQrisCrc / qrisMeta
-//   • buildDynamicQris   — statis → dinamis (tag 01=12, tag 54)
-//   • buildIntentQris    — dinamis + paymentReference di tag 62/07
+//   • buildDynamicQris  , statis → dinamis (tag 01=12, tag 54)
+//   • buildIntentQris   , dinamis + paymentReference di tag 62/07
 //     (Bill Number) tanpa menghapus sub-tag milik merchant.
 // CRC16-CCITT (0xFFFF, poly 0x1021) sesuai spesifikasi EMVCo.
 // ============================================================
@@ -42,7 +42,7 @@ export const verifyQrisCrc = (payload) => {
     // Payload valid = TLV ... + tag '63' len '04' + CRC(4 char hex).
     // Jadi BODY (payload minus 4 char terakhir) harus berakhir '6304',
     // lalu CRC dihitung atas body tsb. (Sebelumnya mengecek payload
-    // penuh berakhir '6304' → validasi selalu false — bug v15 yang
+    // penuh berakhir '6304' → validasi selalu false, bug v15 yang
     // membuat badge "CRC tidak valid" muncul untuk QRIS asli.)
     const body = p.slice(0, -4);
     if (!body.endsWith('6304')) return false;
@@ -90,7 +90,7 @@ export const buildDynamicQris = (staticPayload, amount) => {
   } catch (e) { return null; }
 };
 
-// WELP PAYMENT CORE — QR dinamis + paymentReference (spec #16–18):
+// WELP PAYMENT CORE, QR dinamis + paymentReference (spec #16–18):
 // reference unik ditanam di tag 62 sub-07 (Bill Number, EMVCo/QRIS)
 // TANPA menghapus sub-tag milik merchant, CRC16 dihitung ulang.
 export const buildIntentQris = (staticPayload, amount, paymentReference) => {

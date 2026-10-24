@@ -1,5 +1,5 @@
 // ============================================================
-// UI PRIMITIVES — WELP Design System v6 "Fresh Ink"
+// UI PRIMITIVES, WELP Design System v6 "Fresh Ink"
 // Komponen dasar: netral & bersih, orange hanya sebagai aksen.
 // Brand (logo/lockup/maskot) diambil SATU PINTU dari brand.jsx
 // agar tidak ada logo manual yang berbeda-beda antar halaman.
@@ -16,9 +16,11 @@ import { formatNumberDisplay, parseNumberID } from './core.jsx';
 export { BrandLogo, BrandLockup, Mascot, AppSymbol };
 
 /* ---------- TOAST ----------
-   Posisi responsif agar tidak menutupi navigasi & aksi utama:
-   • Mobile   : tengah-bawah, DI ATAS bottom nav & bar keranjang.
-   • Tablet/PC: kanan-atas, di luar jalur kerja utama. */
+   v21.3: posisi Mobile pindah ke ATAS-TENGAH (di bawah header)  
+   tidak lagi bertabrakan dengan bottom nav, bar keranjang kasir,
+   maupun keyboard HP. Lebar dibatasi & teks wrap, jadi tidak ada
+   lagi notifikasi keluar layar di mode handphone.
+   Tablet/PC: kanan-atas, di luar jalur kerja utama. */
 export const Toast = ({ message, type = 'success', onClose }) => {
   useEffect(() => {
     const timer = setTimeout(onClose, type === 'error' ? 4200 : 3200);
@@ -27,16 +29,16 @@ export const Toast = ({ message, type = 'success', onClose }) => {
 
   const isError = type === 'error';
   return createPortal(
-    <div className="fixed z-[9999] left-1/2 -translate-x-1/2 bottom-[calc(5.75rem+env(safe-area-inset-bottom,0px))] sm:left-auto sm:right-5 sm:top-5 sm:bottom-auto sm:translate-x-0 w-[calc(100vw-2rem)] sm:w-auto sm:max-w-[390px] animate-slide-up" role={isError ? 'alert' : 'status'} aria-live={isError ? 'assertive' : 'polite'}>
-      <div className={`flex items-start gap-3 p-3 rounded-2xl shadow-pop border backdrop-blur-xl ${
+    <div className="fixed z-[9999] left-1/2 -translate-x-1/2 top-[calc(0.75rem+env(safe-area-inset-top,0px))] sm:left-auto sm:right-5 sm:translate-x-0 w-[calc(100vw-1.5rem)] sm:w-auto sm:max-w-[360px] max-w-[360px] animate-fade-in" role={isError ? 'alert' : 'status'} aria-live={isError ? 'assertive' : 'polite'}>
+      <div className={`flex items-start gap-2.5 p-2.5 pr-2 rounded-2xl shadow-pop border backdrop-blur-xl ${
         isError ? 'bg-brick-deep/95 border-brick/40 text-white' : 'bg-chrome-deep/95 border-chrome-edge text-ink-inv'
       }`}>
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isError ? 'bg-white/15' : 'bg-flame-500 text-white'}`}>
+        <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isError ? 'bg-white/15' : 'bg-flame-500 text-white'}`}>
           {isError ? <AlertCircle className="w-4 h-4" /> : <Check className="w-4 h-4" />}
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
-          <p className="text-[9px] font-extrabold uppercase tracking-[.18em] opacity-60">{isError ? 'Perlu perhatian' : 'Berhasil'}</p>
-          <p className="text-xs font-bold leading-snug break-words mt-0.5">{message}</p>
+          <p className="text-[8.5px] font-extrabold uppercase tracking-[.18em] opacity-60">{isError ? 'Perlu perhatian' : 'Berhasil'}</p>
+          <p className="text-[11px] font-bold leading-snug break-words mt-0.5 line-clamp-3">{message}</p>
         </div>
         <button type="button" onClick={onClose} aria-label="Tutup notifikasi" className="w-7 h-7 rounded-lg flex items-center justify-center opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0">
           <X className="w-4 h-4" />
@@ -66,7 +68,7 @@ export const Button = ({ children, onClick, variant = 'primary', className = "",
 };
 
 /* ---------- CARD ---------- */
-// v15 F4-H1: HelpBox dikeluarkan dari h3.truncate — judul panjang
+// v15 F4-H1: HelpBox dikeluarkan dari h3.truncate, judul panjang
 // tidak lagi memotong ikon tanda tanya (akar bug ikon hilang di 320px).
 export const Card = ({ children, className = "", title, icon: Icon, action, help, flush }) => (
   <section className={`card ${className}`}>
@@ -97,7 +99,7 @@ export const PageTitle = ({ title, sub, right, mascot }) => (
 
 /* ---------- NUMERIC INPUT ---------- */
 // v15 F4-H3: format ribuan gaya Indonesia (TITIK: 150.000), desimal
-// KOMA — konsisten dengan formatIDR & cara baca pengguna Indonesia.
+// KOMA, konsisten dengan formatIDR & cara baca pengguna Indonesia.
 export const NumericInput = ({ value, onChange, placeholder, className, prefix, suffix, label }) => {
   const [displayValue, setDisplayValue] = useState('');
   useEffect(() => { setDisplayValue(formatNumberDisplay(value)); }, [value]);
@@ -122,32 +124,67 @@ export const NumericInput = ({ value, onChange, placeholder, className, prefix, 
   );
 };
 
-/* ---------- SELECT (dropdown) ---------- */
+/* ---------- SELECT (dropdown) ----------
+   v21.3: menu opsi dirender via PORTAL di koordinat tombol. Dulu
+   dropdown absolute di dalam card/modal -> bisa terpotong batas
+   scroll (max-h modal) atau keluar layar di HP. Portal + clamp
+   posisi = menu selalu utuh, gaya design utama konsisten. */
 export const Select = ({ label, value, options, onChange, className = "" }) => {
   const [open, setOpen] = useState(false);
+  const [rect, setRect] = useState(null);
   const ref = useRef(null);
   useEffect(() => {
     const handleClickOutside = (event) => { if (ref.current && !ref.current.contains(event.target)) setOpen(false); };
+    const onScroll = () => setOpen(false);
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
   }, [ref]);
+  const toggle = () => {
+    if (!open && ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      const maxH = Math.min(240, options.length * 42 + 12);
+      const spaceBelow = window.innerHeight - r.bottom;
+      const dropUp = spaceBelow < maxH + 12 && r.top > maxH + 12;
+      setRect({
+        left: Math.max(10, Math.min(r.left, window.innerWidth - Math.min(r.width, 280) - 10)),
+        width: Math.max(r.width, 180),
+        top: dropUp ? null : Math.min(r.bottom + 6, window.innerHeight - maxH - 10),
+        bottom: dropUp ? Math.max(window.innerHeight - r.top + 6, maxH + 10) : null,
+      });
+    }
+    setOpen(!open);
+  };
   return (
     <div className={`relative ${className}`} ref={ref}>
       {label && <label className="kicker block mb-1.5 ml-0.5">{label}</label>}
-      <button type="button" onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between field text-left hover:border-flame-300 dark:hover:border-flame-600">
-        <span className="truncate">{value}</span>
+      <button type="button" onClick={toggle}
+        className="w-full flex items-center justify-between gap-2 field text-left hover:border-flame-300 dark:hover:border-flame-600">
+        <span className="truncate min-w-0">{value}</span>
         <svg viewBox="0 0 12 12" className={`w-3 h-3 text-ink-faint transition-transform duration-200 shrink-0 ${open ? 'rotate-180' : ''}`}><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
       </button>
-      {open && (
-        <div className="absolute top-full left-0 right-0 mt-1.5 bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl shadow-pop max-h-48 overflow-y-auto z-[70] animate-pop custom-scrollbar">
+      {open && rect && createPortal(
+        <div className="fixed z-[900] bg-surface dark:bg-surface-dark border border-line dark:border-line-dark rounded-2xl shadow-pop animate-pop custom-scrollbar"
+          style={{
+            left: rect.left, width: rect.width,
+            top: rect.top != null ? rect.top : 'auto',
+            bottom: rect.bottom != null ? rect.bottom : 'auto',
+            maxHeight: Math.min(240, Math.max(120, options.length * 42 + 12)),
+            overflowY: 'auto',
+          }}>
           {options.map((opt) => (
             <div key={opt} onClick={() => { onChange(opt); setOpen(false); }}
-              className={`px-4 py-2.5 text-xs font-bold cursor-pointer transition-colors first:rounded-t-2xl last:rounded-b-2xl ${value === opt ? 'bg-flame-50 dark:bg-flame-900/30 text-flame-700 dark:text-apricot' : 'text-ink-soft dark:text-ink-inv/70 hover:bg-paper dark:hover:bg-white/5'}`}>
+              className={`px-4 py-3 text-xs font-bold cursor-pointer transition-colors first:rounded-t-2xl last:rounded-b-2xl ${value === opt ? 'bg-flame-50 dark:bg-flame-900/30 text-flame-700 dark:text-apricot' : 'text-ink-soft dark:text-ink-inv/70 hover:bg-paper dark:hover:bg-white/5'}`}>
               {opt}
             </div>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -189,25 +226,35 @@ export const Badge = ({ tone = 'neutral', children, className = "" }) => {
   return <span className={`badge ${tones[tone] || tones.neutral} ${className}`}>{children}</span>;
 };
 
-/* ---------- MODAL BASE ---------- */
+/* ---------- MODAL BASE ----------
+   v21.3 FIX KETUTUP NAVBAR: bottom-sheet mobile kini punya ruang
+   bawah aman (safe-area iPhone) + padding ekstra, jadi teks & isi
+   TERAKHIR tidak pernah tertutup navbar / home indicator. Tombol X
+   tetap di header atas, selalu terlihat tanpa scroll. */
 export const Modal = ({ open, onClose, title, sub, children, width = 'max-w-md', footer, tone = 'light' }) => {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-chrome-deep/70 backdrop-blur-sm animate-fade-in" onClick={onClose}>
       <div className={`w-full ${width} max-h-[92vh] rounded-t-[1.8rem] sm:rounded-[1.8rem] shadow-pop flex flex-col overflow-hidden animate-pop ${
         tone === 'dark' ? 'bg-chrome-panel border border-chrome-edge text-ink-inv' : 'bg-surface dark:bg-surface-dark border border-line dark:border-line-dark'
       }`} onClick={e => e.stopPropagation()}>
-        <header className={`flex justify-between items-center gap-3 px-5 py-4 border-b ${tone === 'dark' ? 'border-chrome-edge' : 'border-line/70 dark:border-line-dark/70'}`}>
+        <header className={`flex justify-between items-center gap-3 px-5 py-4 border-b shrink-0 ${tone === 'dark' ? 'border-chrome-edge' : 'border-line/70 dark:border-line-dark/70'}`}>
           <div className="min-w-0">
             {sub && <p className={`text-[10px] font-extrabold uppercase tracking-widest ${tone === 'dark' ? 'text-apricot/80' : 'text-flame-600 dark:text-apricot'}`}>{sub}</p>}
             <h3 className={`font-extrabold text-base truncate ${tone === 'dark' ? 'text-ink-inv' : 'text-ink dark:text-ink-inv'}`}>{title}</h3>
           </div>
-          <button onClick={onClose} aria-label="Tutup" className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+          <button onClick={onClose} aria-label="Tutup" className={`w-9 h-9 rounded-full flex items-center justify-center transition shrink-0 ${
             tone === 'dark' ? 'bg-white/5 text-ink-inv/60 hover:text-ink-inv hover:bg-white/10' : 'bg-paper dark:bg-white/5 text-ink-faint hover:text-brick'
-          }`}><X className="w-4 h-4" /></button>
+          }`} style={{ minWidth: 36, minHeight: 36 }}><X className="w-4.5 h-4.5" /></button>
         </header>
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-5">{children}</div>
-        {footer && <div className={`px-5 py-4 border-t ${tone === 'dark' ? 'border-chrome-edge' : 'border-line/70 dark:border-line-dark/70'}`}>{footer}</div>}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">{children}</div>
+        {footer && <div className={`px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] border-t shrink-0 ${tone === 'dark' ? 'border-chrome-edge' : 'border-line/70 dark:border-line-dark/70'}`}>{footer}</div>}
       </div>
     </div>
   );

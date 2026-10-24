@@ -1,19 +1,19 @@
 // ============================================================
-// WELP CORE — PAYMENT OPS v21.1 (lapisan I/O klien)
+// WELP CORE, PAYMENT OPS v21.1 (lapisan I/O klien)
 // ------------------------------------------------------------
 // Jembatan antara Payment Core (pure) dan persistence:
-//   • ingestPaymentEvent()  — "WELP internal webhook" versi klien:
+//   • ingestPaymentEvent() , "WELP internal webhook" versi klien:
 //     dipakai PWA Simulator sekarang & dapat dipanggil Native
 //     Notification Bridge fallback nanti. Alur sama dgn endpoint
 //     backend (functions/index.js → welpPaymentEvents):
 //       Event → Normalize → Validate → Dedup → Match
 //       → CONFIRMED: order LUNAS (commitFinanceDoc idempoten)
 //       → AMBIGUOUS/NO_MATCH/EXPIRED: dicatat utk review (Finance)
-//   • manualConfirmEvent()  — keputusan manusia atas event AMBIGUOUS
+//   • manualConfirmEvent() , keputusan manusia atas event AMBIGUOUS
 //     (permission payment.confirm, wajib alasan, ter-audit).
-//   • buildIntentQris()     — QR dinamis + paymentReference di tag 62/07.
+//   • buildIntentQris()    , QR dinamis + paymentReference di tag 62/07.
 //
-// Semua tulis finansial lewat OUTBOX idempoten (sync engine) —
+// Semua tulis finansial lewat OUTBOX idempoten (sync engine)  
 // offline aman, retry aman, tidak ada jalur sync kedua.
 // ============================================================
 import { safeParse, auditLog } from '../core.jsx';
@@ -25,7 +25,7 @@ import {
 import { TX_STATE } from './tx.js';
 
 // ------------------------------------------------------------
-// LEDGER EVENT — koleksi append-only per tenant (payment_event_db)
+// LEDGER EVENT, koleksi append-only per tenant (payment_event_db)
 // ------------------------------------------------------------
 export const readProcessedEvents = () => {
   const rows = safeParse('payment_event_db', []);
@@ -62,7 +62,7 @@ const appendEventRecord = ({ tenantId, event, matchStatus, reason, intent = null
 };
 
 // ------------------------------------------------------------
-// INGEST — satu pintu event pembayaran di sisi klien
+// INGEST, satu pintu event pembayaran di sisi klien
 // ------------------------------------------------------------
 // orders: gabungan mirror aktif + riwayat (order pending QRIS bisa
 // sudah ter-commit ke riwayat atau masih di active_orders).
@@ -77,13 +77,13 @@ export const ingestPaymentEvent = ({ tenantId, rawEvent, orders, actor, actorRol
     return { status: 'INVALID', reason: v.reason, event };
   }
 
-  // 2) IDEMPOTENCY — eventId sudah diproses? abaikan (spec #21).
+  // 2) IDEMPOTENCY, eventId sudah diproses? abaikan (spec #21).
   const processed = readProcessedEvents();
   if (isDuplicateEvent(event, processed)) {
     return { status: MATCH_STATUS.DUPLICATE, reason: 'eventId sudah pernah diproses', event, duplicate: true };
   }
 
-  // 3) MATCHING ENGINE — hanya intent QRIS/e-wallet PENDING.
+  // 3) MATCHING ENGINE, hanya intent QRIS/e-wallet PENDING.
   const allOrders = (orders || []).filter(o => o && (o.txState !== TX_STATE.VOIDED) && (o.status !== 'cancelled'));
   const intents = collectIntents(allOrders);
   const match = matchPaymentEvent({ event, intents });

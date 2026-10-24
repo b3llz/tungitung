@@ -1,9 +1,9 @@
 // ============================================================
-// WELP CORE — RBAC ENGINE v20
+// WELP CORE, RBAC ENGINE v20
 // ------------------------------------------------------------
 // Satu sumber kebenaran untuk:
 //   1. Permission granular (domain × action: view/create/edit/
-//      delete/approve/export/manage) — kompatibel mundur dengan
+//      delete/approve/export/manage), kompatibel mundur dengan
 //      14 permission key lama (v15) lewat ekspansi otomatis.
 //   2. Custom role buatan Owner/Admin (tidak hard-coded):
 //      Area Manager, HRD, Finance, Accounting, Purchasing,
@@ -11,7 +11,7 @@
 //   3. SCOPE akses berjenjang: organization (semua) → region/
 //      area → branch → department → data pribadi.
 //   4. Workspace resolver: menentukan user masuk WELP Business,
-//      WELP Cashier (POS), atau Employee Area — berbasis role
+//      WELP Cashier (POS), atau Employee Area, berbasis role
 //      & permission, bukan URL manual.
 //
 // ATURAN KEAMANAN:
@@ -118,7 +118,7 @@ export const PERM_DOMAINS = [
     desc: 'Batalkan / refund transaksi kasir',
     actions: ['perform'],
   },
-  // v21 — domain finansial kasir (siklus transaksi penuh)
+  // v21, domain finansial kasir (siklus transaksi penuh)
   {
     key: 'transaction', label: 'Transaksi Kasir',
     desc: 'Lihat, buat, void & refund transaksi penjualan',
@@ -150,7 +150,7 @@ export const PERM_DOMAINS = [
 export const ALL_PERM_KEYS = PERM_DOMAINS.flatMap(d => d.actions.map(a => `${d.key}.${a}`));
 
 // ------------------------------------------------------------
-// 2. KOMPATIBILITAS MUNDUR — ekspansi key legacy (v15) → granular
+// 2. KOMPATIBILITAS MUNDUR, ekspansi key legacy (v15) → granular
 // ------------------------------------------------------------
 // Matrix lama menyimpan key ringkas. Saat dibaca, tiap key
 // legacy di-EXPAND menjadi key granular turunannya sehingga
@@ -158,7 +158,7 @@ export const ALL_PERM_KEYS = PERM_DOMAINS.flatMap(d => d.actions.map(a => `${d.k
 export const LEGACY_EXPANSION = {
   'dashboard.view': ['dashboard.view'],
   // v21: memakai POS berarti boleh membuat transaksi, melihat pembayaran,
-  // dan mengelola shift kasir sendiri (open/close) — expansion otomatis
+  // dan mengelola shift kasir sendiri (open/close), expansion otomatis
   // membuat matrix lama tetap bermakna tanpa migrasi data.
   'pos.use': ['pos.use', 'pos.view', 'transaction.view', 'transaction.create', 'payment.view', 'shift.open', 'shift.close', 'shift.view'],
   'product.manage': ['product.view', 'product.create', 'product.edit', 'product.delete', 'product.manage', 'product.export'],
@@ -180,7 +180,7 @@ export const LEGACY_EXPANSION = {
 export const LEGACY_KEYS = Object.keys(LEGACY_EXPANSION);
 
 // ------------------------------------------------------------
-// 3. ROLE BAWAAN (preset) — granular penuh
+// 3. ROLE BAWAAN (preset), granular penuh
 // ------------------------------------------------------------
 const G = ALL_PERM_KEYS;
 export const ROLE_PRESETS_V20 = {
@@ -330,11 +330,11 @@ export const ROLE_META_V20 = {
 };
 
 // ------------------------------------------------------------
-// 5. MATRIX READER — preset v20 + custom roles + legacy matrix
+// 5. MATRIX READER, preset v20 + custom roles + legacy matrix
 // ------------------------------------------------------------
 // Struktur tersimpan di tenants/{lic}/pengaturan doc 'roles':
 //   { key:'roles', matrix:{...}, customRoles:[{key,label,permissions,scope}] }
-// Kompatibel dengan matrix lama (key legacy) — di-expand saat baca.
+// Kompatibel dengan matrix lama (key legacy), di-expand saat baca.
 export const getRbacConfig = (settingsRows) => {
   // GUARD: pemanggil lama bisa meneruskan bukan-array (mis. hasil
   // Array.map(roleLabelOfV15) yang menyisipkan index sebagai arg ke-2).
@@ -381,7 +381,7 @@ export const expandPerms = (keys) => {
   return out;
 };
 
-// permsOf(role, settingsRows) — API utama (kompatibel pemanggil lama).
+// permsOf(role, settingsRows), API utama (kompatibel pemanggil lama).
 export const permsOf = (role, settingsRows) => {
   const { legacyMatrix, customRoles } = getRbacConfig(settingsRows);
   const defs = allRoleDefs({ legacyMatrix, customRoles });
@@ -475,7 +475,7 @@ export const branchesInScope = (scope, branches = []) => {
 export const isOrgWide = (scope) => normScope(scope).type === 'org';
 
 // ------------------------------------------------------------
-// 7. WORKSPACE RESOLVER — ke mana user mendarat setelah login?
+// 7. WORKSPACE RESOLVER, ke mana user mendarat setelah login?
 // ------------------------------------------------------------
 // role employee          → Employee Area (di dalam WELP Cashier)
 // role kasir / station   → POS (WELP Cashier)
@@ -514,6 +514,10 @@ export const NAV_PERMS_V20 = {
   customers: 'crm.view',
   stock: 'inventory.manage',
   opname: 'inventory.adjust',
+  opnamemonitor: 'inventory.view',   // v21.3: monitoring opname lintas cabang (view-only)
+  growth: 'crm.manage',              // v21.4: promo, voucher & loyalitas member
+  supply: 'purchasing.manage',       // v21.4: PO, hutang supplier, transfer stok
+  peopleplus: 'employee.manage',     // v21.4: jadwal, target, pengumuman, checklist
   inout: 'purchasing.manage',
   stockhistory: 'inventory.view',
   supplier: 'purchasing.manage',

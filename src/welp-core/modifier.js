@@ -1,5 +1,5 @@
 // ============================================================
-// WELP CORE — MODIFIER ENGINE v21.1
+// WELP CORE, MODIFIER ENGINE v21.1
 // ------------------------------------------------------------
 // Model produk dua mode (spesifikasi v21 #7):
 //   • QUICK PRODUCT      → TAP → langsung masuk cart
@@ -10,10 +10,10 @@
 //   options[{ name, priceDelta, active, isDefault }], sortOrder
 //
 // ATURAN:
-//   • TIDAK membuat SKU baru per kombinasi — line item menyimpan
+//   • TIDAK membuat SKU baru per kombinasi, line item menyimpan
 //     modifiers[] di dalam cart/order/transaction/receipt.
 //   • Harga line akhir = base price + Σ priceDelta.
-//   • PURE FUNCTION — tanpa React, tanpa Firestore.
+//   • PURE FUNCTION, tanpa React, tanpa Firestore.
 //   • Kompatibel mundur: produk tanpa mode/modifier = QUICK.
 // ============================================================
 
@@ -64,7 +64,7 @@ export const needsModifierSheet = (product, groups) =>
   productMode(product) === 'configurable' && activeGroupsForProduct(product, groups).length > 0;
 
 // ------------------------------------------------------------
-// 3. SELEKSI — bentuk kanonik: { [groupId]: optionId | optionId[] }
+// 3. SELEKSI, bentuk kanonik: { [groupId]: optionId | optionId[] }
 // ------------------------------------------------------------
 // Pra-isi opsi default (spec: default option). Grup required tanpa
 // default dibiarkan kosong agar kasir memilih sadar.
@@ -86,7 +86,7 @@ export const selectedOptionIds = (sel, groupId) => {
 };
 
 // Validasi terhadap aturan grup: required / min / max / multi.
-// Return { ok, errors: [{groupId, msg}] } — pesan siap tampil di sheet.
+// Return { ok, errors: [{groupId, msg}] }, pesan siap tampil di sheet.
 export const validateSelection = (groups, sel) => {
   const errors = [];
   (groups || []).forEach(g => {
@@ -113,7 +113,7 @@ export const validateSelection = (groups, sel) => {
 // ------------------------------------------------------------
 // 4. HARGA & LINE ITEM
 // ------------------------------------------------------------
-// unit price final = (base price — sudah termasuk tier) + Σ priceDelta
+// unit price final = (base price, sudah termasuk tier) + Σ priceDelta
 export const lineUnitPrice = (basePrice, groups, sel) => {
   let price = Math.round(Number(basePrice) || 0);
   (groups || []).forEach(g => {

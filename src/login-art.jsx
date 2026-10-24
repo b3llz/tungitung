@@ -1,6 +1,6 @@
 // ============================================================
-// WELP LOGIN ART v8 — sistem grafis latar halaman login.
-// Filosofi: "warm ink print shop" — bahasa cetak/risograph:
+// WELP LOGIN ART v8, sistem grafis latar halaman login.
+// Filosofi: "warm ink print shop", bahasa cetak/risograph:
 //   • Halftone  : titik dgn radius BERVARIASI membentuk bola/
 //                 donat (bukan dot-grid seragam generik)
 //   • Arch      : gerbang lengkung + inner arch (poster geometry)
@@ -12,7 +12,7 @@
 //   • TearLine  : perforasi sobekan struk (titik yang BERMAKNA)
 //   • Barcode   : barcode POS bertuliskan WELP·POS
 // TIDAK ada: plus melayang, dot-grid seragam, sparkle blob 4
-// titik — elemen yang diminta dihapus. Semua currentColor →
+// titik, elemen yang diminta dihapus. Semua currentColor →
 // aman light (flame/abu) & dark (apricot/putih-redup).
 // ============================================================
 

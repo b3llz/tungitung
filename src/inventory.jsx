@@ -1,5 +1,5 @@
 // ============================================================
-// INVENTORI v5 WELP — Stok Barang (etalase + bahan baku), Stok
+// INVENTORI v5 WELP, Stok Barang (etalase + bahan baku), Stok
 // Opname, Barang Masuk/Keluar, Riwayat Stok, Supplier.
 // Logika dipertahankan 100% (termasuk scanner SKU BarcodeDetector
 // nyata & pro pricing strategy).
@@ -37,7 +37,7 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
     else setEditingMode(false);
   }, [cropSrc, showAdd, setEditingMode]);
 
-  // SCANNER SKU NYATA (BarcodeDetector) — bukan alert palsu.
+  // SCANNER SKU NYATA (BarcodeDetector), bukan alert palsu.
   useEffect(() => {
     let stream, rafId, stopped = false;
     const cleanup = () => { stopped = true; if (rafId) cancelAnimationFrame(rafId); if (stream) stream.getTracks().forEach(t => t.stop()); };
@@ -85,7 +85,7 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
     setNewProd({ name: '', price: 0, stock: 0, type: 'Makanan', image: null });
   };
 
-  // v21.1 — Modifier Engine: grup modifier per tenant + assignment per produk
+  // v21.1, Modifier Engine: grup modifier per tenant + assignment per produk
   const [modGroups, setModGroups] = useState(() => safeParse('modifier_group_db', []));
   const [showModMgr, setShowModMgr] = useState(false);
   const [modProduct, setModProduct] = useState(null);   // produk yg diatur variannya
@@ -138,7 +138,7 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
                   <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                     <h4 className="font-extrabold text-ink dark:text-ink-inv text-[13px] truncate">{p.name}</h4>
                     <Badge><CategoryIcon name={p.type} className="w-3 h-3" /> {p.type}</Badge>
-                    {/* v21.1: mode produk — QUICK vs CONFIGURABLE */}
+                    {/* v21.1: mode produk, QUICK vs CONFIGURABLE */}
                     {(p.modifierGroupIds || []).length > 0 && <Badge tone="gold">Custom (modifier)</Badge>}
                     {low && <Badge tone="red">Menipis</Badge>}
                   </div>
@@ -265,16 +265,16 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
         <ImageCropperModal imageSrc={cropSrc} onCropComplete={(img) => { setNewProd({ ...newProd, image: img }); setCropSrc(null); }} onClose={() => setCropSrc(null)} />
       )}
 
-      {/* v21.1 — MANAGER GRUP MODIFIER (CRUD penuh, spec #8) */}
+      {/* v21.1, MANAGER GRUP MODIFIER (CRUD penuh, spec #8) */}
       {showModMgr && <ModifierGroupsManager groups={modGroups} onSave={saveModGroups} onClose={() => setShowModMgr(false)} />}
-      {/* v21.1 — ATUR MODE & GRUP PER PRODUK */}
+      {/* v21.1, ATUR MODE & GRUP PER PRODUK */}
       {modProduct && <ProductModifierDialog product={modProduct} groups={modGroups}
         onSave={(mode, ids) => {
           saveProducts(products.map(p => p.id === modProduct.id
             ? { ...p, mode, modifierGroupIds: ids }
             : p));
           setModProduct(null);
-          triggerAlert(mode === 'configurable' ? 'Produk kini configurable — kasir diminta memilih varian.' : 'Produk quick — tap langsung masuk keranjang.', 'success');
+          triggerAlert(mode === 'configurable' ? 'Produk kini configurable, kasir diminta memilih varian.' : 'Produk quick, tap langsung masuk keranjang.', 'success');
         }} onClose={() => setModProduct(null)} />}
 
       {/* OVERLAY SCANNER SKU */}
@@ -294,23 +294,32 @@ export const StockTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab 
   );
 };
 
-/* ================= STOK OPNAME ================= */
+/* ================= STOK OPNAME =================
+   v21.3: setiap penyimpanan opname kini membentuk SATU SESI berisi
+   tanggal + JAM, pelaksana, cabang, dan rincian selisih per produk.
+   Sesi tersimpan di opname_history_db (mirror Firestore) sehingga
+   atasan bisa memantau hasil opname tiap cabang dari pusat. */
 export const OpnameTab = ({ triggerAlert, licenseInfo }) => {
   const [products, setProducts] = useState(safeParse('product_stock_db', []));
   const [adjustments, setAdjustments] = useState({});
-  useDbSync(() => setProducts(safeParse('product_stock_db', [])));
+  const [hist, setHist] = useState(safeParse('opname_history_db', []));
+  const [openId, setOpenId] = useState(null);
+  useDbSync(() => { setProducts(safeParse('product_stock_db', [])); setHist(safeParse('opname_history_db', [])); });
+
+  const changedCount = Object.keys(adjustments).filter(k => adjustments[k] !== products.find(p => p.id === k)?.stock).length;
 
   const saveOpname = () => {
     let updatedProducts = [...products];
     let logs = safeParse('stock_history_db', []);
+    const lines = [];
+    const atMs = Date.now();
 
-    let changed = false;
     updatedProducts = updatedProducts.map(p => {
       if (adjustments[p.id] !== undefined && adjustments[p.id] !== p.stock) {
-        changed = true;
         const diff = adjustments[p.id] - p.stock;
+        lines.push({ productId: p.id, name: p.name, before: p.stock, after: adjustments[p.id], diff });
         logs.push({
-          id: `log_${Date.now()}_${p.id}`, date: new Date().toISOString(),
+          id: `log_${atMs}_${p.id}`, date: new Date(atMs).toISOString(),
           productName: p.name, type: 'Opname', qty: diff, note: 'Penyesuaian Fisik Gudang'
         });
         return { ...p, stock: adjustments[p.id] };
@@ -318,21 +327,37 @@ export const OpnameTab = ({ triggerAlert, licenseInfo }) => {
       return p;
     });
 
-    if (!changed) return triggerAlert("Tidak ada perubahan stok untuk disimpan.", "error");
+    if (!lines.length) return triggerAlert("Tidak ada perubahan stok untuk disimpan.", "error");
+
+    // v21.3: catat SESI opname (riwayat dengan jam & tanggal + cabang)
+    const session = {
+      id: `opn_${atMs}`, at: new Date(atMs).toISOString(), atMs,
+      by: licenseInfo?.employeeName || licenseInfo?.tenant || 'Staf',
+      role: licenseInfo?.currentUserRole || null,
+      branchId: licenseInfo?.branchId || licenseInfo?.id || 'PUSAT',
+      branchName: licenseInfo?.branchName || 'Pusat',
+      totalItems: products.length, changedCount: lines.length,
+      totalDiff: lines.reduce((a, b) => a + Math.abs(b.diff), 0),
+      lines,
+    };
+    const nextHist = [session, ...safeParse('opname_history_db', [])].slice(0, 300);
 
     // v15 F1: mirror + Firestore
     dbSet(licenseInfo?.id, 'product_stock_db', updatedProducts);
     dbSet(licenseInfo?.id, 'stock_history_db', logs);
+    dbSet(licenseInfo?.id, 'opname_history_db', nextHist);
     setProducts(updatedProducts);
+    setHist(nextHist);
     setAdjustments({});
-    triggerAlert("Stok Opname Berhasil Disimpan!");
+    setOpenId(session.id);
+    triggerAlert(`Stok opname tersimpan: ${lines.length} produk disesuaikan, sesi tercatat pukul ${new Date(atMs).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}.`);
   };
 
   return (
     <div className="max-w-3xl mx-auto w-full pb-24">
       <PageTitle title="Stok Opname" sub="Penyelarasan Fisik & Sistem" />
-      <Card title="Hitung Fisik" icon={Opname} help="Isi jumlah fisik yang benar, sistem akan mencatat selisihnya ke Riwayat Stok.">
-        <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1 custom-scrollbar">
+      <Card title={`Hitung Fisik${changedCount ? ` (${changedCount} berubah)` : ''}`} icon={Opname} help="Isi jumlah fisik yang benar, sistem mencatat selisihnya, lengkap dengan jam dan tanggal sesi opname.">
+        <div className="space-y-2.5 max-h-[46vh] overflow-y-auto pr-1 custom-scrollbar">
           {products.length === 0 ? <EmptyState icon={Stok} title="Belum ada produk" desc="Tambahkan produk di tab Stok Barang dulu, lalu lakukan opname untuk menyelaraskan stok fisik dengan sistem." /> : products.map(p => {
             const diff = adjustments[p.id];
             const changed = diff !== undefined && diff !== p.stock;
@@ -350,6 +375,172 @@ export const OpnameTab = ({ triggerAlert, licenseInfo }) => {
           })}
         </div>
         <Button onClick={saveOpname} disabled={products.length === 0} className="w-full mt-4 py-3" icon={Save}>Simpan Hasil Opname</Button>
+      </Card>
+
+      {/* v21.3: RIWAYAT SESI OPNAME, lengkap tanggal + jam */}
+      <Card title="Riwayat Opname" icon={StokRiwayat} flush className="mt-5"
+        help="Setiap sesi opname tercatat dengan jam, tanggal, pelaksana, cabang, dan rincian selisihnya. Tap sesi untuk membuka detail.">
+        <div className="divide-y divide-line/70 dark:divide-line-dark/70">
+          {hist.length === 0 ? (
+            <div className="p-6">
+              <EmptyState compact icon={Opname} title="Belum ada sesi opname" desc="Simpan opname pertamamu, sesinya otomatis tercatat di sini." />
+            </div>
+          ) : hist.slice(0, 30).map(s => {
+            const d = new Date(s.atMs || s.at);
+            const tgl = d.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+            const jam = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+            const open = openId === s.id;
+            return (
+              <div key={s.id}>
+                <button type="button" onClick={() => setOpenId(open ? null : s.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left">
+                  <span className="w-9 h-9 rounded-xl bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold flex items-center justify-center shrink-0"><Opname className="w-4.5 h-4.5" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{tgl}, pukul {jam}</span>
+                    <span className="block text-[10px] font-bold text-ink-faint truncate">{s.branchName || 'Pusat'} · {s.changedCount} produk disesuaikan · oleh {s.by || 'Staf'}</span>
+                  </span>
+                  <Badge tone={s.changedCount > 0 ? 'gold' : 'green'}>selisih {s.totalDiff || 0}</Badge>
+                </button>
+                {open && (
+                  <div className="px-4 pb-4">
+                    <div className="rounded-xl border border-line dark:border-line-dark overflow-hidden">
+                      <div className="grid grid-cols-4 gap-2 px-3 py-2 bg-paper dark:bg-white/5 text-[9px] font-extrabold uppercase tracking-wider text-ink-faint">
+                        <span className="col-span-2">Produk</span><span className="text-right">Sistem → Fisik</span><span className="text-right">Selisih</span>
+                      </div>
+                      {(s.lines || []).slice(0, 40).map((l, i) => (
+                        <div key={i} className="grid grid-cols-4 gap-2 px-3 py-2 border-t border-line/60 dark:border-line-dark/60 text-[11px] font-bold">
+                          <span className="col-span-2 truncate text-ink dark:text-ink-inv">{l.name}</span>
+                          <span className="text-right money text-ink-faint">{l.before} → {l.after}</span>
+                          <span className={`text-right money ${l.diff >= 0 ? 'text-leaf-deep dark:text-leaf' : 'text-brick'}`}>{l.diff >= 0 ? '+' : ''}{l.diff}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+/* ================= MONITORING OPNAME MULTI CABANG (v21.3) =================
+   Fitur #14: atasan/owner memantau pelaksanaan stock opname TIAP CABANG
+   dari pusat. Ringkasan per cabang: opname terakhir, jumlah sesi, total
+   selisih, produk bermasalah. Semua dari opname_history_db (realtime
+   mirror Firestore antar perangkat). */
+export const OpnameMonitorTab = ({ licenseInfo, triggerAlert }) => {
+  const [hist, setHist] = useState(safeParse('opname_history_db', []));
+  const [selBranch, setSelBranch] = useState('Semua Cabang');
+  const [openId, setOpenId] = useState(null);
+  useDbSync(() => setHist(safeParse('opname_history_db', [])));
+
+  const branches = safeParse('cabang_db', []);
+  const branchNameOf = (id) => id === 'PUSAT' ? 'Pusat' : ((branches || []).find(b => (b.cid === id || b.id === id))?.name || (id === (licenseInfo?.id) ? 'Pusat' : (id || 'Cabang')));
+
+  // ringkasan per cabang
+  const byBranch = {};
+  hist.forEach(s => {
+    const k = s.branchId || 'PUSAT';
+    if (!byBranch[k]) byBranch[k] = { branchId: k, sessions: 0, lastAt: 0, totalDiff: 0, byWho: '' };
+    const rec = byBranch[k];
+    rec.sessions += 1;
+    rec.totalDiff += (s.totalDiff || 0);
+    const ms = s.atMs || 0;
+    if (ms > rec.lastAt) { rec.lastAt = ms; rec.byWho = s.by || 'Staf'; }
+  });
+  const branchSummaries = Object.values(byBranch).sort((a, b) => b.lastAt - a.lastAt);
+
+  const branchOpts = ['Semua Cabang', ...branchSummaries.map(b => branchNameOf(b.branchId))];
+  const selBranchId = selBranch === 'Semua Cabang' ? null : (branchSummaries.find(b => branchNameOf(b.branchId) === selBranch)?.branchId || null);
+
+  const rows = [...hist]
+    .filter(s => !selBranchId || s.branchId === selBranchId)
+    .sort((a, b) => (b.atMs || 0) - (a.atMs || 0));
+
+  return (
+    <div className="max-w-3xl mx-auto w-full pb-24">
+      <PageTitle title="Monitoring Opname" sub="Hasil stok opname seluruh cabang, realtime dari pusat" />
+
+      {/* RINGKASAN PER CABANG */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {branchSummaries.length === 0 ? (
+          <div className="sm:col-span-2">
+            <Card title="Ringkasan Cabang" icon={Opname}>
+              <EmptyState compact icon={Opname} title="Belum ada opname tercatat" desc="Sesi opname dari cabang manapun otomatis muncul di sini beserta jam, pelaksana, dan selisihnya." />
+            </Card>
+          </div>
+        ) : branchSummaries.map(b => {
+          const d = new Date(b.lastAt);
+          const fresh = (Date.now() - b.lastAt) < 3 * 864e5;
+          return (
+            <div key={b.branchId} className={`card p-4 ${fresh ? 'border-leaf/40' : ''}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv truncate">{branchNameOf(b.branchId)}</p>
+                <Badge tone={fresh ? 'green' : 'neutral'}>{fresh ? 'Baru opname' : 'Sudah lama'}</Badge>
+              </div>
+              <p className="text-[10.5px] font-bold text-ink-faint mt-1">
+                Terakhir: {d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}, {d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} oleh {b.byWho}
+              </p>
+              <div className="flex gap-4 mt-2.5">
+                <div>
+                  <p className="text-lg font-extrabold money leading-none text-ink dark:text-ink-inv">{b.sessions}</p>
+                  <p className="kicker mt-1">sesi</p>
+                </div>
+                <div>
+                  <p className="text-lg font-extrabold money leading-none text-ink dark:text-ink-inv">{b.totalDiff}</p>
+                  <p className="kicker mt-1">total selisih</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* FILTER + DAFTAR SESI */}
+      <Card title="Semua Sesi Opname" icon={StokRiwayat} flush className="mt-5"
+        action={
+          <div className="w-40"><Select value={selBranch} options={branchOpts}
+            onChange={(v) => setSelBranch(v)} /></div>
+        }>
+        <div className="divide-y divide-line/70 dark:divide-line-dark/70">
+          {rows.length === 0 ? (
+            <div className="p-6"><EmptyState compact icon={Opname} title="Belum ada sesi" desc="Belum ada sesi opname pada filter cabang ini." /></div>
+          ) : rows.slice(0, 60).map(s => {
+            const d = new Date(s.atMs || s.at);
+            const tgl = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+            const jam = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+            const open = openId === s.id;
+            return (
+              <div key={s.id}>
+                <button type="button" onClick={() => setOpenId(open ? null : s.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left">
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-extrabold text-[12.5px] text-ink dark:text-ink-inv truncate">{branchNameOf(s.branchId)}, {tgl} pukul {jam}</span>
+                    <span className="block text-[10px] font-bold text-ink-faint truncate">{s.changedCount} produk disesuaikan · oleh {s.by || 'Staf'}</span>
+                  </span>
+                  <Badge tone={(s.totalDiff || 0) > 0 ? 'gold' : 'green'}>selisih {s.totalDiff || 0}</Badge>
+                </button>
+                {open && (
+                  <div className="px-4 pb-4">
+                    <div className="rounded-xl border border-line dark:border-line-dark overflow-hidden">
+                      <div className="grid grid-cols-4 gap-2 px-3 py-2 bg-paper dark:bg-white/5 text-[9px] font-extrabold uppercase tracking-wider text-ink-faint">
+                        <span className="col-span-2">Produk</span><span className="text-right">Sistem → Fisik</span><span className="text-right">Selisih</span>
+                      </div>
+                      {(s.lines || []).slice(0, 40).map((l, i) => (
+                        <div key={i} className="grid grid-cols-4 gap-2 px-3 py-2 border-t border-line/60 dark:border-line-dark/60 text-[11px] font-bold">
+                          <span className="col-span-2 truncate text-ink dark:text-ink-inv">{l.name}</span>
+                          <span className="text-right money text-ink-faint">{l.before} → {l.after}</span>
+                          <span className={`text-right money ${l.diff >= 0 ? 'text-leaf-deep dark:text-leaf' : 'text-brick'}`}>{l.diff >= 0 ? '+' : ''}{l.diff}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </Card>
     </div>
   );
@@ -506,7 +697,7 @@ export const SupplierTab = ({ triggerAlert, licenseInfo }) => {
 };
 
 /* ============================================================
-   v21.1 — MODIFIER GROUPS MANAGER (spec #8)
+   v21.1, MODIFIER GROUPS MANAGER (spec #8)
    CRUD grup modifier: name, required/optional, single/multi,
    min/max, priceDelta, default option, urutan. Contoh bisnis:
    Cimol → Level Pedas / Bumbu / Topping (tidak dibuat SKU baru).
@@ -578,7 +769,7 @@ const ModifierGroupsManager = ({ groups, onSave, onClose }) => {
 };
 
 /* ============================================================
-   v21.1 — MODE & GRUP PER PRODUK (QUICK vs CONFIGURABLE)
+   v21.1, MODE & GRUP PER PRODUK (QUICK vs CONFIGURABLE)
    ============================================================ */
 const ProductModifierDialog = ({ product, groups, onSave, onClose }) => {
   const [mode, setMode] = useState(product?.mode === 'configurable' ? 'configurable' : 'quick');

@@ -1,8 +1,8 @@
 // ============================================================
-// LOCK SCREEN v8 — pintu masuk WELP.
+// LOCK SCREEN v8, pintu masuk WELP.
 // Latar form panel = sistem grafis "warm ink print shop"
 // (src/login-art.jsx): halftone bervariasi, arch, arc
-// konsentris, stiker Welpie, struk POS, perforasi, barcode —
+// konsentris, stiker Welpie, struk POS, perforasi, barcode  
 // TANPA dot-grid seragam & tanpa plus melayang (dihapus).
 // BrandLockup dengan JUSTru GROUP tampil di SEMUA device
 // (desktop, tablet, mobile) dengan ukuran jelas terbaca.
@@ -22,7 +22,7 @@ import {
   Receipt, TearLine, Barcode, sphereMask, ringMask
 } from './login-art.jsx';
 
-/* Dekor panel form — komposisi cetak kiri/kanan mengelilingi kartu.
+/* Dekor panel form, komposisi cetak kiri/kanan mengelilingi kartu.
    Light: flame + abu di atas putih · Dark: apricot + putih redup. */
 const LoginDecor = () => (
   <div aria-hidden="true" className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -80,18 +80,18 @@ export const LockScreen = ({ onUnlock }) => {
       const cred = await signInWelpAccount(inputId.trim().toLowerCase(), inputPass);
       const tokenResult = await getIdTokenResult(cred.user, true);
       const claims = tokenResult.claims || {};
-      // v21.2 — DUA JALUR SESI AKUN:
+      // v21.2, DUA JALUR SESI AKUN:
       //   (a) Enterprise/Blaze: claims + getWelpSession (server).
       //   (b) Spark/plan gratis: sesi dibangun dari welp_identities +
       //       licenses (hanya developer allowlist yang bisa menulisnya
-      //       — tingkat keamanan setara claims).
+      //      , tingkat keamanan setara claims).
       let session = null;
       if (claims.welpTenant && claims.welpRole && claims.welpDisabled !== true) {
         session = await callWelpSession();
       } else if (claims.welpDisabled !== true) {
         if (cred.user.emailVerified !== true) {
           await signOutWelpAccount().catch(() => {});
-          triggerAlert('Email akun belum terverifikasi. Buka inbox owner — email verifikasi otomatis terkirim saat pendaftaran tenant (minta developer kirim ulang lewat modal kredensial bila perlu), lalu login lagi.');
+          triggerAlert('Email akun belum terverifikasi. Buka inbox owner, email verifikasi otomatis terkirim saat pendaftaran tenant (minta developer kirim ulang lewat modal kredensial bila perlu), lalu login lagi.');
           setLoading(false);
           return;
         }
@@ -205,7 +205,7 @@ export const LockScreen = ({ onUnlock }) => {
   /* ===== LOGIN KARYAWAN (identitas pribadi, tanpa akun email) =====
      ID Toko → Employee ID + PIN pribadi (hash PBKDF2, bukan plaintext).
      Sistem mengenali role, cabang, dan permission otomatis dari record
-     karyawan — bukan dari perangkat. Inilah jalur pribadi yang menggantikan
+     karyawan, bukan dari perangkat. Inilah jalur pribadi yang menggantikan
      login cabang bersama (dihapus v20). */
   const handleKaryawanStep1 = async () => {
     setErr('');
@@ -255,7 +255,7 @@ export const LockScreen = ({ onUnlock }) => {
 
   const handlePinLogin = async () => {
     setErr('');
-    // OWNER PUSAT (v20: satu-satunya alur PIN — PIN cabang bersama dihapus)
+    // OWNER PUSAT (v20: satu-satunya alur PIN, PIN cabang bersama dihapus)
     const gateKey = `pin:${tenantData?.id || inputId.toLowerCase()}:pusat`;
     if (!gateCheck(gateKey)) return;
     let role = null;
@@ -290,7 +290,7 @@ export const LockScreen = ({ onUnlock }) => {
 
       {/* ============ PANEL BRAND (desktop saja) ============ */}
       <aside className="hidden lg:flex w-[44%] xl:w-[42%] bg-chrome-deep relative flex-col justify-between p-12 overflow-hidden">
-        {/* dekor: komposisi cetak aprikot — arc, halftone, struk, gelombang */}
+        {/* dekor: komposisi cetak aprikot, arc, halftone, struk, gelombang */}
         <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-flame-500/10 blur-3xl"></div>
         <div className="absolute -bottom-28 -left-20 w-72 h-72 rounded-full bg-apricot/[.07] blur-3xl"></div>
         <QuarterArcs className="absolute -top-16 -right-16 w-64 text-apricot/[.10]" />
@@ -469,7 +469,7 @@ export const LockScreen = ({ onUnlock }) => {
                         {loading ? (<><span className="spinner-ring"></span> Memeriksa...</>) : 'Masuk'}
                       </button>
                       <p className="text-[10px] text-ink-faint mt-1 flex items-center justify-center gap-1.5 font-bold">
-                        <GembokBuddy className="w-3 h-3" /> Mode kompatibilitas lama — disarankan beralih ke Akun WELP
+                        <GembokBuddy className="w-3 h-3" /> Mode kompatibilitas lama, disarankan beralih ke Akun WELP
                       </p>
                     </>
                   )}

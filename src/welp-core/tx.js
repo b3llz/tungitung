@@ -1,5 +1,5 @@
 // ============================================================
-// WELP CORE — TRANSACTION / PAYMENT DOMAIN v21
+// WELP CORE, TRANSACTION / PAYMENT DOMAIN v21
 // ------------------------------------------------------------
 // Satu sumber kebenaran untuk seluruh domain finansial kasir:
 //   • State machine transaksi (SALE → PAYMENT → SETTLEMENT)
@@ -20,7 +20,7 @@
 // ============================================================
 
 // ------------------------------------------------------------
-// 1. STATE MACHINE — kanonik, tidak ada string status liar lagi
+// 1. STATE MACHINE, kanonik, tidak ada string status liar lagi
 // ------------------------------------------------------------
 export const TX_STATE = {
   SALE_CREATED: 'SALE_CREATED',
@@ -66,7 +66,7 @@ export const TX_STATE_META = {
 };
 
 // ------------------------------------------------------------
-// 2. ID GENERATOR — collision-safe lintas perangkat
+// 2. ID GENERATOR, collision-safe lintas perangkat
 // ------------------------------------------------------------
 const rand36 = (n) => {
   let s = '';
@@ -128,7 +128,7 @@ export const normalizePayments = (order) => {
   }];
 };
 
-// State kanonik — derivasi dari field baru ATAU legacy.
+// State kanonik, derivasi dari field baru ATAU legacy.
 export const txStateOf = (order) => {
   if (!order) return TX_STATE.SALE_CREATED;
 
@@ -184,7 +184,7 @@ export const countsAsSale = (order) => {
 };
 
 // ------------------------------------------------------------
-// 4. VOID & REFUND — matematika & validasi
+// 4. VOID & REFUND, matematika & validasi
 // ------------------------------------------------------------
 export const refundedAmountOf = (order) =>
   (Array.isArray(order?.refunds) ? order.refunds : [])
@@ -258,7 +258,7 @@ export const buildVoid = ({ order, reason, actor, actorRole, approver, stockRetu
 });
 
 // ------------------------------------------------------------
-// 5. SETTLEMENT — gross, fee/MDR, refund, adjustment, net
+// 5. SETTLEMENT, gross, fee/MDR, refund, adjustment, net
 // ------------------------------------------------------------
 // Konfigurasi metode (integration boundary): Owner mengatur di
 // Metode Pembayaran. Nilai default 0 = belum dikonfigurasi.
@@ -338,7 +338,7 @@ export const SETTLEMENT_STATE_META = {
 };
 
 // ------------------------------------------------------------
-// 6. REKONSILIASI — sales vs settlement, dengan ALASAN beda
+// 6. REKONSILIASI, sales vs settlement, dengan ALASAN beda
 // ------------------------------------------------------------
 export const RECON_STATUS = { MATCHED: 'MATCHED', MISMATCH: 'MISMATCH', PENDING: 'PENDING' };
 
@@ -378,7 +378,7 @@ export const reconcile = ({ orders, settlement, dateKey, payment }) => {
   });
   if (['PENDING', 'PROCESSING'].includes(settlement.status)) reasons.push({
     type: 'PROVIDER_DELAY', amount: null,
-    detail: 'Settlement belum dikonfirmasi — dana belum masuk rekening. Cocokkan setelah provider menyelesaikan siklus settlement.',
+    detail: 'Settlement belum dikonfirmasi, dana belum masuk rekening. Cocokkan setelah provider menyelesaikan siklus settlement.',
   });
   if (Math.abs(settlement.netAmount - expectedNet) > 0.5) reasons.push({
     type: 'NET_DIFF', amount: settlement.netAmount - expectedNet,
@@ -393,7 +393,7 @@ export const reconcile = ({ orders, settlement, dateKey, payment }) => {
 };
 
 // ------------------------------------------------------------
-// 7. SHIFT & KAS — open, cash in/out, close dengan selisih
+// 7. SHIFT & KAS, open, cash in/out, close dengan selisih
 // ------------------------------------------------------------
 export const SHIFT_RESULT_META = {
   MATCHED: { label: 'Cocok', tone: 'green' },

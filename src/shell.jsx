@@ -1,5 +1,5 @@
 // ============================================================
-// SHELL v20 — Navigasi WELP (Business & Cashier)
+// SHELL v20, Navigasi WELP (Business & Cashier)
 // ------------------------------------------------------------
 // v20 PERUBAHAN STRUKTURAL:
 //  • NAV didasarkan permission granular (welp-core/rbac.js):
@@ -7,9 +7,9 @@
 //    halaman baru memakai key granular (crm.view, audit.view, ...).
 //  • Struktur WELP Business: Command Center & Persetujuan di
 //    paling atas, lalu Kasir/CRM, Inventaris, SDM, Organisasi
-//    & Tata Kelola, Pengaturan — sesuai arsitektur perusahaan.
+//    & Tata Kelola, Pengaturan, sesuai arsitektur perusahaan.
 //  • WELP Cashier: tetap fokus transaksi + Area Saya (Employee
-//    Area pribadi) — tidak ada menu manajemen yang tak relevan.
+//    Area pribadi), tidak ada menu manajemen yang tak relevan.
 //  • Role custom dari Owner (mis. Area Manager, HRD, Auditor)
 //    ikut tampil dengan labelnya, bukan hard-coded.
 //  • Label grup i18n baru ditambahkan di core.TRANSLATIONS.
@@ -20,7 +20,8 @@ import {
   StokRiwayat, Supplier, Laporan, Toko, Bayar,
   Alat, Setelan, Terang, Gelap, Keluar, Beranda, X, Menu,
   Cabang, Tim, Absensi, Penggajian, MonitorPusat, PerisaiBuddy,
-  Users, JaringanBuddy, History, BadgeCheck, StrukCetak,
+  Users, JaringanBuddy, History, BadgeCheck, StrukCetak, MonitorBuddy,
+  KoinBuddy, Boxes, RoketBuddy,
 } from './welp-icons.jsx';
 import { BrandLockup, BrandLogo, Mascot } from './brand.jsx';
 import { t, getLang } from './core.jsx';
@@ -40,6 +41,7 @@ export const NAV_GROUPS = [
     { id: 'area', labelKey: 'area', icon: Tim, scope: 'all' },
     { id: 'calc', labelKey: 'hpp', icon: HppCalc, scope: 'pos' },
     { id: 'customers', labelKey: 'customers', icon: Users, scope: 'management' },
+    { id: 'growth', labelKey: 'growth', icon: KoinBuddy, scope: 'management' },   // v21.4: promo & loyalitas
     { id: 'history', labelKey: 'history', icon: Riwayat, scope: 'pos' },
     { id: 'cashout', labelKey: 'cashout', icon: KasKeluar, scope: 'pos' },
     { id: 'discount', labelKey: 'discount', icon: Diskon, scope: 'pos' },
@@ -47,14 +49,17 @@ export const NAV_GROUPS = [
   { key: 'ops', labelKey: 'operational', items: [
     { id: 'stock', labelKey: 'stock', icon: Stok, scope: 'pos' },
     { id: 'opname', labelKey: 'opname', icon: Opname, scope: 'management' },
+    { id: 'opnamemonitor', labelKey: 'opnameMonitor', icon: MonitorBuddy, scope: 'management' },   // v21.3: monitoring opname tiap cabang
     { id: 'inout', labelKey: 'inout', icon: InOut, scope: 'management' },
     { id: 'stockhistory', labelKey: 'stockHistory', icon: StokRiwayat, scope: 'management' },
     { id: 'supplier', labelKey: 'supplier', icon: Supplier, scope: 'management' },
+    { id: 'supply', labelKey: 'supply', icon: Boxes, scope: 'management' },   // v21.4: PO, hutang, transfer
   ]},
   { key: 'people', labelKey: 'peopleGrp', items: [
     { id: 'karyawan', labelKey: 'karyawan', icon: Tim, scope: 'management' },
     { id: 'absensi', labelKey: 'absensi', icon: Absensi, scope: 'management' },
     { id: 'payroll', labelKey: 'payroll', icon: Penggajian, scope: 'management' },
+    { id: 'peopleplus', labelKey: 'peopleplus', icon: RoketBuddy, scope: 'management' },   // v21.4: operasional tim
   ]},
   { key: 'org', labelKey: 'orgGrp', items: [
     { id: 'report', labelKey: 'report', icon: Laporan, scope: 'management' },
@@ -67,8 +72,8 @@ export const NAV_GROUPS = [
   // Keluarga PENGATURAN terpisah dari menu operasional.
   { key: 'setelan', labelKey: 'settings', items: [
     { id: 'profile', labelKey: 'profile', icon: Toko, scope: 'management' },
-    { id: 'payment', labelKey: 'payment', icon: Bayar, scope: 'pos' },
-    { id: 'hardware', labelKey: 'hardware', icon: Alat, scope: 'pos' },
+    { id: 'payment', labelKey: 'payment', icon: Bayar, scope: 'all' },
+    { id: 'hardware', labelKey: 'hardware', icon: Alat, scope: 'all' },   // v21.3: hardware tampil juga di mode Business (printer/scanner/drawer)
     { id: 'settings', labelKey: 'settings', icon: Setelan, scope: 'management' },
     { id: 'perusahaan', labelKey: 'perusahaan', icon: Toko, scope: 'management' },
   ]},
@@ -167,38 +172,42 @@ export const Sidebar = ({ role, perms, active, setActive, licenseInfo, dark, tog
   </aside>
 );
 
-/* ---------- BOTTOM NAV (mobile) — satu trigger menu ---------- */
+/* ---------- BOTTOM NAV (mobile), satu trigger menu ----------
+   v21.3 FIX PRESISI: dulu grid-cols-5 fix, jadi kalau item yang lolos
+   filter cuma 3 (mis. mode Business), tombolnya menggerombol di KIRI
+   dan kanannya kosong. Sekarang flex dengan flex-1 -> item SELALU
+   terbagi rata presisi memenuhi lebar, berapapun jumlahnya. */
 export const BottomNav = ({ active, setActive, onMenu, lowStockCount, scope = 'all', perms, isStation = false }) => {
   const en = getLang() === 'en';
   const allItems = [
     { id: 'home', icon: Beranda, label: en ? 'Home' : 'Beranda', scope: 'all' },
     { id: 'pos', icon: Kasir, label: en ? 'Cashier' : 'Kasir', scope: 'pos' },
-    { id: 'area', icon: Tim, label: en ? 'My Area' : 'Area Saya', scope: 'all' },
+    { id: 'area', icon: Tim, label: en ? 'My Shift' : 'Absen & Gaji', scope: 'all' },
     { id: 'calc', icon: HppCalc, label: 'HPP', scope: 'pos' },
     { id: 'stock', icon: Stok, label: en ? 'Stock' : 'Stok', badge: lowStockCount, scope: 'pos' },
     { id: null, icon: Menu, label: t('menu'), scope: 'all' },
   ];
   const items = allItems
     .filter(it => !it.scope || it.scope === 'all' || it.scope === scope)
-    // Station perangkat tanpa identitas pribadi: tanpa "Area Saya".
+    // Station perangkat tanpa identitas pribadi: tanpa tab pribadi.
     .filter(it => it.id !== 'area' || !isStation)
     .filter(it => it.id === null || navAllowed({ id: it.id, scope: 'all' }, {}, perms, scope))
     .slice(0, 5);
   return (
     <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-surface/95 dark:bg-chrome-deep/95 backdrop-blur-md border-t border-line dark:border-chrome-edge pb-safe">
-      <div className="grid grid-cols-5 max-w-screen-xl mx-auto h-16">
+      <div className="flex max-w-screen-xl mx-auto h-16 items-stretch">
         {items.map((it, idx) => {
           const isActive = it.id && active === it.id;
           const Icon = it.icon;
           return (
             <button key={idx} onClick={() => it.id ? setActive(it.id) : onMenu()} aria-label={it.label}
-              className={`relative flex flex-col items-center justify-center gap-1 transition press ${isActive ? 'text-flame-600 dark:text-apricot' : 'text-ink-faint dark:text-ink-inv/45 hover:text-ink-soft dark:hover:text-ink-inv/80'}`}>
+              className={`relative flex-1 min-w-0 flex flex-col items-center justify-center gap-1 transition press ${isActive ? 'text-flame-600 dark:text-apricot' : 'text-ink-faint dark:text-ink-inv/45 hover:text-ink-soft dark:hover:text-ink-inv/80'}`}>
               {isActive && <span className="absolute top-0 w-9 h-1 bg-flame-500 rounded-b-full" />}
               <div className="relative">
                 <Icon className="w-[22px] h-[22px]" />
                 {it.badge > 0 && <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-brick text-white text-[9px] font-extrabold flex items-center justify-center">{it.badge}</span>}
               </div>
-              <span className={`text-[9px] ${isActive ? 'font-extrabold' : 'font-bold'}`}>{it.label}</span>
+              <span className={`text-[9px] ${isActive ? 'font-extrabold' : 'font-bold'} max-w-[76px] truncate`}>{it.label}</span>
             </button>
           );
         })}
@@ -264,7 +273,7 @@ export const MenuSheet = ({ open, onClose, role, perms, active, setActive, licen
           <button onClick={onLogout} className="w-full flex items-center justify-center gap-3 p-3 rounded-xl bg-brick/15 text-brick font-extrabold hover:bg-brick/25 transition press">
             <Keluar className="w-5 h-5" /> {t('logout')}
           </button>
-          <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] pt-2">WELP v20</p>
+          <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] pt-2">WELP v21.4 Spark Mode</p>
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 // ============================================================
-// KALKULATOR HPP v5 WELP — dua panel: pembuat resep (kiri) +
+// KALKULATOR HPP v5 WELP, dua panel: pembuat resep (kiri) +
 // KARTU BIAYA ala kwitansi (kanan, sticky). Logika perhitungan
 // dipertahankan 100% (calcRow, margin tier 22.8/48.6/78.4,
 // smart rounding, proyeksi, save/load/export Excel).
@@ -186,7 +186,7 @@ export const CalculatorTab = ({ licenseInfo, triggerAlert, setEditingMode }) => 
     const data = { id: Date.now(), productId: newProductItem.id, product, materials, variableOps, fixedOps, production, hppBersih, finalPrice };
     setSavedRecipes(prev => {
       // v15 F1 + bug lama teraudit: resep untuk produk yang sama DIGANTI
-      // (bukan ditumpuk) — pencocokan checkout tidak lagi memakai resep basi.
+      // (bukan ditumpuk), pencocokan checkout tidak lagi memakai resep basi.
       const n = [...prev.filter(r => r.productId !== newProductItem.id), data];
       dbSet(licenseInfo?.id, 'hpp_pro_db', n);   // v15 F1: mirror + Firestore
       return n;

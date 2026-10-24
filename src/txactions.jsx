@@ -1,14 +1,14 @@
 // ============================================================
-// WELP v21 — KOMPONEN DOMAIN FINANSIAL BERSAMA
+// WELP v21, KOMPONEN DOMAIN FINANSIAL BERSAMA
 // ------------------------------------------------------------
 // Dipakai lintas POS (kasir), Riwayat (Business), dan Keuangan:
-//   • TxStateBadge  — badge status kanonik (state machine)
-//   • SyncPill      — status sinkronisasi online/offline/antrean
-//   • VoidModal     — pembatalan transaksi (permission + alasan
+//   • TxStateBadge , badge status kanonik (state machine)
+//   • SyncPill     , status sinkronisasi online/offline/antrean
+//   • VoidModal    , pembatalan transaksi (permission + alasan
 //                     + stok + audit, original tx tidak dihapus)
-//   • RefundModal   — refund penuh/sebagian (permission + alasan
+//   • RefundModal  , refund penuh/sebagian (permission + alasan
 //                     + metode + status REFUNDED/PROCESSING)
-//   • ShiftPanel    — buka/tutup shift, uang masuk/keluar, selisih
+//   • ShiftPanel   , buka/tutup shift, uang masuk/keluar, selisih
 //
 // SEMUA aksi: UI → state → persistence (mirror + Firestore via
 // outbox idempoten) → permission → audit → error handling.
@@ -45,7 +45,7 @@ export const TxStateBadge = ({ order }) => {
 };
 
 // ------------------------------------------------------------
-// Sync pill — SATU indikator jaringan+antrean untuk seluruh app
+// Sync pill, SATU indikator jaringan+antrean untuk seluruh app
 // ------------------------------------------------------------
 export const SyncPill = ({ licenseInfo, compact = false }) => {
   const st = useSyncStatus(licenseInfo?.id);
@@ -104,7 +104,7 @@ export const commitOrder = (licenseInfo, order) => {
 };
 
 // Kembalikan stok produk + bahan baku saat void (opsional oleh approver)
-// v21.1: hanya saat Stock Tracking ON — pesanan saat tracking OFF tidak
+// v21.1: hanya saat Stock Tracking ON, pesanan saat tracking OFF tidak
 // pernah menurunkan stok, jadi tidak ada yang perlu dikembalikan (spec #10).
 export const restoreStockForOrder = (licenseInfo, order, productsOverride = null) => {
   if (!stockTrackingOn()) return null;
@@ -127,7 +127,7 @@ export const restoreStockForOrder = (licenseInfo, order, productsOverride = null
 };
 
 // ------------------------------------------------------------
-// REFUND SELESAI — menandai refund REFUND_PROCESSING menjadi
+// REFUND SELESAI, menandai refund REFUND_PROCESSING menjadi
 // REFUNDED setelah provider mengonfirmasi (nomor referensi wajib).
 // Melengkapi siklus: REFUND_PENDING → PROCESSING → REFUNDED.
 // ------------------------------------------------------------
@@ -187,7 +187,7 @@ export const RefundCompleteModal = ({ order, refund, licenseInfo, onClose, onDon
 };
 
 // ------------------------------------------------------------
-// VOID — transaksi lunas/pending dibatalkan dengan izin & alasan.
+// VOID, transaksi lunas/pending dibatalkan dengan izin & alasan.
 // Original transaction TIDAK dihapus; voidInfo menempel di record.
 // ------------------------------------------------------------
 export const VoidModal = ({ order, licenseInfo, onClose, onDone, triggerAlert }) => {
@@ -242,7 +242,7 @@ export const VoidModal = ({ order, licenseInfo, onClose, onDone, triggerAlert })
           {!allowed && (
             <div className="p-3.5 rounded-2xl bg-brick-soft dark:bg-brick/10 border border-brick/25 text-brick-deep dark:text-brick text-xs font-bold flex gap-2">
               <PerisaiBuddy className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>Role <b>{actorRole}</b> tidak memiliki izin <b>transaction.void</b>. Minta Owner/Manager yang berwenang melakukan void — semua akses dikontrol server.</span>
+              <span>Role <b>{actorRole}</b> tidak memiliki izin <b>transaction.void</b>. Minta Owner/Manager yang berwenang melakukan void, semua akses dikontrol server.</span>
             </div>
           )}
           <div className="p-3.5 rounded-2xl bg-paper dark:bg-white/[.03] border border-line dark:border-line-dark text-xs space-y-1.5">
@@ -261,7 +261,7 @@ export const VoidModal = ({ order, licenseInfo, onClose, onDone, triggerAlert })
           </label>
           {err && <p className="px-3 py-2 rounded-xl bg-brick-soft dark:bg-brick/10 text-brick text-xs font-bold">{err}</p>}
           <p className="text-[10px] text-ink-faint font-bold flex gap-1.5"><PerisaiBuddy className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            Riwayat asli tidak dihapus — status menjadi VOIDED, pelakunya, alasan, dan waktu dicatat permanen di audit log.</p>
+            Riwayat asli tidak dihapus, status menjadi VOIDED, pelakunya, alasan, dan waktu dicatat permanen di audit log.</p>
         </div>
         <div className="p-4 border-t border-line dark:border-line-dark shrink-0 flex gap-2">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-paper dark:bg-white/5 border border-line dark:border-line-dark font-extrabold text-xs text-ink-soft dark:text-ink-inv/80 press">Batal</button>
@@ -275,7 +275,7 @@ export const VoidModal = ({ order, licenseInfo, onClose, onDone, triggerAlert })
 };
 
 // ------------------------------------------------------------
-// REFUND — penuh / sebagian, dengan metode & status nyata:
+// REFUND, penuh / sebagian, dengan metode & status nyata:
 //   Cash  → REFUNED saat disetujui (uang diberikan langsung)
 //   QRIS/e-wallet/bank → REFUND_PROCESSING (menunggu provider;
 //   providerRef = integration boundary, diisi bila API terhubung)
@@ -319,7 +319,7 @@ export const RefundModal = ({ order, licenseInfo, onClose, onDone, triggerAlert 
       }, { actor, actorRole });
       triggerAlert(instant
         ? `Refund ${formatIDR(refund.amount)} dicatat (uang diberikan langsung).`
-        : `Refund ${formatIDR(refund.amount)} masuk status DIPROSES — selesaikan di dashboard provider, lalu tandai selesai.`, 'success');
+        : `Refund ${formatIDR(refund.amount)} masuk status DIPROSES, selesaikan di dashboard provider, lalu tandai selesai.`, 'success');
       onDone?.(updated); onClose();
     } catch (e) {
       setErr(e?.message || 'Gagal mencatat refund.');
@@ -383,7 +383,7 @@ export const RefundModal = ({ order, licenseInfo, onClose, onDone, triggerAlert 
 };
 
 // ------------------------------------------------------------
-// SHIFT PANEL — siklus kas harian kasir:
+// SHIFT PANEL, siklus kas harian kasir:
 //   Buka Shift (modal awal) → transaksi berjalan → Uang Masuk/
 //   Keluar → Tutup Shift (hitung fisik → selisih MATCHED/SHORT/OVER)
 // ------------------------------------------------------------
@@ -412,7 +412,7 @@ export const ShiftPanel = ({ licenseInfo, triggerAlert, compact = false }) => {
         <div className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border border-dashed border-gold/50 bg-gold-soft/40 dark:bg-gold/10 ${compact ? '' : 'mb-4'}`}>
           <div className="flex items-center gap-2.5 min-w-0">
             <Toko className="w-4.5 h-4.5 text-gold-deep dark:text-gold shrink-0" />
-            <p className="text-[11px] font-extrabold text-gold-deep dark:text-gold truncate">Shift belum dibuka — buka shift sebelum melayani pembayaran tunai.</p>
+            <p className="text-[11px] font-extrabold text-gold-deep dark:text-gold truncate">Shift belum dibuka, buka shift sebelum melayani pembayaran tunai.</p>
           </div>
           {canOpen && <Button onClick={() => setModal('open')} className="shrink-0 !py-2 !px-3.5 !text-[11px]">Buka Shift</Button>}
         </div>

@@ -1,7 +1,7 @@
 // ============================================================
-// DEVELOPER PANEL v9.2 (WELP v15.2) — route ?dev=panel.
+// DEVELOPER PANEL v9.2 (WELP v15.2), route ?dev=panel.
 // v15.1 PERUBAHAN:
-//   • Allowlist email developer (DEV_EMAILS) — hapus tenant hanya
+//   • Allowlist email developer (DEV_EMAILS), hapus tenant hanya
 //     utk email di daftar + email terverifikasi (selaras rules v15.1).
 // v9.2 HARDENING (WELP v15.2):
 //   • Generator kredensial pakai crypto.getRandomValues (bukan
@@ -12,7 +12,7 @@
 //     (upgrade plaintext→hash lama tetap diizinkan utk tenant legacy).
 //   • Hapus tenant: konfirmasi 2 langkah + bersih-bersih data
 //     tenants/{lic} (best-effort) setelah lisensi terhapus.
-//   • Registrasi tenant: modal KREDENSI TAMPAK SEKALI (copy) —
+//   • Registrasi tenant: modal KREDENSI TAMPAK SEKALI (copy)  
 //     catat sebelum menutup; setelah itu tersimpan hash.
 //   • Banner + tombol kirim verifikasi email bila belum verified.
 // v9.1 FIX (link verifikasi "sudah digunakan"):
@@ -24,23 +24,23 @@
 //   • Cooldown kirim 45 dtk: kirim ulang MEMATIKAN link sebelumnya
 //     (Firebase hanya mengizinkan 1 link terbaru per user).
 //   • actionCodeSettings.url → balik ke panel, bukan halaman kosong.
-// v21.2.0 — MODE TANPA CLOUD FUNCTIONS (plan Spark/plan gratis):
+// v21.2.0, MODE TANPA CLOUD FUNCTIONS (plan Spark/plan gratis):
 //   • FAkTA: plan Spark TIDAK bisa deploy Cloud Functions (butuh Blaze)
 //     → dulu "Gagal simpan: internal" PASTI terjadi (endpoint tidak ada).
 //   • Simpan tenant kini 100% klien & tetap aman: akun Auth dibuat via
 //     app sekunder, privilege disimpan di welp_identities/{uid} yang HANYA
-//     bisa ditulis developer allowlist (rules) — setara claims.
+//     bisa ditulis developer allowlist (rules), setara claims.
 //   • Email verifikasi owner dikirim otomatis (tanpa server) + tombol
 //     kirim ulang di modal kredensial.
 //   • Login Akun WELP: sesi dibangun dari welp_identities + licenses.
 //   • Semua error server/pesan dijelaskan (tidak ada "internal" telanjang).
 // v21.1.3 PERBAIKAN (bug "Gagal simpan: internal"):
-//   • Error server kini dijelaskan (explainFnError) — tidak ada lagi
+//   • Error server kini dijelaskan (explainFnError), tidak ada lagi
 //     kata "internal" telanjang tanpa petunjuk tindakan.
 //   • Simpan tenant idempoten & tahan gagal separuh jalan: identity
 //     dulu → lisensi → link verifikasi BEST-EFFORT + tombol coba lagi
 //     di modal kredensial (gagal kirim link tidak membatalkan tenant).
-//   • Password Acak kini kelas lengkap (besar/kecil/angka/simbol) —
+//   • Password Acak kini kelas lengkap (besar/kecil/angka/simbol)  
 //     lolos password policy ketat sekalipun, entropi lebih tinggi.
 // ============================================================
 import React, { useState, useEffect, useReducer, useRef } from 'react';
@@ -57,11 +57,11 @@ import {
   MonitorPusat, Kredensial, WaktuReal, BahayaBuddy, KoinBuddy, Terang, Gelap, Toko
 } from './welp-icons.jsx';
 
-// v15.1: allowlist developer — email di sini + email_verified di Firebase
+// v15.1: allowlist developer, email di sini + email_verified di Firebase
 // = boleh menghapus tenant (selaras function isDev() di firestore.rules).
 const DEV_EMAILS = ['shandikazaid@gmail.com'];
 
-// v21.1.2: baca env SECARA LANGSUNG — independen dari hasil init Firebase.
+// v21.1.2: baca env SECARA LANGSUNG, independen dari hasil init Firebase.
 // Kegunaan: membedakan "config nggak ikut ter-build" (apiKey kosong) dari
 // "kredensial salah". import.meta.env dibaca saat dev-server start / build,
 // jadi kalau .env dibuat SETELAH build, nilainya tetap kosong di build lama.
@@ -97,7 +97,7 @@ export const DeveloperPanel = () => {
   const [toast, setToast] = useState('');
   const [accessErr, setAccessErr] = useState('');
   const [copiedId, setCopiedId] = useState(null);
-  // v15.1: kredensial tenant baru — tampil SEKALI di modal setelah simpan
+  // v15.1: kredensial tenant baru, tampil SEKALI di modal setelah simpan
   const [justMade, setJustMade] = useState(null);
   // v21.1.3: status tombol "coba kirim link verifikasi" di modal kredensial
   const [verifRetry, setVerifRetry] = useState(false);
@@ -209,18 +209,18 @@ export const DeveloperPanel = () => {
       case 'auth/invalid-credential':
       case 'auth/wrong-password':
       case 'auth/user-not-found':
-        return `Email atau password salah — ATAU akun developer belum ada di project "${proj}" (Firebase menyamarkan keduanya, jadi tidak bisa dibedakan dari sini). Langkah perbaikan: (1) Firebase Console → project ${proj} → Authentication → Sign-in method → pastikan Email/Password aktif; (2) tab Users → Add user dengan email developer ini; (3) kalau akun sudah ada tapi lupa password → reset dari tab Users; (4) verifikasi email developer (tab Users → titik tiga → verifikasi) supaya allowlist isDev di rules mengenalinya.`;
+        return `Email atau password salah, ATAU akun developer belum ada di project "${proj}" (Firebase menyamarkan keduanya, jadi tidak bisa dibedakan dari sini). Langkah perbaikan: (1) Firebase Console → project ${proj} → Authentication → Sign-in method → pastikan Email/Password aktif; (2) tab Users → Add user dengan email developer ini; (3) kalau akun sudah ada tapi lupa password → reset dari tab Users; (4) verifikasi email developer (tab Users → titik tiga → verifikasi) supaya allowlist isDev di rules mengenalinya.`;
       case 'auth/operation-not-allowed':
         return `Provider Email/Password belum diaktifkan di project "${proj}". Buka Firebase Console → Authentication → Sign-in method → Email/Password → Enable, lalu coba lagi.`;
       case 'auth/too-many-requests':
-        return 'Terlalu banyak percobaan login gagal — Firebase memblokir sementara. Tunggu beberapa menit, atau reset password akun ini dari Firebase Console → Authentication → Users.';
+        return 'Terlalu banyak percobaan login gagal, Firebase memblokir sementara. Tunggu beberapa menit, atau reset password akun ini dari Firebase Console → Authentication → Users.';
       case 'auth/network-request-failed':
         return 'Koneksi ke Firebase gagal. Periksa internet/VPN/DNS, lalu coba lagi.';
       case 'auth/invalid-email':
         return 'Format email tidak valid. Periksa penulisan email developer.';
       case 'auth/invalid-api-key':
       case 'auth/api-key-not-valid.-please-pass-a-valid-api-key.':
-        return `API key Firebase kosong/tidak valid di build ini. Penyebab paling umum: file .env tidak ada di folder ROOT project (harus sejajar package.json — BUKAN di dalam functions/), atau .env dibuat SETELAH aplikasi di-build (env hanya dibaca saat dev-server start / npm run build). Perbaiki .env di root, lalu restart npm run dev / jalankan ulang npm run build. Nilai API key diambil dari Firebase Console → Project settings → General → Web app (project ${proj}).`;
+        return `API key Firebase kosong/tidak valid di build ini. Penyebab paling umum: file .env tidak ada di folder ROOT project (harus sejajar package.json, BUKAN di dalam functions/), atau .env dibuat SETELAH aplikasi di-build (env hanya dibaca saat dev-server start / npm run build). Perbaiki .env di root, lalu restart npm run dev / jalankan ulang npm run build. Nilai API key diambil dari Firebase Console → Project settings → General → Web app (project ${proj}).`;
       case 'auth/admin-restricted-operation':
         return 'Operasi dibatasi pengaturan project. Pastikan domain aplikasi terdaftar di Authentication → Settings → Authorized domains.';
       default:
@@ -229,23 +229,23 @@ export const DeveloperPanel = () => {
   };
 
   // v21.1.3: penjelas error callable/server + Firestore. Dulu client hanya
-  // menampilkan "internal" telanjang bila server crash — sekarang server
+  // menampilkan "internal" telanjang bila server crash, sekarang server
   // memetakan error (mapAdminError), dan sisa kasus klien dijelaskan di sini.
   const explainFnError = (e) => {
     const code = String(e?.code || '').replace(/^functions\//, '');
     const raw = String(e?.message || '').trim();
     if (code === 'internal') {
-      return 'Server functions bermasalah saat memproses. CATATAN PLAN GRATIS: plan Spark tidak bisa deploy Cloud Functions — v21.2 sudah tidak membutuhkannya untuk fitur panel ini. Jika pesan ini muncul, kamu memakai build lama: update ke v21.2+. Detail teknis: npx firebase functions:log.';
+      return 'Server functions bermasalah saat memproses. CATATAN PLAN GRATIS: plan Spark tidak bisa deploy Cloud Functions, v21.2 sudah tidak membutuhkannya untuk fitur panel ini. Jika pesan ini muncul, kamu memakai build lama: update ke v21.2+. Detail teknis: npx firebase functions:log.';
     }
     if (code === 'not-found') {
-      return 'Backend functions tidak terpasang di project ini — WAJAR di plan gratis (Spark, functions butuh Blaze). Kabar baiknya: v21.2 sudah berjalan tanpa functions. Pesan ini berarti kamu masih memakai build lama — pakai v21.2 atau lebih baru.';
+      return 'Backend functions tidak terpasang di project ini, WAJAR di plan gratis (Spark, functions butuh Blaze). Kabar baiknya: v21.2 sudah berjalan tanpa functions. Pesan ini berarti kamu masih memakai build lama, pakai v21.2 atau lebih baru.';
     }
     if (code === 'wrong-existing-password') return raw || 'Email sudah terdaftar dengan password berbeda.';
-    if (code === 'weak-password' || code === 'auth/weak-password') return raw || 'Password terlalu lemah — pakai tombol Acak (huruf besar/kecil, angka, simbol).';
+    if (code === 'weak-password' || code === 'auth/weak-password') return raw || 'Password terlalu lemah, pakai tombol Acak (huruf besar/kecil, angka, simbol).';
     if (code === 'operation-not-allowed' || code === 'auth/operation-not-allowed') return 'Provider Email/Password belum aktif. Firebase Console → Authentication → Sign-in method → Enable Email/Password, lalu ulangi.';
     if (code === 'unauthenticated') return 'Sesi developer kedaluwarsa. Keluar, login lagi, lalu ulangi simpan.';
     if (code === 'permission-denied') {
-      return (raw || 'Rules Firestore menolak akses ini.') + ' Periksa: (1) email developer TERVERIFIKASI & tercantum di allowlist isDev/isProvisioner di file rules; (2) rules terbaru sudah di-publish (firebase deploy --only firestore:rules — ini bisa di plan gratis); (3) App Check terpasang (VITE_RECAPTCHA_SITE_KEY di .env) bila rules menuntut request.app.';
+      return (raw || 'Rules Firestore menolak akses ini.') + ' Periksa: (1) email developer TERVERIFIKASI & tercantum di allowlist isDev/isProvisioner di file rules; (2) rules terbaru sudah di-publish (firebase deploy --only firestore:rules, ini bisa di plan gratis); (3) App Check terpasang (VITE_RECAPTCHA_SITE_KEY di .env) bila rules menuntut request.app.';
     }
     if (code === 'already-exists') return raw || 'Data dengan ID tersebut sudah ada.';
     if (code === 'unavailable' || code === 'deadline-exceeded' || code === 'resource-exhausted') return 'Server sibuk atau tidak terjangkau (' + code + '). Coba lagi beberapa saat.';
@@ -274,7 +274,7 @@ export const DeveloperPanel = () => {
   const doLogout = () => signOut(getAuth());
 
   // v21.1.3: PRNG kripto (Math.random = Mersenne-Twister, state-nya bisa
-  // dipulihkan dari output — bukan untuk materi kredensial).
+  // dipulihkan dari output, bukan untuk materi kredensial).
   // Kelas karakter LENGKAP (besar/kecil/angka/simbol): lolos password
   // policy ketat sekalipun + entropi ±93^12 (jauh di atas 62^10 lama).
   const genPass = () => {
@@ -298,7 +298,7 @@ export const DeveloperPanel = () => {
 
   const saveTenant = async () => {
     if (!storeName || !tenantId || !password || !ownerPin || !ownerEmail) return showToast('Nama toko, email owner, password, PIN, dan ID tenant wajib diisi!');
-    // v15.2: kebijakan kredensial — PIN 6 digit & password min. 8 char
+    // v15.2: kebijakan kredensial, PIN 6 digit & password min. 8 char
     // (PIN pendek = brute-force offline murah walau pakai PBKDF2).
     if (!/^\d{6}$/.test(ownerPin)) return showToast('Owner PIN wajib tepat 6 digit angka (pakai tombol Acak).');
     if (password.length < 8) return showToast('Password minimal 8 karakter (pakai tombol Acak).');
@@ -311,7 +311,7 @@ export const DeveloperPanel = () => {
     if (durUnit === 'day') date.setDate(date.getDate() + Number(durVal));
     try {
       // v15 F0: kredensial owner disimpan sebagai HASH (PBKDF2-SHA256,
-      // salt acak) — password & ownerPin plaintext tidak pernah ditulis
+      // salt acak), password & ownerPin plaintext tidak pernah ditulis
       // ke Firestore. CATAT kredensial ini di tempat aman: setelah
       // tersimpan, tidak bisa dilihat lagi dari panel ini.
       const credPass = await makeCred(password);
@@ -319,12 +319,12 @@ export const DeveloperPanel = () => {
       const email = ownerEmail.trim().toLowerCase();
       const tid = tenantId.toLowerCase();
       const store = storeName; // dipakai setelah form di-reset
-      // v21.2 — PROVISIONING 100% KLIEN (TIDAK BUTUH CLOUD FUNCTIONS).
+      // v21.2, PROVISIONING 100% KLIEN (TIDAK BUTUH CLOUD FUNCTIONS).
       // Dulu: createWelpIdentity via functions → plan Spark tidak bisa
       // deploy functions → endpoint tidak ada → "Gagal simpan: internal".
       // Kini: (1) akun Auth dibuat/dipakai via app sekunder + email
       // verifikasi terkirim otomatis, (2) lisensi, (3) identitas di
-      // welp_identities/{uid} — HANYA developer allowlist yang boleh
+      // welp_identities/{uid}, HANYA developer allowlist yang boleh
       // menulisnya (rules), setara keamanan claims server, (4) record
       // karyawan owner utk linking Employee Area.
       const identity = await provisionWelpIdentityClient({ email, password, continueUrl: window.location.origin + window.location.pathname });
@@ -356,7 +356,7 @@ export const DeveloperPanel = () => {
       }, { merge: true });
       // v21.2: email verifikasi sudah OTOMATIS dikirim saat langkah (1).
       // verifWarn hanya terisi bila kirim email gagal (domain belum di
-      // Authorized domains) — tombol kirim ulang ada di modal ini.
+      // Authorized domains), tombol kirim ulang ada di modal ini.
       setJustMade({
         id: tid, tenant: store, email, pass: password, pin: ownerPin,
         verificationSent: identity.verificationSent, verifWarn: identity.verificationSent ? '' : 'Email verifikasi gagal terkirim otomatis. Pastikan domain halaman ini terdaftar di Firebase Console → Authentication → Settings → Authorized domains, lalu tekan tombol kirim ulang di bawah.',
@@ -367,7 +367,7 @@ export const DeveloperPanel = () => {
     setSaving(false);
   };
 
-  // v21.2: kirim ulang email verifikasi owner TANPA functions — masuk
+  // v21.2: kirim ulang email verifikasi owner TANPA functions, masuk
   // sebagai owner di app sekunder (password tersedia di modal kredensial),
   // kirim email, keluar. Sesi developer utama tidak pernah tersentuh.
   const retryVerification = async () => {
@@ -382,7 +382,7 @@ export const DeveloperPanel = () => {
   };
   const toggleStatus = (id, status) => updateDoc(doc(db, 'licenses', id), { active: status }).catch((e) => showToast('Gagal ubah status: ' + explainStoreError(e), 8000));
 
-  // v15.1: bersih-bersih data tenants/{lic} (best-effort) — lisensi tetap
+  // v15.1: bersih-bersih data tenants/{lic} (best-effort), lisensi tetap
   // dihapus dulu sebagai operasi kritis; kegagalan purge tidak membatalkan.
   const purgeTenantData = async (lic) => {
     let total = 0;
@@ -401,7 +401,7 @@ export const DeveloperPanel = () => {
   const delTenant = async (id) => {
     if (!devVerified) return showToast('Hanya email developer terverifikasi yang boleh menghapus tenant (rules v15.2).');
     if (confirmDel !== id) {
-      // langkah 1: arming — tombol berubah merah 4 detik
+      // langkah 1: arming, tombol berubah merah 4 detik
       setConfirmDel(id);
       setTimeout(() => setConfirmDel((c) => (c === id ? null : c)), 4000);
       return;
@@ -424,7 +424,7 @@ export const DeveloperPanel = () => {
 
   const daysLeft = (iso) => Math.max(0, Math.ceil((new Date(iso) - new Date()) / 864e5));
 
-  // v15.1: status developer utk UI — email di allowlist & terverifikasi
+  // v15.1: status developer utk UI, email di allowlist & terverifikasi
   const devEmail = user ? String(user.email || '').toLowerCase() : '';
   const devListed = !!devEmail && DEV_EMAILS.includes(devEmail);
   const devVerified = devListed && user.emailVerified === true;
@@ -432,7 +432,7 @@ export const DeveloperPanel = () => {
   /* ---- v9.1: verifikasi email yang tidak bikin frustrasi ----
    * Fakta Firebase: link verifikasi SEKALI pakai, dan hanya link
    * TERBARU yang valid (kirim ulang = link lama mati). Status
-   * emailVerified di sesi juga TIDAK update sendiri — butuh
+   * emailVerified di sesi juga TIDAK update sendiri, butuh
    * reload() + refresh token supaya rules ikut percaya. */
   const [resendCd, setResendCd] = useState(0);
   const [busyVerif, setBusyVerif] = useState(false);
@@ -486,7 +486,7 @@ export const DeveloperPanel = () => {
     if (p.get('mode') !== 'verifyEmail' || !p.get('oobCode') || !authReady) return;
     (async () => {
       try {
-        try { await applyActionCode(getAuth(), p.get('oobCode')); } catch (_) { /* kode mungkin sudah dipakai halaman hosted — cek status saja */ }
+        try { await applyActionCode(getAuth(), p.get('oobCode')); } catch (_) { /* kode mungkin sudah dipakai halaman hosted, cek status saja */ }
         const u = getAuth().currentUser;
         if (u) { await u.reload().catch(() => {}); await u.getIdToken(true).catch(() => {}); }
         window.history.replaceState({}, '', window.location.pathname);
@@ -519,9 +519,9 @@ export const DeveloperPanel = () => {
             <p className="text-[10px] text-ink-faint dark:text-ink-inv/40 font-bold uppercase tracking-[0.2em] mt-1">by JUSTru Group</p>
             <p className="text-[11px] text-ink-faint dark:text-ink-inv/50 font-bold mt-2 flex items-center gap-1.5"><PerisaiBuddy className="w-4 h-4 text-flame-500" /> Area terbatas, khusus developer</p>
             {!ENV_KEY_OK ? (
-              <div className="w-full text-brick-deep text-[11px] font-bold bg-brick-soft border border-brick/20 rounded-2xl p-3 leading-relaxed text-left flex items-start gap-2 mb-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /><span><b>Config .env belum terbaca oleh build ini</b> — VITE_FIREBASE_API_KEY kosong, login pasti gagal. Taruh file <b>.env</b> di folder ROOT project (sejajar package.json, BUKAN di dalam functions/), lalu <b>restart npm run dev</b> / <b>build ulang</b>. Catatan: functions/.env hanya butuh WELP_BOOTSTRAP_EMAILS — API key tidak ditaruh di sana.</span></div>
+              <div className="w-full text-brick-deep text-[11px] font-bold bg-brick-soft border border-brick/20 rounded-2xl p-3 leading-relaxed text-left flex items-start gap-2 mb-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /><span><b>Config .env belum terbaca oleh build ini</b>, VITE_FIREBASE_API_KEY kosong, login pasti gagal. Taruh file <b>.env</b> di folder ROOT project (sejajar package.json, BUKAN di dalam functions/), lalu <b>restart npm run dev</b> / <b>build ulang</b>. Catatan: functions/.env hanya butuh WELP_BOOTSTRAP_EMAILS, API key tidak ditaruh di sana.</span></div>
             ) : (
-              <p className="text-[10px] font-mono text-ink-faint dark:text-ink-inv/45 bg-paper dark:bg-white/5 border border-line dark:border-chrome-edge rounded-full px-3 py-1 mt-2" title="Login ini divalidasi terhadap project Firebase yang tercantum — kalau akun developer lu ada di project lain, pindahkan .env atau buat akunnya di sini">project: {ENV_PROJ || '-'}</p>
+              <p className="text-[10px] font-mono text-ink-faint dark:text-ink-inv/45 bg-paper dark:bg-white/5 border border-line dark:border-chrome-edge rounded-full px-3 py-1 mt-2" title="Login ini divalidasi terhadap project Firebase yang tercantum, kalau akun developer lu ada di project lain, pindahkan .env atau buat akunnya di sini">project: {ENV_PROJ || '-'}</p>
             )}
             {ENV_KEY_OK && firebaseInitError && (
               <div className="w-full text-brick-deep text-[11px] font-bold bg-brick-soft border border-brick/20 rounded-2xl p-3 leading-relaxed text-left flex items-start gap-2 mb-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /><span>Firebase gagal inisialisasi: {String(firebaseInitError?.message || firebaseInitError)}</span></div>
@@ -576,7 +576,7 @@ export const DeveloperPanel = () => {
       <div className="max-w-3xl mx-auto px-4 pt-6 space-y-6">
         {accessErr && <div className="bg-brick-soft dark:bg-brick/15 border border-brick/30 text-brick-deep dark:text-brick text-[11px] font-bold p-3.5 rounded-2xl flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> {accessErr}</div>}
 
-        {/* v15 F0: peringatan rules — sesi anonymous belum tersedia */}
+        {/* v15 F0: peringatan rules, sesi anonymous belum tersedia */}
         {anonAuthBlocked() && (
           <div className="bg-gold-soft dark:bg-gold/10 border border-gold/40 text-gold-deep dark:text-gold text-[11px] font-bold p-3.5 rounded-2xl leading-relaxed">
             <p className="flex items-start gap-2"><BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" /> Sesi ANONIM Firebase belum aktif. Sebelum publish rules v15: Firebase Console → Authentication → Sign-in method → aktifkan <b>Anonymous</b>. Sampai itu dilakukan, app tetap jalan dengan rules lama (kurang ketat).</p>
@@ -781,7 +781,7 @@ export const DeveloperPanel = () => {
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 mb-3">
-                  {/* v15 F0: kredensial tenant tersimpan hash — tidak ada lagi
+                  {/* v15 F0: kredensial tenant tersimpan hash, tidak ada lagi
                       copy password/PIN dari panel. Status ditampilkan saja. */}
                   <div className="bg-paper dark:bg-chrome-deep/70 border border-line dark:border-chrome-edge p-2.5 rounded-xl flex justify-between items-center">
                     <span className="text-[9px] font-extrabold text-ink-faint flex items-center gap-1"><GembokBuddy className="w-3.5 h-3.5" /> PASS</span>

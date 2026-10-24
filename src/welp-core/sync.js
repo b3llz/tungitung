@@ -1,5 +1,5 @@
 // ============================================================
-// WELP CORE — CENTRALIZED SYNC ENGINE v21
+// WELP CORE, CENTRALIZED SYNC ENGINE v21
 // ------------------------------------------------------------
 // Satu lapisan sinkronisasi untuk semua mutasi finansial kasir
 // (transaksi, void, refund, settlement, shift, kas). Semua tulis
@@ -30,14 +30,14 @@ export const FIN_COLLECTIONS = {
   cash_event_db: 'cash_events',
   pos_history_db: 'pos_history',
   active_orders_db: 'orders',
-  // v21.1 — WELP Payment Core
+  // v21.1, WELP Payment Core
   payment_event_db: 'payment_events',
   payment_intent_db: 'payment_intents',
 };
 const LOCAL_KEY_BY_COL = Object.fromEntries(Object.entries(FIN_COLLECTIONS).map(([k, v]) => [v, k]));
 
 // ------------------------------------------------------------
-// 2. OUTBOX — antrean persist di localStorage
+// 2. OUTBOX, antrean persist di localStorage
 // ------------------------------------------------------------
 const outboxKey = (tenantId) => `welp_outbox_${tenantId || 'unknown'}`;
 const EVT = 'welp_sync_evt';
@@ -65,7 +65,7 @@ if (typeof window !== 'undefined') {
 }
 
 // ------------------------------------------------------------
-// 4. MIRROR UPSERT — UI instan tanpa menunggu server
+// 4. MIRROR UPSERT, UI instan tanpa menunggu server
 // ------------------------------------------------------------
 // Setiap record finansial PUNYA field `id` = docId Firestore.
 export const upsertMirror = (localKey, rec) => {
@@ -80,7 +80,7 @@ export const upsertMirror = (localKey, rec) => {
 };
 
 // ------------------------------------------------------------
-// 5. COMMIT — pintu masuk tunggal mutasi finansial
+// 5. COMMIT, pintu masuk tunggal mutasi finansial
 // ------------------------------------------------------------
 // commitFinanceDoc({ tenantId, localKey, docId, data })
 //   1. mirror lokal instan (UI langsung terlihat)
@@ -114,7 +114,7 @@ export const commitFinanceDoc = ({ tenantId, localKey, docId, data }) => {
 };
 
 // ------------------------------------------------------------
-// 6. FLUSH — kirim antrean (idempotent, backoff, aman dipanggil bebas)
+// 6. FLUSH, kirim antrean (idempotent, backoff, aman dipanggil bebas)
 // ------------------------------------------------------------
 let _flushing = false;
 export const flushAllDue = async () => {
@@ -170,7 +170,7 @@ const flushTenant = async (tenantId) => {
 export const forceFlush = () => flushAllDue();
 
 // ------------------------------------------------------------
-// 7. HOOK STATUS — satu pintu UI (POS badge, Finance, Home)
+// 7. HOOK STATUS, satu pintu UI (POS badge, Finance, Home)
 // ------------------------------------------------------------
 import { useState, useEffect } from 'react';
 
@@ -204,7 +204,7 @@ export const snapshotStatus = (tenantId) => {
 
 export const SYNC_STATE_META = {
   ONLINE:     { label: 'Online',           tone: 'green' },
-  OFFLINE:    { label: 'Offline — antrean lokal aktif', tone: 'gold' },
+  OFFLINE:    { label: 'Offline, antrean lokal aktif', tone: 'gold' },
   SYNCING:    { label: 'Menyinkronkan…',   tone: 'blue' },
-  SYNC_ERROR: { label: 'Sinkron gagal — diulang otomatis', tone: 'red' },
+  SYNC_ERROR: { label: 'Sinkron gagal, diulang otomatis', tone: 'red' },
 };

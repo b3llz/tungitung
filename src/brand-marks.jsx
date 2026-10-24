@@ -1,5 +1,5 @@
 // ============================================================
-// WELP BRAND MARKS — vektor HD (ditrace dari asset resmi).
+// WELP BRAND MARKS, vektor HD (ditrace dari asset resmi).
 // Bentuk 100% mengikuti logo asli; warna mengikuti teks induk
 // (currentColor) jadi otomatis benar di light & dark mode dan
 // tajam di semua ukuran/DPI (pengganti raster PNG 375px).

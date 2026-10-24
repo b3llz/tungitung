@@ -1,19 +1,19 @@
 // ============================================================
-// WELP v21 — KEUANGAN WORKSPACE
+// WELP v21, KEUANGAN WORKSPACE
 // ------------------------------------------------------------
 // Tiga sub-panel dalam SATU tab (tanpa menu baru berlebihan):
-//   1. SETTLEMENT     — dana per metode: gross − fee/MDR − refund
+//   1. SETTLEMENT    , dana per metode: gross − fee/MDR − refund
 //                       ± adjustment = net; siklus PENDING →
 //                       PROCESSING → SETTLED / MISMATCH / FAILED.
-//   2. REKONSILIASI   — penjualan vs settlement, dengan ALASAN
+//   2. REKONSILIASI  , penjualan vs settlement, dengan ALASAN
 //                       selisih (fee, refund, tx hilang, delay, dll).
-//   3. KAS & SHIFT    — log buka/tutup shift, uang masuk/keluar,
+//   3. KAS & SHIFT   , log buka/tutup shift, uang masuk/keluar,
 //                       selisih kas per shift.
 //
 // ATURAN JUJUR:
 //   Settlement dikonfirmasi MANUAL memakai nomor referensi dari
 //   dasbor provider (Midtrans/GoPay/QRIS aggregator). Struktur
-//   providerRef tersedia — bila API provider terhubung nanti,
+//   providerRef tersedia, bila API provider terhubung nanti,
 //   konfirmasi otomatis menggantikan input manual TANPA mengubah
 //   model data. TIDAK ada klaim integrasi otomatis yang belum ada.
 // ============================================================
@@ -98,7 +98,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
     saveSettlement(upd);
     auditLog(licenseInfo, AUDIT.mismatch, { target: rec.settlementId, metode: rec.method, note }, { actor, actorRole });
     setConfirmFor(null);
-    triggerAlert('Settlement ditandai selisih — cek Rekonsiliasi untuk alasan.', 'error');
+    triggerAlert('Settlement ditandai selisih, cek Rekonsiliasi untuk alasan.', 'error');
   };
   const adjustSettlement = (rec, amount, reason) => {
     const adj = (Number(rec.adjustment) || 0) + (Number(amount) || 0);
@@ -113,7 +113,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
   };
 
   // ---------- REKONSILIASI ----------
-  // (reconMethod dideklarasikan SEBELUM dipakai — hindari TDZ crash)
+  // (reconMethod dideklarasikan SEBELUM dipakai, hindari TDZ crash)
   const [reconMethod, setReconMethod] = useState('QRIS');
   const reconResult = useMemo(() => {
     const stl = (settlements || []).find(s => s.periodDate === dateKey && s.method === (reconMethod || 'QRIS'));
@@ -150,7 +150,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
     });
     if (!res.ok) return triggerAlert(res.reason || 'Gagal konfirmasi.', 'error');
     setReviewEv(null); setReviewNote(''); refreshEvents();
-    triggerAlert('Pembayaran dikonfirmasi manual — ter-audit (payment.confirm).', 'success');
+    triggerAlert('Pembayaran dikonfirmasi manual, ter-audit (payment.confirm).', 'success');
   };
   const doReject = () => {
     rejectEvent({ tenantId: licenseInfo?.id, licenseInfo, eventRec: reviewEv, actor, actorRole, reason: reviewNote });
@@ -223,8 +223,8 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
                     <div className="pt-1 space-y-2 animate-rise">
                       <div className="p-3 rounded-xl bg-paper dark:bg-white/[.03] border border-line dark:border-line-dark text-[11px] font-bold space-y-1">
                         <div className="flex justify-between"><span className="text-ink-faint">Net tercatat</span><span className="money">{formatIDR(stl.netAmount)}</span></div>
-                        {stl.adjustment ? <div className="flex justify-between"><span className="text-ink-faint">Penyesuaian</span><span className="money">{formatIDR(stl.adjustment)}{stl.adjustmentReason ? ` — ${stl.adjustmentReason}` : ''}</span></div> : null}
-                        <div className="flex justify-between"><span className="text-ink-faint">Referensi</span><span className="font-mono">{stl.referenceNumber || '—'}</span></div>
+                        {stl.adjustment ? <div className="flex justify-between"><span className="text-ink-faint">Penyesuaian</span><span className="money">{formatIDR(stl.adjustment)}{stl.adjustmentReason ? `, ${stl.adjustmentReason}` : ''}</span></div> : null}
+                        <div className="flex justify-between"><span className="text-ink-faint">Referensi</span><span className="font-mono">{stl.referenceNumber || ', '}</span></div>
                         <div className="flex justify-between"><span className="text-ink-faint">Rekening tujuan</span><span className="truncate max-w-[140px]">{stl.destination || 'belum diatur'}</span></div>
                       </div>
                       {canManage && ['PENDING', 'PROCESSING', 'MISMATCH'].includes(stl.status) && (
@@ -265,7 +265,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
       )}
 
       {/* ======== REKONSILIASI ======== */}
-      {/* ======== PEMBAYARAN (v21.1 — WELP Payment Core) ======== */}
+      {/* ======== PEMBAYARAN (v21.1, WELP Payment Core) ======== */}
       {seg === 'payments' && (
         <div className="space-y-4 animate-fade-in">
           <div className="grid grid-cols-3 gap-3">
@@ -379,7 +379,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
               <div className="card p-4">
                 <p className="kicker mb-2.5">Mengapa bisa berbeda?</p>
                 {reconResult.reasons.length === 0 ? (
-                  <p className="text-xs font-bold text-leaf-deep dark:text-leaf">Tidak ada selisih — semua komponen sesuai perhitungan.</p>
+                  <p className="text-xs font-bold text-leaf-deep dark:text-leaf">Tidak ada selisih, semua komponen sesuai perhitungan.</p>
                 ) : (
                   <div className="space-y-2">
                     {reconResult.reasons.map((r, i) => (
@@ -430,7 +430,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
             ) : [...(shiftLogs || [])].sort((a, b) => (b.closedAt || b.openedAt || 0) - (a.closedAt || a.openedAt || 0)).slice(0, 40).map(l => l.type === 'open' ? (
               <div key={l.id} className="card p-4 flex justify-between items-center gap-3">
                 <div>
-                  <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv">Shift dibuka — {l.employeeName || '-'}</p>
+                  <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv">Shift dibuka, {l.employeeName || '-'}</p>
                   <p className="text-[10px] font-bold text-ink-faint">{new Date(l.openedAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · modal {formatIDR(l.openingCash)} · {l.branchId || 'PUSAT'}{l.stationCode ? ` · ${l.stationCode}` : ''}</p>
                 </div>
                 <Badge tone="gold">AKTIF</Badge>
@@ -439,7 +439,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
               <div key={l.id} className="card p-4">
                 <div className="flex justify-between items-start gap-3">
                   <div className="min-w-0">
-                    <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv">Shift ditutup — {l.closedBy || l.employeeName || '-'}</p>
+                    <p className="font-extrabold text-[12.5px] text-ink dark:text-ink-inv">Shift ditutup, {l.closedBy || l.employeeName || '-'}</p>
                     <p className="text-[10px] font-bold text-ink-faint">
                       {new Date(l.closedAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · tunai {formatIDR(l.cashSales)} · masuk {formatIDR(l.cashIn)} · keluar {formatIDR(l.cashOut)}
                     </p>
@@ -460,7 +460,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
           <div className="space-y-2">
             <h3 className="font-extrabold text-[13px] text-ink dark:text-ink-inv px-1">Uang Masuk / Keluar Terakhir</h3>
             {(cashEvents || []).length === 0 ? (
-              <EmptyState mascot="pikir" title="Belum ada catatan kas" desc="Catat uang masuk/keluar dari panel shift di halaman Kasir — semuanya masuk audit log." />
+              <EmptyState mascot="pikir" title="Belum ada catatan kas" desc="Catat uang masuk/keluar dari panel shift di halaman Kasir, semuanya masuk audit log." />
             ) : [...(cashEvents || [])].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 20).map(e => (
               <div key={e.id} className="card p-3.5 flex justify-between items-center gap-3">
                 <div className="min-w-0">
@@ -494,7 +494,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
             </div>
             <div className="p-5 space-y-3">
               <div className="p-3 rounded-xl bg-gold-soft dark:bg-gold/10 border border-gold/25 text-[10.5px] font-bold text-gold-deep dark:text-gold">
-                {reviewEv.reason || 'Nominal sama saja — bukti tidak cukup untuk konfirmasi otomatis.'}
+                {reviewEv.reason || 'Nominal sama saja, bukti tidak cukup untuk konfirmasi otomatis.'}
               </div>
               {reviewEv.orderId && (() => {
                 const o = orderById(reviewEv.orderId);
@@ -504,7 +504,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
                   </div>
                 ) : (
                   <div className="p-3 rounded-xl bg-brick-soft dark:bg-brick/10 border border-brick/25 text-[10.5px] font-bold text-brick-deep dark:text-brick">
-                    Order tujuan tidak ditemukan di mirror perangkat ini — buka di perangkat cabang, atau konfirmasi lewat Riwayat Transaksi.
+                    Order tujuan tidak ditemukan di mirror perangkat ini, buka di perangkat cabang, atau konfirmasi lewat Riwayat Transaksi.
                   </div>
                 );
               })()}

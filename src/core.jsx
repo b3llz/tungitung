@@ -1,5 +1,5 @@
 // ============================================================
-// CORE — logika & konfigurasi bersama (logika dipertahankan 100%
+// CORE, logika & konfigurasi bersama (logika dipertahankan 100%
 // dari versi teraudit; hanya presentasinya yang dibangun ulang).
 // ============================================================
 import React, { useState, useEffect } from 'react';
@@ -28,7 +28,7 @@ export const safeParse = (key, fallback = []) => {
   } catch (e) { return fallback; }
 };
 
-// v15 F0 — SANITASI SESI: hapus SEMUA kredensial dari objek sesi
+// v15 F0, SANITASI SESI: hapus SEMUA kredensial dari objek sesi
 // (dipakai lock.jsx, App.jsx, pos.jsx saat menulis app_license).
 // _branchList kini hanya menyimpan metadata: cid, name, role.
 export const sanitizeSession = (data) => {
@@ -54,7 +54,7 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:64337345213:web:389610b43797f0e55a15d4"
 };
 
-// Robustness: kalau env key tidak ada, jangan crash seluruh app —
+// Robustness: kalau env key tidak ada, jangan crash seluruh app  
 // fitur lisensi/login menampilkan pesan koneksi yang jelas.
 // v21 OFFLINE-FIRST: Firestore memakai PERSISTENT LOCAL CACHE +
 // multi-tab manager → tulisan & bacaan tetap hidup saat internet
@@ -80,7 +80,7 @@ try {
 }
 export { db, auth, functions, firebaseInitError };
 
-// v18 · APP CHECK — production build expects App Check to be configured.
+// v18 · APP CHECK, production build expects App Check to be configured.
 // Firestore/Storage rules now require request.app, so a production build
 // without a valid App Check site key will fail closed instead of silently
 // falling back to unauthenticated-compatible access.
@@ -99,24 +99,24 @@ if (app && RECAPTCHA_SITE_KEY) {
 }
 
 // ============================================================
-// v15 · F0 — KEAMANAN KREDENSIAL & SESI
+// v15 · F0, KEAMANAN KREDENSIAL & SESI
 // (1) Kredensial (password owner, PIN cabang/station/karyawan,
 //     ownerPin) kini disimpan sebagai HASH PBKDF2-SHA256 dgn salt
-//     acak per kredensial — plaintext tidak lagi tersimpan di
+//     acak per kredensial, plaintext tidak lagi tersimpan di
 //     Firestore. Data lama yang masih plaintext tetap sah dan
 //     OTOMATIS di-upgrade ke hash pada login sukses berikutnya.
-// (2) ensureAuth() — sesi anonymous Firebase dibuka sebelum read
+// (2) ensureAuth(), sesi anonymous Firebase dibuka sebelum read
 //     Firestore apapun, sebagai prasyarat rules v15
 //     (request.auth != null). Bila provider Anonymous belum
 //     diaktifkan di Firebase Console, app tetap jalan dgn rules
 //     lama (flag anonAuthBlocked untuk peringatan dev panel).
-// (3) pinGate — throttle percobaan PIN per perangkat: 5 gagal →
+// (3) pinGate, throttle percobaan PIN per perangkat: 5 gagal →
 //     lockout 5 menit (pesan jelas ke pengguna).
 // ============================================================
 
 // v15.2: 310.000 iterasi (rentang rekomendasi OWASP; dulu 60.000).
 // Kompatibel 100% dgn hash lama: nilai iters tersimpan per-kredensial
-// (makeCred) dan verifyCred memakai iters milik masing-masing record —
+// (makeCred) dan verifyCred memakai iters milik masing-masing record  
 // tenant lama tetap bisa login, tenant baru otomatis dapat 310k.
 const PBKDF2_ITERS = 310000;
 const bufToHex = (buf) => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -147,7 +147,7 @@ const safeEq = (a, b) => {
 
 // Verifikasi input terhadap record: cek cred (hash) dulu, lalu
 // fallback field plaintext legacy (pin/password/ownerPin).
-// credField: nama field hash — 'cred' (PIN tunggal), 'credPass'/'credPin'
+// credField: nama field hash, 'cred' (PIN tunggal), 'credPass'/'credPin'
 // dipakai record yang punya DUA kredensial (cabang: password + PIN).
 export const verifyCred = async (input, rec, legacyField = 'pin', credField = 'cred') => {
   const s = String(input ?? '');
@@ -160,7 +160,7 @@ export const verifyCred = async (input, rec, legacyField = 'pin', credField = 'c
   return rec[legacyField] != null && safeEq(String(rec[legacyField]), s);
 };
 
-// rec masih plaintext (belum ter-hash)? — untuk auto-upgrade & UI.
+// rec masih plaintext (belum ter-hash)?, untuk auto-upgrade & UI.
 export const credIsLegacy = (rec, credField = 'cred') => !!rec && !(rec[credField] && rec[credField].hash && rec[credField].salt);
 
 // Setelah verifikasi legacy sukses: ganti plaintext → hash (hapus
@@ -220,17 +220,17 @@ export const callWelpCreateIdentity = async (payload) => {
 };
 
 // ============================================================
-// v21.2 — MODE TANPA CLOUD FUNCTIONS (aman utk plan Spark/gratis)
+// v21.2, MODE TANPA CLOUD FUNCTIONS (aman utk plan Spark/gratis)
 // ------------------------------------------------------------
 // FAKTA PLAN FIREBASE: Cloud Functions TIDAK bisa di-deploy di
 // plan Spark (butuh Blaze). Karena itu provisioning akun & sesi
 // kini punya jalur langsung yang tetap aman:
-//   1. Akun Auth dibuat dari KLIEN via app Firebase SEKUNDER —
+//   1. Akun Auth dibuat dari KLIEN via app Firebase SEKUNDER  
 //      sesi yang sedang aktif (developer/owner) tidak tertimpa.
 //   2. Email verifikasi dikirim klien (sendEmailVerification).
 //   3. Privilege sesi dibaca dari dokumen DEV-controlled:
 //      welp_identities/{uid} + licenses/{tid}. Keduanya hanya
-//      bisa ditulis oleh allowlist email developer di rules —
+//      bisa ditulis oleh allowlist email developer di rules  
 //      pengguna biasa TIDAK bisa membuat/mengubah identitasnya,
 //      jadi tingkat keamanan setara custom claims.
 //   4. Mode functions (Blaze) tetap dipakai bila tersedia;
@@ -247,7 +247,7 @@ export const isFnUnavailableError = (e) => {
   return String(e?.message || '').includes('WELP backend belum tersedia');
 };
 
-// Jalankan operasi auth pada app SEKUNDER lalu hancurkan — sesi
+// Jalankan operasi auth pada app SEKUNDER lalu hancurkan, sesi
 // utama tidak pernah berganti akun (syarat wajib di dev panel).
 const welpAccountOps = async (fn) => {
   const sec = initializeApp(firebaseConfig, 'welp-account-ops-' + Date.now() + '-' + Math.floor(Math.random() * 1e6));
@@ -284,7 +284,7 @@ export const provisionWelpIdentityClient = async ({ email, password, continueUrl
       await sendEmailVerification(user, { url, handleCodeInApp: false });
       verificationSent = true;
     } catch (ve) {
-      // Tidak membatalkan pendaftaran — verifikasi bisa diulang dari
+      // Tidak membatalkan pendaftaran, verifikasi bisa diulang dari
       // modal kredensial. Penyebab umum: domain belum di Authorized domains.
       console.warn('[WELP provision] Email verifikasi gagal terkirim:', ve?.code || ve);
     }
@@ -294,7 +294,7 @@ export const provisionWelpIdentityClient = async ({ email, password, continueUrl
   });
 };
 
-// Kirim ulang email verifikasi owner (butuh password akun owner —
+// Kirim ulang email verifikasi owner (butuh password akun owner  
 // tersedia di modal kredensial developer).
 export const welpResendVerification = async ({ email, password, continueUrl }) => {
   const mail = String(email || '').trim().toLowerCase();
@@ -306,7 +306,7 @@ export const welpResendVerification = async ({ email, password, continueUrl }) =
     let user;
     try { user = (await signInWithEmailAndPassword(secAuth, mail, pass)).user; }
     catch (e) {
-      throw { code: 'auth/wrong-existing-password', message: 'Password akun owner tidak cocok (kredensial di modal adalah password SAAT pendaftaran — bila sudah pernah diubah, reset lewat "Lupa password").' };
+      throw { code: 'auth/wrong-existing-password', message: 'Password akun owner tidak cocok (kredensial di modal adalah password SAAT pendaftaran, bila sudah pernah diubah, reset lewat "Lupa password").' };
     }
     try { await sendEmailVerification(user, { url, handleCodeInApp: false }); }
     catch (ve) {
@@ -367,7 +367,7 @@ export const buildDirectSession = async (user) => {
 
 // Segarkan sesi akun: backend functions dulu (mode enterprise/Blaze);
 // bila gagal/menolak, coba jalur langsung dari Firestore. Error asli
-// tetap dilempar bila dua-duanya gagal — pesan tetap jujur.
+// tetap dilempar bila dua-duanya gagal, pesan tetap jujur.
 export const refreshWelpSession = async (user) => {
   const u = user || auth?.currentUser || null;
   if (!u) throw new Error('Tidak ada sesi aktif.');
@@ -438,7 +438,7 @@ export const formatIDR = (number) => new Intl.NumberFormat('id-ID', {
   minimumFractionDigits: 0, maximumFractionDigits: 0
 }).format(number || 0);
 
-// v15 F4-H3 — format ribuan gaya Indonesia (TITIK) selaras formatIDR.
+// v15 F4-H3, format ribuan gaya Indonesia (TITIK) selaras formatIDR.
 // Input longgar: terima "150.5" (desimal titik) & "150,5" (desimal koma).
 export const formatNumberDisplay = (val) => {
   if (val === undefined || val === null || isNaN(val)) return '';
@@ -456,15 +456,15 @@ export const parseNumberID = (txt) => {
 };
 
 // ============================================================
-// v15 · F1 — DATA KOMERSIAL KE FIRESTORE (menutup split-brain B1)
+// v15 · F1, DATA KOMERSIAL KE FIRESTORE (menutup split-brain B1)
 // Data komersial kini tersimpan di Firestore tenants/{lic}/<koleksi>
 // dan tetap di-mirror ke localStorage agar offline & kompatibel dengan
 // seluruh pembaca lama.
-//   • hydrateDb(lic)  : sekali setelah login — bila Firestore kosong &
+//   • hydrateDb(lic)  : sekali setelah login, bila Firestore kosong &
 //     lokal ada data → IMPORT SEKALI; selain itu isi Firestore menang
 //     dan ditulis ke mirror.
 //   • dbSet(lic, key, rows) : tulis lokal + diff per-record ke Firestore
-//     (setDoc merge / deleteDoc) — komponen tetap memakai pola array lama.
+//     (setDoc merge / deleteDoc), komponen tetap memakai pola array lama.
 //   • dbSetDoc / profil & bizconfig : dokumen objek di koleksi pengaturan.
 // Setiap perubahan memancarkan event 'welp_db_sync' agar tab lain
 // (keep-alive) ikut membaca ulang mirror.
@@ -478,17 +478,30 @@ export const DB_MAP = {
   expense_db: 'kas_keluar',
   supplier_db: 'supplier',
   stock_history_db: 'riwayat_stok',
+  opname_history_db: 'riwayat_opname',   // v21.3: sesi stok opname per cabang (monitoring atasan)
   self_orders_db: 'self_orders',
-  // v21.1 — WELP Payment Core & Modifier Engine
+  // v21.1, WELP Payment Core & Modifier Engine
   modifier_group_db: 'modifier_groups',     // grup modifier produk
   payment_event_db: 'payment_events',       // ledger event pembayaran (append-only)
   payment_intent_db: 'payment_intents',     // proyeksi intent (server matching)
-  // v21 — domain finansial kasir (settlement, shift, kas)
+  // v21, domain finansial kasir (settlement, shift, kas)
   settlement_db: 'settlements',
   shift_log_db: 'shift_log',
-  cash_event_db: 'cash_events'
+  cash_event_db: 'cash_events',
+  // v21.4, Enterprise Growth Pack
+  loyalty_cfg_db: 'loyalty_cfg',          // aturan poin & tier (1 record)
+  loyalty_log_db: 'loyalty_log',          // mutasi poin member (append-only)
+  voucher_db: 'voucher',                  // kode promo kasir
+  po_db: 'purchase_order',                // purchase order supplier
+  payable_db: 'hutang',                   // hutang supplier (PO tempo)
+  transfer_db: 'transfer_stok',           // nota transfer antar cabang
+  schedule_db: 'jadwal_shift',            // jadwal shift mingguan
+  target_db: 'target_omzet',              // target bulanan cabang/kasir
+  announce_db: 'pengumuman',              // siaran internal
+  checklist_tpl_db: 'checklist_template', // template checklist harian
+  checklist_log_db: 'checklist_log'       // progres checklist per hari
 };
-// v21 — koleksi finansial APPEND-ONLY: dbSet TIDAK PERNAH menghapus
+// v21, koleksi finansial APPEND-ONLY: dbSet TIDAK PERNAH menghapus
 // dokumen cloud yang hilang dari mirror lokal (melindungi riwayat
 // transaksi/ settlement/ shift saat satu perangkat offline/stale).
 // Pembatalan = perubahan STATE (void/refund), bukan penghapusan data.
@@ -514,7 +527,7 @@ export const hydrateDb = async (licId) => {
       const cloud = snap.docs.map(d => ({ ...d.data(), cid: d.id }));
       const local = safeParse(key, []);
       if (snap.empty && local.length > 0) {
-        // IMPORT SEKALI — data komersial lokal dipindah ke Firestore
+        // IMPORT SEKALI, data komersial lokal dipindah ke Firestore
         const batch = writeBatch(db);
         local.slice(0, 450).forEach((r, i) => batch.set(doc(db, 'tenants', licId, col, idOf(r, i)), { ...stripCloud(r) }));
         await batch.commit();
@@ -572,7 +585,7 @@ export const dbSet = (licId, key, rows) => {
   });
   Object.keys(prev).forEach(id => {
     if (!next[id]) {
-      // v21: koleksi finansial dilindungi — dokumen cloud yang tak ada
+      // v21: koleksi finansial dilindungi, dokumen cloud yang tak ada
       // di array lokal DIPERTAHANKAN (bukan dihapus) lalu di-re-merge
       // ke mirror, sehingga perangkat stale tak bisa memusungkan data.
       if (DB_PROTECTED.has(key)) {
@@ -625,7 +638,7 @@ export const getBizConfig = () => {
   catch (e) { return { tax: 0, service: 0, globalDiscount: 0 }; }
 };
 
-// v21.1 — INVENTORY OPTIONAL (spec #9–11): Stock Tracking ON/OFF.
+// v21.1, INVENTORY OPTIONAL (spec #9–11): Stock Tracking ON/OFF.
 // Default ON (kompatibel mundur dgn seluruh tenant lama). OFF =
 // produk tetap laku, POS tidak memblok/menurunkan stok, crew tidak
 // dipaksa mengelola inventaris; opname manual tetap tersedia.
@@ -658,8 +671,10 @@ export const TRANSLATIONS = {
     supplier: 'Database Supplier', report: 'Laporan & Analisa', employee: 'Manajemen Cabang', outlet: 'POS Monitoring',
     karyawan: 'Manajemen Karyawan', absensi: 'Kelola Absensi', payroll: 'Manajemen Penggajian', absenKu: 'Absensi Saya',
     perusahaan: 'Manajemen Perusahaan',
-    area: 'Area Saya', customers: 'Customer (CRM)', organization: 'Organisasi & Region', roles: 'Role & Permission',
+    area: 'Absen & Gaji', customers: 'Customer (CRM)', organization: 'Organisasi & Region', roles: 'Role & Permission',
     approval: 'Pusat Persetujuan', audit: 'Audit Log', finance2: 'Keuangan (Settlement & Kas)',
+    opnameMonitor: 'Monitoring Opname', monitorGrp: 'Monitoring Multi Cabang',
+    growth: 'Promo & Loyalitas', supply: 'Pembelian & Transfer', peopleplus: 'Operasional Tim',
     profile: 'Identitas Toko (Profil)', payment: 'Metode Pembayaran', hardware: 'Alat Tambahan (Hardware)', settings: 'Pengaturan Utama',
     logout: 'Keluar (Logout)', menu: 'Menu', staffNav: 'Navigasi Karyawan', access: 'Akses',
     shop: 'Kasir', orders: 'Pesanan', tables: 'Meja', products: 'Daftar Produk', search: 'Ketik SKU / Nama Produk...',
@@ -675,8 +690,10 @@ export const TRANSLATIONS = {
     supplier: 'Supplier Database', report: 'Reports & Analytics', employee: 'Branch Management', outlet: 'POS Monitoring',
     karyawan: 'Staff Management', absensi: 'Attendance Control', payroll: 'Payroll Management', absenKu: 'My Attendance',
     perusahaan: 'Company Management',
-    area: 'My Area', customers: 'Customers (CRM)', organization: 'Organization & Regions', roles: 'Roles & Permissions',
+    area: 'My Shift', customers: 'Customers (CRM)', organization: 'Organization & Regions', roles: 'Roles & Permissions',
     approval: 'Approval Center', audit: 'Audit Log', finance2: 'Finance (Settlement & Cash)',
+    opnameMonitor: 'Opname Monitor', monitorGrp: 'Multi Branch Monitoring',
+    growth: 'Promo & Loyalty', supply: 'Purchasing & Transfers', peopleplus: 'Team Operations',
     profile: 'Store Identity (Profile)', payment: 'Payment Methods', hardware: 'Hardware Devices', settings: 'Main Settings',
     logout: 'Logout', menu: 'Menu', staffNav: 'Staff Navigation', access: 'Access',
     shop: 'Cashier', orders: 'Orders', tables: 'Tables', products: 'Product List', search: 'Type SKU / Product name...',
@@ -771,12 +788,12 @@ export const useQr = (text, size = 220) => {
 };
 
 // ============================================================
-// QRIS DINAMIS (EMVCo) — dipindah ke welp-core/emv.js (PURE, dapat
+// QRIS DINAMIS (EMVCo), dipindah ke welp-core/emv.js (PURE, dapat
 // diuji Node). Semua helper di re-export di sini agar import lama
 // (settings.jsx, pos.jsx, selforder.jsx, paymentOps) tetap sah.
 //   • parseEmv / crc16CCITT / verifyQrisCrc / qrisMeta
-//   • buildDynamicQris — statis → dinamis (tag 01=12, tag 54 nominal)
-//   • buildIntentQris  — dinamis + paymentReference di tag 62/07
+//   • buildDynamicQris, statis → dinamis (tag 01=12, tag 54 nominal)
+//   • buildIntentQris , dinamis + paymentReference di tag 62/07
 //     (Bill Number) utk WELP Payment Matching Engine.
 // ============================================================
 export {
@@ -785,7 +802,7 @@ export {
 } from './welp-core/emv.js';
 
 // ============================================================
-// KEAMANAN SELF-ORDER — sesi meja ber-token + pengikatan perangkat.
+// KEAMANAN SELF-ORDER, sesi meja ber-token + pengikatan perangkat.
 // Hanya 1 perangkat (yang memindai QR) yang bisa memesan per sesi;
 // mengubah angka meja di URL tidak berpengaruh tanpa token sah.
 // ============================================================
@@ -818,7 +835,7 @@ export const useTenantCol = (licenseInfo, name, localKey) => {
     const unsub = onSnapshot(ref, snap => {
       const rows = snap.docs.map(d => ({ ...d.data(), cid: d.id }));
       // Offline & cache kosong: pertahankan mirror lokal (data terakhir
-      // yang diketahui perangkat) — jangan dikosongkan oleh snapshot
+      // yang diketahui perangkat), jangan dikosongkan oleh snapshot
       // from-cache yang kosong. Server tetap sumber kebenaran saat online.
       const local = safeParse(localKey, []);
       if (snap.metadata && snap.metadata.fromCache && rows.length === 0 && local.length > 0) {
@@ -891,9 +908,9 @@ export const getLocation = (timeout = 12000) => new Promise((resolve, reject) =>
   );
 });
 
-// v15 F5/F2 — REVERSE GEOCODING (alamat manusiawi dari koordinat).
+// v15 F5/F2, REVERSE GEOCODING (alamat manusiawi dari koordinat).
 // Nominatim/OpenStreetMap dipakai langsung (tanpa key, volume rendah:
-// hanya saat absen submit). Koordinat & akurasi ASLI tetap disimpan —
+// hanya saat absen submit). Koordinat & akurasi ASLI tetap disimpan  
 // alamat hanya pelengkap agar monitoring owner mudah dibaca.
 // v15.3: beri batas waktu 6 detik + pembatalan (AbortController).
 // Dulu tanpa timeout: Nominatim yang lambat/terhenti membuat tombol
@@ -915,8 +932,16 @@ export const reverseGeocode = async (lat, lng) => {
     const kota = pick('city', 'town', 'municipality', 'county', 'village');
     const provinsi = pick('state', 'region', 'province');
     const kodepos = pick('postcode');
+    // v21.3: RT/RW Indonesia sering hanya ada di display_name mentah
+    // (bukan di objek address). Tangkap pola "RT 05 / RW 03" bila ada.
+    const rawFull = String(j?.display_name || '');
+    const rtMatch = rawFull.match(/\bRT[\s.]*0*(\d{1,3})\b/i);
+    const rwMatch = rawFull.match(/\bRW[\s.]*0*(\d{1,3})\b/i);
+    const rt = rtMatch ? rtMatch[1].padStart(2, '0') : null;
+    const rw = rwMatch ? rwMatch[1].padStart(2, '0') : null;
     const parts = [
       jalan && nomor ? `${jalan} No. ${nomor}` : jalan,
+      rt && rw ? `RT ${rt} / RW ${rw}` : '',
       kelurahan,
       kecamatan ? `Kec. ${kecamatan}` : '',
       kota ? `Kota/Kab. ${kota}` : '',
@@ -925,7 +950,7 @@ export const reverseGeocode = async (lat, lng) => {
     ].filter(Boolean);
     return {
       displayName: parts.join(', ') || String(j?.display_name || ''),
-      jalan: jalan || null, nomor: nomor || null, kelurahan: kelurahan || null,
+      jalan: jalan || null, nomor: nomor || null, rt, rw, kelurahan: kelurahan || null,
       kecamatan: kecamatan || null, kota: kota || null, provinsi: provinsi || null,
       kodepos: kodepos || null, lat: Number(lat), lng: Number(lng),
       rawDisplayName: j?.display_name ? String(j.display_name) : null
@@ -934,7 +959,7 @@ export const reverseGeocode = async (lat, lng) => {
   finally { clearTimeout(killer); }
 };
 
-// v15 F5/J3 — MEDIA BESAR KE FIREBASE STORAGE (graceful).
+// v15 F5/J3, MEDIA BESAR KE FIREBASE STORAGE (graceful).
 // Mengunggah dataURL ke tenants/{lic}/<path> dan mengembalikan URL.
 // Bila Storage belum dikonfigurasi / rules menolak → null (pemanggil
 // fallback ke base64 inline seperti sebelumnya). Batas 900KB.
@@ -964,7 +989,7 @@ export const uploadMedia = async (licId, path, dataUrl, { timeoutMs = 25000 } = 
   }
 };
 
-// Jarak meter antar dua titik (haversine) — cek absen dekat cabang.
+// Jarak meter antar dua titik (haversine), cek absen dekat cabang.
 export const distanceMeters = (a, b) => {
   if (!a || !b || a.lat == null || b.lat == null) return null;
   const R = 6371000, rad = Math.PI / 180;
@@ -972,6 +997,25 @@ export const distanceMeters = (a, b) => {
   const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
   return Math.round(2 * R * Math.asin(Math.sqrt(x)));
 };
+
+// v21.3, PENJAGA WAKTU UMUM (anti "tombol stuck").
+// Membungkus promise apa pun dengan batas waktu HARD. Bila lewat,
+// promise ditolak dengan pesan yang bisa ditampilkan langsung ke user.
+// Dipakai alur absen (setDoc Firestore) supaya tombol kirim TIDAK
+// PERNAH menggantung tanpa kabar walau jaringan mati total.
+export const withTimeout = (promise, ms = 20000, label = 'Proses') =>
+  new Promise((resolve, reject) => {
+    let done = false;
+    const killer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      reject(new Error(`${label} melebihi ${Math.round(ms / 1000)} detik. Periksa koneksi internet lalu coba lagi.`));
+    }, ms);
+    Promise.resolve(promise).then(
+      (v) => { if (!done) { done = true; clearTimeout(killer); resolve(v); } },
+      (e) => { if (!done) { done = true; clearTimeout(killer); reject(e); } }
+    );
+  });
 
 // Kompres gambar → dataURL (untuk bukti transfer & QRIS upload).
 export const fileToDataUrl = (file, maxSide = 900, quality = 0.72) => new Promise((resolve, reject) => {
@@ -992,7 +1036,7 @@ export const fileToDataUrl = (file, maxSide = 900, quality = 0.72) => new Promis
   r.readAsDataURL(file);
 });
 
-// v15 F5/G1/G3 — Decode QR dari gambar (upload QRIS):
+// v15 F5/G1/G3, Decode QR dari gambar (upload QRIS):
 // BarcodeDetector (Chrome/Edge) dulu, lalu FALLBACK jsQR (bundled, tanpa
 // CDN) sehingga Safari iOS & Firefox ikut terbaca. Decode pada resolusi
 // asli (tanpa kompresi ulang) agar angka keberhasilan tinggi.
@@ -1052,7 +1096,7 @@ export const decodeQrFromImage = async (dataUrl) => {
   } catch (e) { return null; }
 };
 
-// v15 F4-H10 — buka dokumen dataURL via Blob URL. Chrome modern memblokir
+// v15 F4-H10, buka dokumen dataURL via Blob URL. Chrome modern memblokir
 // navigasi top-frame ke URL data:, sehingga "Buka di tab baru" yang memakai
 // <a href={dataURL}> bisa mati diam-diam. Blob URL selalu sah.
 export const openDataUrl = (dataUrl, filename = 'dokumen') => {
@@ -1083,7 +1127,7 @@ export const dateKeyOf = (ms) => {
 };
 
 // ============================================================
-// ATURAN ABSENSI (rules) — disimpan per cabang di Manajemen Cabang:
+// ATURAN ABSENSI (rules), disimpan per cabang di Manajemen Cabang:
 //   aturan: { jamMasuk: 'HH:MM', toleransi: menit, radius: meter }
 // Dipakai halaman absensi karyawan & monitoring owner utk kategori.
 // ============================================================
@@ -1106,7 +1150,7 @@ export const hkTargetOf = (aturan, employee) => {
   return Math.min(31, Math.max(0, t || 0));
 };
 
-// v15 F2 — RELASI KARYAWAN↔CABANG: branchIds[] (multi-cabang) +
+// v15 F2, RELASI KARYAWAN↔CABANG: branchIds[] (multi-cabang) +
 // branchId (primer, data lama). Urutan: primer dulu, tanpa duplikat.
 export const empBranchIds = (e) => {
   const ids = [e?.branchId, ...(Array.isArray(e?.branchIds) ? e.branchIds : [])].filter(Boolean);
@@ -1114,7 +1158,7 @@ export const empBranchIds = (e) => {
 };
 
 // ============================================================
-// v15 · F3 — PERMISSION GRANULAR & ROLE
+// v15 · F3, PERMISSION GRANULAR & ROLE
 // Permission disimpan per tenant di pengaturan/roles (doc 'roles'):
 //   { matrix: { owner: [...], manager: [...], ... } }
 // Role bawaan = preset; owner bisa menyesuaikan per role dari UI
@@ -1176,7 +1220,7 @@ export const ROLE_PRESETS = {
 };
 
 // ============================================================
-// v20 BRIDGE — API lama (matrix flat) didelegasikan ke WELP CORE
+// v20 BRIDGE, API lama (matrix flat) didelegasikan ke WELP CORE
 // (welp-core/rbac.js). Matrix yang dikembalikan kini SUDAH termasuk
 // custom role buatan Owner; key legacy di-expand otomatis saat
 // permsOf() dipanggil sehingga guard granular tetap berjalan.
@@ -1203,7 +1247,7 @@ export const getRolesMatrix = (settingsRows) => {
 };
 export const permsOf = (role, matrix) => {
   // GUARD v20: arg ke-2 bisa bukan array/object (mis. index dari
-  // Array.map(permsOf)) — perlakukan sbg matrix kosong, jangan crash.
+  // Array.map(permsOf)), perlakukan sbg matrix kosong, jangan crash.
   const m = (matrix && typeof matrix === 'object' && !Array.isArray(matrix)) ? matrix : ROLE_PRESETS;
   return rbacExpand(m[role] || m.kasir || m.employee || []);
 };
@@ -1236,7 +1280,7 @@ export const getPaymentIcon = (type) => {
 };
 
 // ============================================================
-// WELP v11 — HELPER BERSAMA BARU
+// WELP v11, HELPER BERSAMA BARU
 // ============================================================
 
 // --- Durasi keterlambatan "00j 15m 00d" (jam · menit · detik) ---
@@ -1315,7 +1359,7 @@ export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, em
         const pad = Math.round(14 * u);
         const brandC = brandAccentHex('#F4622E');     // ikut warna custom brand
 
-        // v15 F5/E1: LOGO PERUSAHAAN sebagai watermark image — opacity,
+        // v15 F5/E1: LOGO PERUSAHAAN sebagai watermark image, opacity,
         // aspect ratio dipertahankan, safe-area dari tepi kanan-atas.
         if (logoImg) {
           const maxW = Math.round(W * 0.34), maxH = Math.round(cv.height * 0.13);
@@ -1368,7 +1412,8 @@ export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, em
         ctx.font = `700 ${Math.round(9 * u)}px Arial, sans-serif`;
         ctx.fillText(`ID ${String(employeeId || '-').slice(0, 22)}`, W - pad, chy + chh + Math.round(26 * u));
 
-        // baris data: tanggal · jam · GPS
+        // baris data: tanggal · jam · GPS, v21.3 alamat lengkap 2 baris
+        // (jalan + no + RT/RW, kelurahan, kecamatan, kota, provinsi, kodepos)
         const d = new Date(atMs || Date.now());
         const tgl = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
         const jam = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -1378,15 +1423,28 @@ export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, em
         ctx.textAlign = 'left';
         ctx.fillStyle = 'rgba(255,255,255,.92)';
         ctx.font = `700 ${Math.round(11 * u)}px Arial, sans-serif`;
-        ctx.fillText(`${tgl} ${jam} WIB`, pad, cv.height - Math.round(26 * u));
-        ctx.fillStyle = 'rgba(255,255,255,.76)';
-        ctx.font = `600 ${Math.round(8.6 * u)}px Arial, sans-serif`;
-        const addr = address?.displayName || address || '';
-        const addrText = addr ? String(addr).slice(0, 92) : 'Alamat lokasi sedang diproses...';
-        ctx.fillText(addrText, pad, cv.height - Math.round(10 * u));
-        ctx.fillStyle = 'rgba(255,255,255,.52)';
-        ctx.font = `600 ${Math.round(7.6 * u)}px Arial, sans-serif`;
-        ctx.fillText(gps + (trusted ? '  (waktu terverifikasi)' : ''), pad, cv.height - Math.round(1.5 * u));
+        ctx.fillText(`${tgl} ${jam} WIB`, pad, cv.height - Math.round(34 * u));
+        // alamat baris 1: jalan + nomor + RT/RW
+        ctx.fillStyle = 'rgba(255,255,255,.86)';
+        ctx.font = `700 ${Math.round(9.2 * u)}px Arial, sans-serif`;
+        const roadPart = address?.jalan ? (address.nomor ? `${address.jalan} No. ${address.nomor}` : address.jalan) : '';
+        const rrPart = address?.rt && address?.rw ? ` (RT ${address.rt} / RW ${address.rw})` : '';
+        const line1 = roadPart ? (roadPart + rrPart) : String(address?.displayName || address || '').slice(0, 92);
+        ctx.fillText(line1 ? String(line1).slice(0, 96) : 'Alamat lokasi sedang diproses...', pad, cv.height - Math.round(21.5 * u));
+        // alamat baris 2: kelurahan, kecamatan, kota, provinsi, kodepos
+        const line2 = [
+          address?.kelurahan,
+          address?.kecamatan && `Kec. ${address.kecamatan}`,
+          address?.kota && `Kota/Kab. ${address.kota}`,
+          address?.provinsi,
+          address?.kodepos,
+        ].filter(Boolean).join(', ');
+        ctx.fillStyle = 'rgba(255,255,255,.7)';
+        ctx.font = `600 ${Math.round(8.2 * u)}px Arial, sans-serif`;
+        ctx.fillText(line2 ? String(line2).slice(0, 104) : ' ', pad, cv.height - Math.round(11 * u));
+        ctx.fillStyle = 'rgba(255,255,255,.55)';
+        ctx.font = `600 ${Math.round(7.4 * u)}px Arial, sans-serif`;
+        ctx.fillText(gps + (trusted ? '  (waktu terverifikasi)' : ''), pad, cv.height - Math.round(2 * u));
 
         resolve(cv.toDataURL('image/jpeg', 0.72));
       } catch (e) { resolve(dataUrl); }
@@ -1397,7 +1455,7 @@ export const stampAbsenPhoto = ({ dataUrl, company, branchName, employeeName, em
 
 // --- AUDIT LOG --------------------------------------------------------
 // Jejak aktivitas penting: aktor (nama/role), cabang, station,
-// aksi, target, dan waktu (serverTimestamp). Fire-and-forget —
+// aksi, target, dan waktu (serverTimestamp). Fire-and-forget  
 // tidak pernah mengganggu alur utama bila offline.
 export const auditLog = (licenseInfo, action, detail = {}, extra = {}) => {
   try {
@@ -1464,11 +1522,11 @@ export const daysBetween = (a, b) => {
 };
 
 // ============================================================
-// SHIFT & JAM KERJA (v12, target HK v13) — definisi shift per
+// SHIFT & JAM KERJA (v12, target HK v13), definisi shift per
 // cabang, penugasan karyawan, dan rekap HK (hari kerja) + total
 // jam dari absensi dibandingkan target HK yang diatur atasan.
 // Definisi shift disimpan di doc cabang (shifts: [..]) dan untuk
-// Cabang Pusat di koleksi pengaturan (key 'shift_pusat') — semua
+// Cabang Pusat di koleksi pengaturan (key 'shift_pusat'), semua
 // tetap di Firestore sebagai sumber kebenaran.
 // ============================================================
 
@@ -1553,7 +1611,7 @@ export const pairWorkMinutes = (rows, nowMs = Date.now()) => {
 };
 
 // ============================================================
-// WELP v14 — STATUS KONTRAK, CUTI TAHUNAN, HARI KERJA &
+// WELP v14, STATUS KONTRAK, CUTI TAHUNAN, HARI KERJA &
 // CUSTOM BRANDING (white-label). Semua tetap disimpan di
 // Firestore tenants/{lic}/... lewat useTenantCol yang sama.
 // ============================================================
@@ -1583,7 +1641,7 @@ export const hakCutiOf = (policy, employee) => {
   const base = policy?.hakTahunan || DEFAULT_CUTI_POLICY.hakTahunan;
   return (Number.isFinite(own) && own > 0) ? Math.min(365, own) : base;
 };
-// Hari cuti yang sudah terpakai tahun berjalan (jenis 'cuti' saja —
+// Hari cuti yang sudah terpakai tahun berjalan (jenis 'cuti' saja  
 // sakit & izin tidak memotong kuota cuti tahunan).
 export const usedCutiDays = (pengajuan, employeeCid, year = new Date().getFullYear()) =>
   (pengajuan || []).filter(p => p.employeeCid === employeeCid
@@ -1711,7 +1769,7 @@ export const writeBrandMirror = (branding) => {
 // snapshot Firestore datang.
 applyBranding(readBrandMirror());
 
-// Warna accent aktif dalam hex — dipakai canvas watermark & slip cetak
+// Warna accent aktif dalam hex, dipakai canvas watermark & slip cetak
 // (canvas/HTML cetak tidak bisa membaca CSS class).
 export const brandAccentHex = (fallback = '#F4622E') => {
   try {
@@ -1746,7 +1804,7 @@ export const useBranding = (licenseInfo) => {
 };
 
 // ============================================================
-// SLIP GAJI PREMIUM (v14) — satu template HTML cetak dipakai
+// SLIP GAJI PREMIUM (v14), satu template HTML cetak dipakai
 // owner (Manajemen Penggajian) & karyawan (Aplikasi Karyawan).
 // Ada logo perusahaan (custom brand bila aktif), band warna
 // brand, rincian penerimaan & potongan, stempel status, blok
@@ -1783,7 +1841,7 @@ export const buildSlipHtml = async ({ rec, company = 'Perusahaan', profile = {},
   // v15.3: QR verifikasi di-generate LOKAL (qrDataUrl) dan dikirim siap-pakai
   // v20 FIX: qrUrl tidak pernah ada (ReferenceError runtime yang
   // mematikan cetak slip). QR kini di-generate lokal via qrDataUrl
-  // (async) — buildSlipHtml menjadi async dan seluruh pemanggil
+  // (async), buildSlipHtml menjadi async dan seluruh pemanggil
   // wajib men-await hasilnya sebelum document.write.
   const qrImg = qr || await qrDataUrl(`WELP-SLIP|${no}`, 96);
   return '<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Slip Gaji ' + esc(rec.employeeName) + ' ' + esc(rec.period) + '</title><style>'
