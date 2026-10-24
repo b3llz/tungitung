@@ -62,44 +62,72 @@ export const HomeTab = ({ licenseInfo, setActive, activeTab, perms }) => {
 
   useEffect(() => {
     if (activeTab !== 'home' && activeTab) return;
-    const txs = safeParse('pos_history_db', []);
-    const expenses = safeParse('expense_db', []);
-    const products = safeParse('product_stock_db', []);
-    const threshold = parseInt(localStorage.getItem('low_stock_threshold')) || 5;
+    // v21.5 hardening: seluruh komputasi berat dilindungi try/catch +
+    // semua hasil (termasuk top-5 terbaru & tips radar) dihitung SEKALI
+    // di sini, bukan di setiap render, supaya Beranda tidak pernah
+    // terasa macet di HP walau data transaksi sudah ribuan.
+    try {
+      const txs = safeParse('pos_history_db', []);
+      const expenses = safeParse('expense_db', []);
+      const products = safeParse('product_stock_db', []);
+      const threshold = parseInt(localStorage.getItem('low_stock_threshold')) || 5;
 
-    // v21: hanya transaksi yang sah (void/gagal bayar tidak dihitung),
-    // omzet bersih = total − refund.
-    const todayTxs = txs.filter(t2 => sameDay(t2.date) && countsAsSale(t2));
-    const omzetToday = todayTxs.reduce((s, t2) => s + netTotalOf(t2), 0);
-    const expenseToday = expenses.filter(e => sameDay(e.date)).reduce((s, e) => s + (e.amount || 0), 0);
+      const msOf = (t2) => { try { const x = new Date(t2?.date || t2?.createdAt || 0); const v = x.getTime(); return Number.isFinite(v) ? v : 0; } catch (e) { return 0; } };
+      const todayMs = new Date().setHours(0, 0, 0, 0);
+      const yestMs = todayMs - 86400000;
 
-    // Laba kotor hari ini: hanya dari transaksi yang punya HPP saat penjualan.
-    // Refund sebagian diskalakan proporsional (net/total).
-    let grossProfit = 0, profitKnown = false;
-    todayTxs.forEach(t2 => {
-      const tot = Number(t2.total) || 0;
-      const factor = tot > 0 ? netTotalOf(t2) / tot : 1;
-      (t2.items || []).forEach(i => {
-        if (typeof i.hppAtSale === 'number') { grossProfit += (i.price - i.hppAtSale) * i.qty * factor; profitKnown = true; }
-        else if (typeof i.hpp === 'number') { grossProfit += (i.price - i.hpp) * i.qty * factor; profitKnown = true; }
+      // v21: hanya transaksi yang sah (void/gagal bayar tidak dihitung),
+      // omzet bersih = total - refund.
+      const todayTxs = [];
+      const omzetYestAgg = { sum: 0 };
+      const prodMap = new Map();
+      const latest = [];                  // top-5 terbaru, single pass
+      let omzetToday = 0, grossProfit = 0, profitKnown = false;
+      const weekMs = Date.now() - 7 * 86400000;
+      txs.forEach(t2 => {
+        const ms = msOf(t2);
+        const sale = countsAsSale(t2);
+        if (sale) {
+          // single-pass top-5 terbaru (tanpa sort penuh)
+          if (latest.length < 5) { latest.push({ t2, ms }); latest.sort((a, b) => b.ms - a.ms); }
+          else if (ms > latest[4].ms) { latest[4] = { t2, ms }; latest.sort((a, b) => b.ms - a.ms); }
+        }
+        if (ms >= todayMs && sale) {
+          todayTxs.push(t2);
+          const tot = Number(t2.total) || 0;
+          const net = netTotalOf(t2);
+          omzetToday += net;
+          const factor = tot > 0 ? net / tot : 1;
+          (t2.items || []).forEach(i => {
+            if (typeof i.hppAtSale === 'number') { grossProfit += (i.price - i.hppAtSale) * i.qty * factor; profitKnown = true; }
+            else if (typeof i.hpp === 'number') { grossProfit += (i.price - i.hpp) * i.qty * factor; profitKnown = true; }
+          });
+        }
+        if (sale && ms >= yestMs && ms < todayMs) omzetYestAgg.sum += netTotalOf(t2);
+        if (sale && ms >= weekMs) (t2.items || []).forEach(i => prodMap.set(i.name, (prodMap.get(i.name) || 0) + Number(i.qty || 0)));
       });
-    });
 
-    const lowStock = products.filter(p => (p.stock || 0) <= threshold).sort((a, b) => (a.stock || 0) - (b.stock || 0));
+      const expenses2 = expenses.filter(e => { const ms = msOf(e); return ms >= todayMs; });
+      const expenseToday = expenses2.reduce((s, e) => s + (e.amount || 0), 0);
+      const lowStock = products.filter(p => (p.stock || 0) <= threshold).sort((a, b) => (a.stock || 0) - (b.stock || 0));
+      const omzetYest = omzetYestAgg.sum;
+      const topProduct = [...prodMap.entries()].sort((a, b) => b[1] - a[1])[0] || null;
 
-    // v21.4 RADAR: omzet kemarin + produk juara 7 hari (utk kartu radar)
-    const yestKey = new Date(Date.now() - 86400000).toDateString();
-    const omzetYest = txs.filter(t2 => { const d = new Date(t2.date); return countsAsSale(t2) && d.toDateString() === yestKey; }).reduce((s, t2) => s + netTotalOf(t2), 0);
-    const prodMap = new Map();
-    txs.forEach(t2 => {
-      if (!countsAsSale(t2)) return;
-      const age = Date.now() - (new Date(t2.date).getTime() || 0);
-      if (age > 7 * 86400000) return;
-      (t2.items || []).forEach(i => prodMap.set(i.name, (prodMap.get(i.name) || 0) + Number(i.qty || 0)));
-    });
-    const topProduct = [...prodMap.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+      // tips radar (dihitung sekali)
+      const tips = [];
+      try {
+        const delta = omzetYest > 0 ? Math.round(((omzetToday - omzetYest) / omzetYest) * 100) : (omzetToday > 0 ? 100 : 0);
+        if (omzetYest > 0) tips.push(`Omzet ${delta >= 0 ? 'naik' : 'turun'} ${Math.abs(delta)}% dibanding kemarin${topProduct ? ` · juara 7 hari: ${topProduct[0]} (${topProduct[1]} pcs)` : ''}.`);
+        else if (topProduct) tips.push(`Produk juara 7 hari terakhir: ${topProduct[0]} (${topProduct[1]} pcs).`);
+        if (lowStock.length > 0) tips.push(`${lowStock.length} produk stok kritis, misal ${lowStock.slice(0, 2).map(p => p.name).join(' & ')}. Buat PO sebelum habis.`);
+      } catch (e) { /* tips tidak wajib */ }
 
-    setSnapshot({ txs, todayTxs, omzetToday, expenseToday, grossProfit, profitKnown, lowStock, products, omzetYest, topProduct });
+      setSnapshot({ txs, todayTxs, omzetToday, expenseToday, grossProfit, profitKnown, lowStock, products, omzetYest, topProduct, latest: latest.map(x => x.t2), radarTips: tips });
+    } catch (e) {
+      // JANGAN pernah biarkan Beranda menggantung: fallback aman kosong.
+      try { console.warn('[WELP home]', e); } catch (e2) { }
+      setSnapshot({ txs: [], todayTxs: [], omzetToday: 0, expenseToday: 0, grossProfit: 0, profitKnown: false, lowStock: [], products: [], omzetYest: 0, topProduct: null, latest: [], radarTips: [] });
+    }
   }, [activeTab]);
 
   if (!snapshot) return <div className="max-w-6xl mx-auto w-full pb-24" />;
@@ -121,7 +149,7 @@ export const HomeTab = ({ licenseInfo, setActive, activeTab, perms }) => {
     { id: 'history', label: 'Riwayat', icon: Riwayat, perm: 'report.view' },
   ].filter(a => !perms || !perms.has || canDo(perms, a.perm));
 
-  const latest = [...snapshot.txs].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
+  const latest = snapshot.latest || [];
   const nothingAtAll = snapshot.txs.length === 0 && snapshot.products.length === 0;
 
   return (
@@ -168,13 +196,10 @@ export const HomeTab = ({ licenseInfo, setActive, activeTab, perms }) => {
         )}
       </div>
 
-      {/* v21.4: RADAR BISNIS RINGKAS (detail lengkap di menu Promo & Loyalitas > Radar) */}
+      {/* v21.4: RADAR BISNIS RINGKAS (detail lengkap di menu Promo & Loyalitas > Radar)
+          v21.5: tips dihitung di effect, render murni baca snapshot. */}
       {(() => {
-        const delta = snapshot.omzetYest > 0 ? Math.round(((snapshot.omzetToday - snapshot.omzetYest) / snapshot.omzetYest) * 100) : (snapshot.omzetToday > 0 ? 100 : 0);
-        const tips = [];
-        if (snapshot.omzetYest > 0) tips.push(`Omzet ${delta >= 0 ? 'naik' : 'turun'} ${Math.abs(delta)}% dibanding kemarin${snapshot.topProduct ? ` · juara 7 hari: ${snapshot.topProduct[0]} (${snapshot.topProduct[1]} pcs)` : ''}.`);
-        else if (snapshot.topProduct) tips.push(`Produk juara 7 hari terakhir: ${snapshot.topProduct[0]} (${snapshot.topProduct[1]} pcs).`);
-        if (snapshot.lowStock.length > 0) tips.push(`${snapshot.lowStock.length} produk stok kritis, misal ${snapshot.lowStock.slice(0, 2).map(p => p.name).join(' & ')}. Buat PO sebelum habis.`);
+        const tips = snapshot.radarTips || [];
         if (!tips.length) return null;
         return (
           <div className="card p-4 sm:p-5">

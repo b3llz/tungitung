@@ -39,7 +39,8 @@ import {
   MATCH_STATUS, MATCH_STATUS_META, newPaymentReference, buildSimulatedEvent, intentExpiryOf,
 } from './welp-core/payment.js';
 import { ingestPaymentEvent, paymentRecWithIntent } from './welp-core/paymentOps.js';
-import { autoKickDrawer, haptic } from './welp-core/posprinter.js';   // v21.3: laci kas & getar kasir
+import { autoKickDrawer, haptic, printOrderReceipt, printerConnected } from './welp-core/posprinter.js';   // v21.3 laci kas, v21.5 struk thermal
+import { AppSymbol } from './brand.jsx';
 import { TxStateBadge, SyncPill, ShiftPanel, VoidModal, RefundModal, permsOfSession, commitOrder } from './txactions.jsx';
 // v21.4 Enterprise Growth: member loyalitas, voucher, tukar poin
 import {
@@ -114,7 +115,7 @@ export const CountdownTimer = ({ deadline }) => {
 };
 
 /* ---------- STRUK (print via window.print, z-[80]) ---------- */
-export const ReceiptModal = ({ order, profile, onClose, loyaltyCfg = null }) => {
+export const ReceiptModal = ({ order, profile, onClose, loyaltyCfg = null, triggerAlert }) => {
   if (!order) return null;
   const subtotal = order.subtotal ?? order.items.reduce((a, b) => a + b.price * b.qty, 0);
   const code = String(order.id || 'WELP0000').slice(-8).toUpperCase() || 'WELP0000';
@@ -128,9 +129,9 @@ export const ReceiptModal = ({ order, profile, onClose, loyaltyCfg = null }) => 
     L.push(`*${profile?.name || 'Toko'}*`);
     L.push(`No: #${code}`);
     L.push(new Date(order.date).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }));
-    L.push('------------------------------');
+    L.push('·  ·  ·  ·  ·  ·  ·  ·  ·  ·');
     (order.items || []).forEach(i => L.push(`${i.qty}x ${i.name} : ${formatIDR(i.price * i.qty)}`));
-    L.push('------------------------------');
+    L.push('·  ·  ·  ·  ·  ·  ·  ·  ·  ·');
     if (order.discountAmt > 0) L.push(`Diskon: -${formatIDR(order.discountAmt)}`);
     L.push(`Total: *${formatIDR(order.total)}*`);
     L.push(`Bayar: ${method}${isCash ? ` (kembali ${formatIDR(order.change || 0)})` : ''}`);
@@ -139,25 +140,39 @@ export const ReceiptModal = ({ order, profile, onClose, loyaltyCfg = null }) => 
     L.push('Terima kasih sudah berbelanja!');
     window.open(`https://wa.me/?text=${encodeURIComponent(L.join('\n'))}`, '_blank');
   };
+  // v21.5: cetak struk thermal modern (logo otomatis diolah, garis tipis,
+  // tanpa pola dash kuno). Aman: tanpa printer -> pesan, alur tidak mati.
+  const [thermalBusy, setThermalBusy] = React.useState(false);
+  const printThermal = async () => {
+    if (!printerConnected()) return triggerAlert?.('Printer thermal belum terhubung. Buka Pengaturan, Alat Tambahan.', 'error');
+    setThermalBusy(true);
+    try {
+      const ok = await printOrderReceipt(order, { profile, paper: '80mm' });
+      if (!ok) triggerAlert?.('Gagal mengirim struk ke printer.', 'error');
+    } catch (e) { triggerAlert?.('Gagal mencetak: ' + (e.message || e), 'error'); }
+    setThermalBusy(false);
+  };
   return createPortal(
     <div className="fixed inset-0 z-[80] bg-chrome-deep/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
       <div className="bg-white w-full max-w-[390px] rounded-[1.5rem] shadow-pop overflow-hidden animate-pop" onClick={e => e.stopPropagation()}>
         <div id="receipt-print" className="receipt-paper p-5 sm:p-6 text-slate-900 text-[11px] leading-relaxed">
-          <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-200">
-            <div className="min-w-0">
-              {profile?.logo ? <img src={profile.logo} className="w-11 h-11 object-contain rounded-xl border border-slate-200 mb-2" alt="Logo" /> : <div className="w-11 h-11 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm mb-2">W</div>}
-              <h2 className="font-black text-[15px] tracking-tight truncate">{profile?.name || 'TOKO ANDA'}</h2>
-              {profile?.address && <p className="text-[9px] text-slate-500 mt-0.5 max-w-[220px] leading-snug">{profile.address}</p>}
-              {(profile?.wa || profile?.phone) && <p className="text-[9px] text-slate-500">{profile.wa || profile.phone}</p>}
+          {/* v21.5 STRUK MEWAH: logo tengah (perusahaan atau WELP), tipografi
+              bersih, garis pemisah tipis solid, tanpa pola dash kuno. */}
+          <div className="text-center pb-4 border-b border-slate-200">
+            {profile?.logo
+              ? <img src={profile.logo} className="w-16 h-16 object-contain mx-auto mb-2" alt="Logo" />
+              : <AppSymbol className="w-16 h-16 mx-auto mb-2" />}
+            <h2 className="font-black text-[16px] tracking-tight">{profile?.name || 'TOKO ANDA'}</h2>
+            {profile?.address && <p className="text-[9px] text-slate-500 mt-0.5 leading-snug max-w-[260px] mx-auto">{profile.address}</p>}
+            {(profile?.wa || profile?.phone) && <p className="text-[9px] text-slate-500">{profile.wa || profile.phone}</p>}
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <span className="inline-flex px-2 py-0.5 rounded-full bg-slate-900 text-white text-[8px] font-black uppercase tracking-[.14em]">Lunas</span>
+              <span className="font-mono font-black text-[10px]">#{code}</span>
             </div>
-            <div className="text-right shrink-0">
-              <span className="inline-flex px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-[8px] font-black uppercase tracking-[.14em]">Lunas</span>
-              <p className="font-mono font-black text-[10px] mt-2">#{code}</p>
-              <p className="text-[8.5px] text-slate-500 mt-0.5">{new Date(order.date).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-            </div>
+            <p className="text-[8.5px] text-slate-500 mt-1">{new Date(order.date).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 py-3 border-b border-dashed border-slate-300">
+          <div className="grid grid-cols-2 gap-2 py-3 border-b border-slate-200">
             <div><p className="text-[7.5px] uppercase tracking-[.16em] font-black text-slate-400">Pelanggan</p><p className="font-bold text-[10px] truncate">{order.buyer || 'Umum'}</p></div>
             <div className="text-right"><p className="text-[7.5px] uppercase tracking-[.16em] font-black text-slate-400">Pesanan</p><p className="font-bold text-[10px]">{order.orderType || 'Take away'}{order.tableNo ? ` · Meja ${order.tableNo}` : ''}</p></div>
           </div>
@@ -186,7 +201,7 @@ export const ReceiptModal = ({ order, profile, onClose, loyaltyCfg = null }) => 
             <div className="flex justify-between items-end pt-2 mt-1 border-t border-slate-200"><span className="font-black uppercase tracking-[.12em] text-[8px]">Total</span><span className="font-black text-[17px] tracking-tight">{formatIDR(order.total)}</span></div>
           </div>
 
-          <div className="flex items-center justify-between py-3 border-b border-dashed border-slate-300">
+          <div className="flex items-center justify-between py-3 border-b border-slate-200">
             <div><p className="text-[7.5px] uppercase tracking-[.16em] font-black text-slate-400">Pembayaran</p><p className="font-black text-[11px] mt-0.5">{method}</p></div>
             {isCash && <div className="text-right text-[9px]"><p>Bayar {formatIDR(order.cashTendered || order.total)}</p><p className="font-black">Kembali {formatIDR(order.change || 0)}</p></div>}
           </div>
@@ -213,12 +228,15 @@ export const ReceiptModal = ({ order, profile, onClose, loyaltyCfg = null }) => 
             </div>
             <p className="font-black text-[10px]">Terima kasih sudah belanja.</p>
             <p className="text-[8.5px] text-slate-400 mt-0.5">Simpan struk ini sebagai bukti transaksi.</p>
+            {/* v21.5 watermark bawaan di dasar struk */}
+            <p className="text-[7.5px] text-slate-300 font-extrabold uppercase tracking-[.3em] mt-3 select-none">by WELP</p>
           </div>
         </div>
         <div className="no-print p-3 bg-surface dark:bg-surface-dark border-t border-line dark:border-line-dark flex gap-2">
           <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-paper dark:bg-white/10 border border-line dark:border-line-dark text-ink-soft dark:text-ink-inv/80 font-bold text-xs">Tutup</button>
           <button type="button" onClick={shareWA} className="flex-1 py-2.5 rounded-xl bg-leaf hover:bg-leaf/90 text-white font-bold text-xs flex items-center justify-center gap-2">Bagikan WA</button>
-          <button type="button" onClick={() => window.print()} className="flex-1 py-2.5 rounded-xl bg-flame-600 hover:bg-flame-500 text-white font-bold text-xs flex items-center justify-center gap-2"><StrukCetak className="w-4 h-4" /> Cetak / PDF</button>
+          <button type="button" onClick={printThermal} disabled={thermalBusy} className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 disabled:opacity-60"><StrukCetak className="w-4 h-4" /> Thermal</button>
+          <button type="button" onClick={() => window.print()} className="flex-1 py-2.5 rounded-xl bg-flame-600 hover:bg-flame-500 text-white font-bold text-xs flex items-center justify-center gap-2"><StrukCetak className="w-4 h-4" /> PDF</button>
         </div>
       </div>
     </div>,
@@ -1934,7 +1952,7 @@ export const PosTab = ({ licenseInfo, triggerAlert, setEditingMode, activeTab })
         </div>
       )}
 
-      {showReceipt && <ReceiptModal order={showReceipt} profile={profile} loyaltyCfg={loyaltyCfg} onClose={() => setShowReceipt(null)} />}
+      {showReceipt && <ReceiptModal order={showReceipt} profile={profile} loyaltyCfg={loyaltyCfg} triggerAlert={triggerAlert} onClose={() => setShowReceipt(null)} />}
 
       {/* ===== VOID & REFUND (v21), permission + alasan + audit ===== */}
       {showVoid && <VoidModal order={showVoid} licenseInfo={licenseInfo} triggerAlert={triggerAlert}

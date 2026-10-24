@@ -26,6 +26,7 @@ import {
 import { BrandLockup, BrandLogo, Mascot } from './brand.jsx';
 import { t, getLang } from './core.jsx';
 import { NAV_PERMS_V20, roleLabelOf as rbacRoleLabel, canDo } from './welp-core/rbac.js';
+import { useDevice } from './ui';
 
 // v20: NAV berbasis PERMISSION granular. Item tanpa pemetaan
 // permission = terbuka utk semua yang punya sesi. navAllowed
@@ -218,8 +219,16 @@ export const BottomNav = ({ active, setActive, onMenu, lowStockCount, scope = 'a
 
 /* ---------- MENU SHEET (drawer mobile, RBAC sama) ---------- */
 export const MenuSheet = ({ open, onClose, role, perms, active, setActive, licenseInfo, onLogout, dark, toggleDark, scope = 'all', settingsRows, isStation = false }) => {
+  // v21.5: kepadatan drawer mengikuti perangkat. HP = padat (banyak
+  // muat tanpa scroll panjang), tablet sedang. Hook SEBELUM early-return.
+  const dev = useDevice();
   if (!open) return null;
   const en = getLang() === 'en';
+  const itemPad = dev === 'phone' ? 'p-[7px]' : 'p-3';
+  const itemText = dev === 'phone' ? 'text-[12px]' : 'text-[13px]';
+  const itemIcon = dev === 'phone' ? 'w-[18px] h-[18px]' : 'w-5 h-5';
+  const groupGap = dev === 'phone' ? 'space-y-3.5' : 'space-y-5';
+  const itemGap = dev === 'phone' ? 'gap-2.5' : 'gap-3';
   return (
     <div className="lg:hidden fixed inset-0 z-[200] flex justify-end bg-chrome-deep/60 dark:bg-chrome-deep/70 backdrop-blur-sm animate-fade-in" onClick={onClose}>
       <div className="w-[85%] max-w-sm h-full shadow-pop flex flex-col animate-slide-up border-l
@@ -238,24 +247,24 @@ export const MenuSheet = ({ open, onClose, role, perms, active, setActive, licen
           <button onClick={onClose} aria-label="Tutup menu" className="w-9 h-9 rounded-full bg-paper dark:bg-white/5 text-ink-faint dark:text-ink-inv/60 hover:text-ink dark:hover:text-ink-inv flex items-center justify-center transition shrink-0"><X className="w-4 h-4" /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-3.5 space-y-5">
+        <div className={`flex-1 overflow-y-auto custom-scrollbar p-3.5 ${groupGap}`}>
           {NAV_GROUPS.map(group => {
             const items = group.items.filter(i => navAllowed(i, role, perms, scope, isStation));
             if (!items.length) return null;
             return (
               <div key={group.key}>
-                <p className="text-[8.5px] font-extrabold text-ink-faint dark:text-ink-inv/35 uppercase tracking-[0.2em] mb-2 px-2">{t(group.labelKey)}</p>
+                <p className="text-[8.5px] font-extrabold text-ink-faint dark:text-ink-inv/35 uppercase tracking-[0.2em] mb-1.5 px-2">{t(group.labelKey)}</p>
                 <div className="space-y-0.5">
                   {items.map(item => {
                     const isActive = active === item.id;
                     const Icon = item.icon;
                     return (
                       <button key={item.id} onClick={() => { setActive(item.id); onClose(); }}
-                        className={`w-full flex items-center gap-3 p-3 rounded-xl transition press ${isActive
+                        className={`w-full flex items-center ${itemGap} ${itemPad} rounded-xl transition press ${isActive
                           ? 'bg-flame-500 text-white font-extrabold shadow-card'
                           : 'text-ink-soft dark:text-ink-inv/60 font-bold hover:bg-paper dark:hover:bg-chrome-panel hover:text-ink dark:hover:text-ink-inv'}`}>
-                        <Icon className="w-5 h-5 shrink-0" />
-                        <span className="text-[13px]">{t(item.labelKey)}</span>
+                        <Icon className={`${itemIcon} shrink-0`} />
+                        <span className={itemText}>{t(item.labelKey)}</span>
                       </button>
                     );
                   })}
@@ -273,7 +282,7 @@ export const MenuSheet = ({ open, onClose, role, perms, active, setActive, licen
           <button onClick={onLogout} className="w-full flex items-center justify-center gap-3 p-3 rounded-xl bg-brick/15 text-brick font-extrabold hover:bg-brick/25 transition press">
             <Keluar className="w-5 h-5" /> {t('logout')}
           </button>
-          <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] pt-2">WELP v21.4 Spark Mode</p>
+          <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/25 uppercase tracking-[0.2em] pt-2">WELP v21.5 Spark Mode</p>
         </div>
       </div>
     </div>

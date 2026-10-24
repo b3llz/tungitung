@@ -269,3 +269,40 @@ purchase_order, hutang, transfer_stok, jadwal_shift, target_omzet, pengumuman,
 checklist_template, checklist_log.
 Izin baru memakai domain lama (tanpa migrasi role): crm.manage, purchasing.manage,
 employee.manage.
+
+---
+
+## v21.5.0 (24 Oktober 2026), RETAIL SETTLEMENT, STRUK MEWAH & ANTI-FRAUD
+
+### 1. Navigasi tidak lagi menutupi konten
+- FIX nav ganda: di tab Absen & Gaji, nav bawah Employee Area kini satu-satunya nav (nav utama disembunyikan), tombol Kirim Absen tidak tertutup lagi. Tombol "Kembali ke Beranda WELP" ditambahkan di Beranda & Profil Employee Area.
+- Judul halaman (contoh: Operasional Tim) tidak pernah tertimpa tombol navigasi: di HP judul di atas, kontrol sub-tab di baris tersendiri full-width.
+
+### 2. Laporan Shift / Settlement gaya retail + tab Akhir Hari
+- Tutup Shift di Kasir otomatis membuat laporan Z (Akhir Hari): tanggal, jam mulai-selesai, nama kasir, total customer, jumlah struk, void bill & void item, ringkasan penjualan (omzet, diskon, qty, item, omzet bersih), metode pembayaran, jenis pesanan, modal awal, kas masuk/keluar, kas seharusnya, uang dihitung, dan SELISIH.
+- Menu Keuangan punya sub-tab baru "Akhir Hari": daftar laporan tersimpan, filter tanggal + nomor settlement, detail bisa pilih Ringkasan atau Rincian (daftar struk satu per satu: jam, kode, metode, nominal), dan tombol Cetak Thermal. Laporan X (sementara) bisa dicetak saat shift masih berjalan.
+- Laporan dihitung dari data transaksi nyata (bukan input manual), disimpan append-only (tidak bisa diedit/dihapus).
+
+### 3. Struk mewah (layar & thermal)
+- Struk baru: logo di tengah atas (logo perusahaan, atau logo WELP bila belum upload), nama toko, alamat & telepon, kode + status Lunas, item rapi, total tebal, garis pemisah tipis modern (tanpa pola "- - - -" kuno), barcode kode transaksi, dan watermark kecil "by WELP" di dasar struk.
+- Tombol Thermal di struk kasir: cetak langsung ke printer ESC/POS dengan logo otomatis.
+
+### 4. Logo otomatis siap thermal
+- PNG transparan: bentuk logo diambil dari channel alpha (latar hilang).
+- JPEG / PNG berlatar: otomatis menjadi SKETSA OUTLINE (deteksi tepi Sobel) sehingga tidak ada blok hitam di struk thermal.
+- Cache hasil olahan supaya cetakan berikutnya lebih cepat.
+
+### 5. Anti-fraud layer v1
+- Riwayat tidak bisa "hilang": absensi, opname, riwayat stok, audit log, settlement, shift, kas, dan laporan akhir hari masuk daftar append-only (perangkat basi tidak bisa menimpa/menghapus cloud).
+- Firestore rules baru: riwayat_opname & eod_reports append-only (create boleh, update/delete ditolak), audit_log tetap append-only.
+- Setiap sesi stok opname masuk audit log (siapa, kapan, total selisih). Koreksi selanjutnya harus lewat sesi baru, bukan edit.
+- Laporan kas dihitung sistem; selisih kas tersimpan permanen per shift + kasir.
+
+### 6. Riwayat Absensi untuk atasan
+- Riwayat 14 menjadi 30 hari, bisa difilter per karyawan, lengkap foto selfie, status waktu server, jarak, dan keterlambatan.
+
+### 7. Kepadatan UI sadar perangkat
+- Drawer menu di HP kini padat (item lebih kecil, muat lebih banyak tanpa scroll), tablet & PC tetap lega. Semua kontrol segmented bisa digeser horizontal, tidak menutupi judul.
+
+### 8. Beranda anti-macet
+- Semua hitungan berat (omzet, radar, top-5 transaksi) dihitung sekali per masuk tab dengan proteksi error penuh; data ribuan transaksi pun tidak membuat Beranda nge-freeze.

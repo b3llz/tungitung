@@ -488,6 +488,7 @@ export const DB_MAP = {
   settlement_db: 'settlements',
   shift_log_db: 'shift_log',
   cash_event_db: 'cash_events',
+  eod_reports_db: 'eod_reports',
   // v21.4, Enterprise Growth Pack
   loyalty_cfg_db: 'loyalty_cfg',          // aturan poin & tier (1 record)
   loyalty_log_db: 'loyalty_log',          // mutasi poin member (append-only)
@@ -505,7 +506,10 @@ export const DB_MAP = {
 // dokumen cloud yang hilang dari mirror lokal (melindungi riwayat
 // transaksi/ settlement/ shift saat satu perangkat offline/stale).
 // Pembatalan = perubahan STATE (void/refund), bukan penghapusan data.
-export const DB_PROTECTED = new Set(['pos_history_db', 'settlement_db', 'shift_log_db', 'cash_event_db', 'payment_event_db', 'payment_intent_db']);
+// v21.5 ANTI-FRAUD: daftar diperluas, riwayat absensi, opname, stok,
+// audit log, dan laporan akhir hari tidak bisa "hilang" dari satu
+// perangkat manapun. Riwayat = bukti, bukan data yang boleh dihapus.
+export const DB_PROTECTED = new Set(['pos_history_db', 'settlement_db', 'shift_log_db', 'cash_event_db', 'eod_reports_db', 'payment_event_db', 'payment_intent_db', 'absensi_db', 'opname_history_db', 'stock_history_db', 'audit_log_db']);
 // Dokumen OBJEK (bukan koleksi): key lokal → id doc di koleksi 'pengaturan'
 export const DB_DOC_MAP = {
   store_profile: 'toko_profile',

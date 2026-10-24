@@ -334,6 +334,28 @@ service cloud.firestore {
       allow read, write: if hasTenant(lic);
     }
 
+    // ---------- v21.5 Riwayat opname (append-only, anti-fraud) ----------
+    // Sesi stok opname = bukti perhitungan fisik. Tidak boleh diedit
+    // atau dihapus dari klien supaya tidak bisa "diakal-akali" agar
+    // selisih hilang. Koreksi lanjutan = sesi opname baru + audit.
+    match /tenants/{lic}/riwayat_opname/{id} {
+      allow read: if tenantRead(lic, 'inventory.read') || tenantRead(lic, 'inventory.view')
+        || tenantRead(lic, 'inventory.adjust') || tenantRead(lic, 'dashboard.view');
+      allow create: if tenantWrite(lic, 'inventory.adjust') || tenantWrite(lic, 'inventory.manage');
+      allow update, delete: if false;
+    }
+
+    // ---------- v21.5 Laporan akhir hari (append-only) ----------
+    // Z-report dihitung dari data transaksi & shift yang sudah final.
+    // Simpan + cetak ulang boleh, mengubah/menghapus TIDAK boleh.
+    match /tenants/{lic}/eod_reports/{id} {
+      allow read: if tenantRead(lic, 'shift.view') || tenantRead(lic, 'finance.read')
+        || tenantRead(lic, 'dashboard.view') || tenantRead(lic, 'reconciliation.view');
+      allow create: if tenantWrite(lic, 'shift.close') || tenantWrite(lic, 'settlement.manage')
+        || tenantWrite(lic, 'finance.write');
+      allow update, delete: if false;
+    }
+
     // ---------- Explicitly deny all other tenant collections ----------
     match /tenants/{lic}/{document=**} {
       allow read, write: if false;

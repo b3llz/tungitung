@@ -9,7 +9,7 @@ import {
   Stok, Plus, Trash2, KameraBuddy, Pindai, PaketBuddy,
   Opname, Save, StokRiwayat, Supplier, InOut, StokMasuk, StokKeluar, CategoryIcon
 } from './welp-icons.jsx';
-import { safeParse, formatIDR, isPro, dbSet, useDbSync } from './core.jsx';
+import { safeParse, formatIDR, isPro, dbSet, useDbSync, auditLog } from './core.jsx';
 import { Button, Card, PageTitle, NumericInput, Select, Badge, EmptyState, ImageCropperModal } from './ui';
 
 /* ================= STOK BARANG ================= */
@@ -328,6 +328,9 @@ export const OpnameTab = ({ triggerAlert, licenseInfo }) => {
     });
 
     if (!lines.length) return triggerAlert("Tidak ada perubahan stok untuk disimpan.", "error");
+    // v21.5 ANTI-FRAUD: setiap sesi opname masuk audit log (siapa, kapan,
+    // berapa produk, total selisih) dan TIDAK bisa diedit/dihapus dari UI.
+    try { auditLog(licenseInfo, 'OPNAME_SAVE', { totalItems: products.length, changedCount: lines.length, totalDiff: lines.reduce((a, b) => a + Math.abs(b.diff), 0) }, { actor: licenseInfo?.employeeName || licenseInfo?.tenant || '-', actorRole: licenseInfo?.currentUserRole || '-' }); } catch (e) { }
 
     // v21.3: catat SESI opname (riwayat dengan jam & tanggal + cabang)
     const session = {

@@ -20,19 +20,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Uang, Qris, Check, X, WaktuReal, PaketBuddy,
-  ChevronDown, Toko, JaringanBuddy, Omzet, PerisaiBuddy, Ban, Undo2,
+  ChevronDown, Toko, JaringanBuddy, Omzet, PerisaiBuddy, Ban, Undo2, StrukCetak,
 } from './welp-icons.jsx';
 import { formatIDR, auditLog, safeParse } from './core.jsx';
-import { Button, Card, PageTitle, Badge, EmptyState, NumericInput } from './ui';
+import { Button, Card, PageTitle, Badge, EmptyState, NumericInput, Modal, Segmented } from './ui';
 import {
   salesByMethodForDate, buildSettlementDraft, methodCfgOf,
   SETTLEMENT_STATE_META, RECON_STATUS, reconcile, dateKeyOfMs,
-  SHIFT_RESULT_META,
+  SHIFT_RESULT_META, openShiftOf, countsAsSale, netTotalOf,
 } from './welp-core/tx.js';
 import { commitFinanceDoc } from './welp-core/sync.js';
 import { useFinMirrors, permsOfSession, SyncPill } from './txactions.jsx';
 import { MATCH_STATUS, MATCH_STATUS_META, PAYMENT_EVENT_SOURCE_META } from './welp-core/payment.js';
 import { manualConfirmEvent, rejectEvent } from './welp-core/paymentOps.js';
+import { computeShiftReport } from './welp-core/shiftreport.js';
+import { escposShiftReport, logoRasterBits, printerConnected, printReceiptBytes } from './welp-core/posprinter.js';
 
 const AUDIT = {
   create: 'SETTLEMENT_CREATE', confirm: 'SETTLEMENT_CONFIRM',
@@ -41,7 +43,7 @@ const AUDIT = {
 
 export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
   const [seg, setSeg] = useState('settlement');
-  const { history, activeOrders, settlements, shiftLogs, cashEvents, profile } = useFinMirrors(activeTab);
+  const { history, activeOrders, settlements, shiftLogs, cashEvents, profile, eodReports } = useFinMirrors(activeTab);
   const p = perms || permsOfSession(licenseInfo);
   const canManage = p.has('settlement.manage');
   const canRecon = p.has('reconciliation.view');
@@ -52,6 +54,50 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
   const [confirmFor, setConfirmFor] = useState(null);   // {rec, mode}
   const actor = licenseInfo?.employeeName || licenseInfo?.tenant || '-';
   const actorRole = licenseInfo?.currentUserRole || 'owner';
+
+  // ---------- v21.5 AKHIR HARI (X/Z report) ----------
+  const [eodDate, setEodDate] = useState('');
+  const [eodQ, setEodQ] = useState('');
+  const [eodView, setEodView] = useState(null);       // report terpilih utk modal
+  const [eodMode, setEodMode] = useState('ringkasan'); // ringkasan | rincian
+  const [eodBusy, setEodBusy] = useState(false);
+  const eodList = useMemo(() => {
+    const rows = [...(eodReports || [])].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+    return rows.filter(r => (!eodDate || r.dateKey === eodDate) && (!eodQ || String(r.reportNo || '').toLowerCase().includes(eodQ.toLowerCase())));
+  }, [eodReports, eodDate, eodQ]);
+  const openShiftNow = useMemo(() => openShiftOf(shiftLogs, { branchId: null, stationCode: null }), [shiftLogs]);
+  const printEod = async (r) => {
+    if (!printerConnected()) { triggerAlert('Printer belum terhubung. Buka Pengaturan, Alat Tambahan untuk menghubungkan printer thermal.', 'error'); return; }
+    setEodBusy(true);
+    try {
+      const logoBits = profile?.logo ? await logoRasterBits(profile.logo, { maxW: 300 }) : null;
+      const bytes = escposShiftReport(r, { paper: '80mm', logoBits });
+      const ok = await printReceiptBytes(bytes);
+      triggerAlert(ok ? `Laporan ${r.reportNo} dikirim ke printer.` : 'Gagal mengirim ke printer.', ok ? 'success' : 'error');
+      if (ok) auditLog(licenseInfo, 'EOD_REPORT_PRINT', { target: r.reportNo }, { actor, actorRole });
+    } catch (e) { triggerAlert('Gagal mencetak: ' + (e.message || e), 'error'); }
+    setEodBusy(false);
+  };
+  const printXNow = async () => {
+    if (!openShiftNow) return triggerAlert('Tidak ada shift yang sedang berjalan.', 'error');
+    setEodBusy(true);
+    try {
+      const r = computeShiftReport({ orders: allOrders, shiftOpen: openShiftNow, shiftClose: null, cashEvents, profile });
+      const logoBits = profile?.logo ? await logoRasterBits(profile.logo, { maxW: 300 }) : null;
+      const ok = await printReceiptBytes(escposShiftReport(r, { paper: '80mm', logoBits }));
+      triggerAlert(ok ? `Laporan sementara ${r.reportNo} dicetak. Shift belum ditutup.` : 'Gagal mengirim ke printer.', ok ? 'success' : 'error');
+    } catch (e) { triggerAlert('Gagal mencetak: ' + (e.message || e), 'error'); }
+    setEodBusy(false);
+  };
+  const eodReceipts = useMemo(() => {
+    if (!eodView) return [];
+    const from = eodView.startAt || 0, to = eodView.endAt || Infinity;
+    return (history || [])
+      .filter(t => countsAsSale(t))
+      .map(t => ({ t, ms: new Date(t.date || t.createdAt || 0).getTime() || 0 }))
+      .filter(({ ms }) => ms >= (from || 0) && ms <= (to || Infinity))
+      .sort((a, b) => a.ms - b.ms);
+  }, [eodView, history]);
 
   // v21: order lunas bisa ada di history DAN active_orders (mirror berbeda).
   // Dedup: ambil yang belum lunas dari active orders saja (pending/workshop),
@@ -171,6 +217,7 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
         <button onClick={() => setSeg('payments')} className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition whitespace-nowrap ${seg === 'payments' ? 'bg-flame-600 text-white shadow-card' : 'text-ink-faint hover:text-ink-soft'}`}><Qris className="w-4 h-4" /> Pembayaran{ambigCount > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-brick text-white">{ambigCount}</span>}</button>
         {canRecon && <button onClick={() => setSeg('recon')} className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition whitespace-nowrap ${seg === 'recon' ? 'bg-flame-600 text-white shadow-card' : 'text-ink-faint hover:text-ink-soft'}`}><JaringanBuddy className="w-4 h-4" /> Rekonsiliasi</button>}
         {canShift && <button onClick={() => setSeg('shift')} className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition whitespace-nowrap ${seg === 'shift' ? 'bg-flame-600 text-white shadow-card' : 'text-ink-faint hover:text-ink-soft'}`}><Toko className="w-4 h-4" /> Kas & Shift</button>}
+        {canShift && <button onClick={() => setSeg('eod')} className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition whitespace-nowrap ${seg === 'eod' ? 'bg-flame-600 text-white shadow-card' : 'text-ink-faint hover:text-ink-soft'}`}><StrukCetak className="w-4 h-4" /> Akhir Hari</button>}
       </div>
 
       {/* ======== SETTLEMENT ======== */}
@@ -474,6 +521,57 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
         </>
       )}
 
+      {/* ======== v21.5 AKHIR HARI (Z report tersimpan + X sementara) ======== */}
+      {seg === 'eod' && (
+        <>
+          <div className="flex flex-wrap items-end gap-2.5">
+            <div>
+              <label className="kicker block mb-1.5 ml-0.5">Tanggal laporan</label>
+              <input type="date" value={eodDate} onChange={e => setEodDate(e.target.value)} className="field !w-auto" />
+            </div>
+            <div className="min-w-[160px] flex-1 max-w-xs">
+              <label className="kicker block mb-1.5 ml-0.5">Nomor settlement</label>
+              <input className="field" placeholder="mis. Z-20261024-SHF01" value={eodQ} onChange={e => setEodQ(e.target.value)} />
+            </div>
+            {openShiftNow && (
+              <Button onClick={printXNow} disabled={eodBusy} className="!py-2.5 !text-[11px]" icon={StrukCetak}>Cetak X (Sementara)</Button>
+            )}
+          </div>
+          <p className="text-[10px] font-bold text-ink-faint leading-relaxed px-1">
+            Setiap shift yang ditutup otomatis membuat laporan Akhir Hari (Z) dari data transaksi nyata: customer, struk, void, ringkasan penjualan, metode pembayaran, jenis pesanan, dan selisih kas. Pilih tanggal dan nomor untuk melihat atau cetak ulang.
+          </p>
+          {eodList.length === 0 ? (
+            <EmptyState mascot="pikir" title="Belum ada laporan akhir hari" desc="Tutup shift dari halaman Kasir (panel Shift), laporan Z akan otomatis muncul di sini dan bisa dicetak ulang kapan saja." />
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-3">
+              {eodList.map(r => (
+                <div key={r.reportNo} className="card p-4 space-y-2">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="min-w-0">
+                      <p className="font-mono font-extrabold text-[12px] text-ink dark:text-ink-inv truncate">{r.reportNo}</p>
+                      <p className="text-[10px] font-bold text-ink-faint">{r.dateKey}{r.startTime ? ` · ${r.startTime}${r.endTime ? ' s.d. ' + r.endTime : ''}` : ''}</p>
+                    </div>
+                    <Badge tone={r.kind === 'Z' ? 'green' : 'gold'}>{r.kind === 'Z' ? 'Akhir Hari' : 'Sementara'}</Badge>
+                  </div>
+                  <div className="text-[11px] font-bold space-y-1">
+                    <div className="flex justify-between"><span className="text-ink-faint">Kasir</span><span className="truncate max-w-[140px]">{r.cashier || '-'}</span></div>
+                    <div className="flex justify-between"><span className="text-ink-faint">Customer / Struk</span><span>{r.customers} / {r.receipts}</span></div>
+                    <div className="flex justify-between"><span className="text-ink-faint">Omzet Bersih</span><span className="money text-leaf-deep dark:text-leaf">{formatIDR(r.net ?? r.sales?.net ?? 0)}</span></div>
+                    <div className="flex justify-between"><span className="text-ink-faint">Selisih Kas</span>
+                      <span className={`money ${((r.selisih ?? r.cash?.selisih) || 0) === 0 ? 'text-leaf-deep dark:text-leaf' : 'text-brick'}`}>{(r.selisih ?? r.cash?.selisih) == null ? 'belum dihitung' : `${((r.selisih ?? r.cash?.selisih) || 0) >= 0 ? '+' : ''}${formatIDR((r.selisih ?? r.cash?.selisih) || 0)}`}</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <Button onClick={() => { setEodView(r); setEodMode('ringkasan'); }} variant="secondary" className="!py-2.5 !text-[11px]">Lihat</Button>
+                    <Button onClick={() => printEod(r)} disabled={eodBusy} className="!py-2.5 !text-[11px]" icon={StrukCetak}>Cetak</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
       {/* ===== modal konfirmasi / selisih / penyesuaian ===== */}
       {confirmFor && <SettlementActionModal
         mode={confirmFor.mode} rec={confirmFor.rec}
@@ -521,6 +619,9 @@ export const FinanceTab = ({ licenseInfo, triggerAlert, activeTab, perms }) => {
           </div>
         </div>
       )}
+
+      {/* ===== v21.5 modal detail Akhir Hari ===== */}
+      {eodView && <EodDetailModal r={eodView} mode={eodMode} setMode={setEodMode} receipts={eodReceipts} onPrint={() => printEod(eodView)} busy={eodBusy} onClose={() => setEodView(null)} />}
     </div>
   );
 };
@@ -570,6 +671,103 @@ const SettlementActionModal = ({ mode, rec, onClose, onConfirm, onMismatch, onAd
             <Button onClick={() => { if (!note.trim() || amount === 0) return; onAdjust(amount, note.trim()); }} className="w-full py-3" icon={Undo2}>Simpan Penyesuaian</Button>
           </>
         )}
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================
+   v21.5, MODAL DETAIL AKHIR HARI
+   Ringkasan = bagian laporan (customer, void, penjualan, metode,
+   jenis pesanan, kas & selisih). Rincian = daftar struk satu per
+   satu dalam periode shift (jam, kode, metode, nominal).
+   ============================================================ */
+const EodDetailModal = ({ r, mode, setMode, receipts, onPrint, busy, onClose }) => {
+  if (!r) return null;
+  const Row = ({ l, v, strong = false, tone = '' }) => (
+    <div className="flex justify-between items-baseline gap-3">
+      <span className={`text-[11px] font-bold text-ink-faint ${strong ? 'font-extrabold text-ink dark:text-ink-inv' : ''}`}>{l}</span>
+      <span className={`money text-[12px] ${strong ? 'font-extrabold' : 'font-bold'} ${tone}`}>{v}</span>
+    </div>
+  );
+  const Section = ({ title, children }) => (
+    <div className="p-3.5 rounded-2xl bg-paper dark:bg-white/[.03] border border-line dark:border-line-dark space-y-1.5">
+      <p className="text-[9px] font-extrabold uppercase tracking-[.16em] text-ink-faint">{title}</p>
+      {children}
+    </div>
+  );
+  return (
+    <div className="fixed inset-0 z-[130] bg-chrome-deep/70 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4 animate-fade-in" onClick={onClose}>
+      <div className="w-full sm:max-w-lg bg-surface dark:bg-surface-dark rounded-t-[1.5rem] sm:rounded-[1.5rem] shadow-pop animate-pop max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="p-4 sm:p-5 border-b border-line dark:border-line-dark flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="kicker">Laporan {r.kind === 'Z' ? 'Akhir Hari (Z)' : 'Sementara (X)'}</p>
+            <h3 className="font-extrabold text-ink dark:text-ink-inv font-mono truncate">{r.reportNo}</h3>
+            <p className="text-[10px] font-bold text-ink-faint mt-0.5">
+              {r.dateKey}{r.startTime ? ` · ${r.startTime}${r.endTime ? ' s.d. ' + r.endTime : ''}` : ''}{r.cashier ? ` · Kasir ${r.cashier}` : ''}
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Tutup" className="w-9 h-9 rounded-full bg-paper dark:bg-white/5 text-ink-faint flex items-center justify-center shrink-0" style={{ minWidth: 36, minHeight: 36 }}>✕</button>
+        </div>
+
+        <div className="px-4 sm:px-5 pt-3">
+          <Segmented value={mode} onChange={setMode} items={[{ id: 'ringkasan', label: 'Ringkasan' }, { id: 'rincian', label: 'Rincian' }]} className="w-full" />
+        </div>
+
+        <div className="p-4 sm:p-5 space-y-3 overflow-y-auto custom-scrollbar">
+          {mode === 'ringkasan' ? (
+            <>
+              <Section title="Kehadiran & Struk">
+                <Row l="Total Customer" v={String(r.customers)} />
+                <Row l="Struk Penjualan" v={String(r.receipts)} />
+                <Row l="Void Bill" v={`${r.voidBills?.count || 0} x · ${formatIDR(r.voidBills?.amount || 0)}`} tone="text-brick" />
+                <Row l="Void Item" v={`${r.voidItems?.count || 0} x · ${formatIDR(r.voidItems?.amount || 0)}`} tone="text-brick" />
+              </Section>
+              <Section title="Ringkasan Penjualan">
+                <Row l="Total Omzet" v={formatIDR(r.sales?.gross || 0)} />
+                <Row l="Diskon & Poin" v={formatIDR(r.sales?.discount || 0)} tone="text-brick" />
+                <Row l="Total Qty" v={String(r.sales?.qty || 0)} />
+                <Row l="Total Item" v={String(r.sales?.itemLines || 0)} />
+                <Row l="Omzet Bersih" v={formatIDR(r.sales?.net || 0)} strong tone="text-leaf-deep dark:text-leaf" />
+              </Section>
+              <Section title="Metode Pembayaran">
+                {(r.byMethod || []).length === 0 && <p className="text-[11px] font-bold text-ink-faint">Tidak ada transaksi.</p>}
+                {(r.byMethod || []).map(m => <Row key={m.method} l={`${m.method} (${m.count} struk)`} v={formatIDR(m.amount)} />)}
+              </Section>
+              <Section title="Jenis Pesanan">
+                {(r.byType || []).length === 0 && <p className="text-[11px] font-bold text-ink-faint">Tidak ada transaksi.</p>}
+                {(r.byType || []).map(t => <Row key={t.type} l={`${t.type} (${t.count})`} v={formatIDR(t.amount)} />)}
+              </Section>
+              <Section title="Settlement Kas">
+                <Row l="Modal Awal" v={formatIDR(r.cash?.opening || 0)} />
+                <Row l="Penjualan Tunai" v={formatIDR(r.cash?.cashSales || 0)} />
+                <Row l="Kas Masuk" v={formatIDR(r.cash?.cashIn || 0)} />
+                <Row l="Kas Keluar" v={formatIDR(r.cash?.cashOut || 0)} />
+                <Row l="Kas Seharusnya" v={formatIDR(r.cash?.expected || 0)} strong />
+                {r.cash?.counted != null && <Row l="Uang Dihitung" v={formatIDR(r.cash.counted)} />}
+                {r.cash?.selisih != null && <Row l="Selisih Kas" v={`${(r.cash.selisih || 0) >= 0 ? '+' : ''}${formatIDR(r.cash.selisih || 0)}`} strong tone={(r.cash.selisih || 0) === 0 ? 'text-leaf-deep dark:text-leaf' : 'text-brick'} />}
+              </Section>
+            </>
+          ) : (
+            <Section title={`Rincian Struk (${receipts.length})`}>
+              {receipts.length === 0 && <p className="text-[11px] font-bold text-ink-faint">Tidak ada struk pada periode ini.</p>}
+              {receipts.map(({ t, ms }) => (
+                <div key={t.cid || t.id} className="flex justify-between items-center gap-2 py-1 border-b border-line/60 dark:border-line-dark/60 last:border-0">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-extrabold text-ink dark:text-ink-inv truncate">#{String(t.clientTransactionId || t.id || '').slice(-8).toUpperCase()}</p>
+                    <p className="text-[9.5px] font-bold text-ink-faint">{new Date(ms).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} · {t.paymentMethod || t.payments?.[0]?.method || 'Lainnya'}{t.buyer ? ` · ${t.buyer}` : ''}</p>
+                  </div>
+                  <p className="money text-[11.5px] font-extrabold shrink-0">{formatIDR(netTotalOf(t))}</p>
+                </div>
+              ))}
+            </Section>
+          )}
+        </div>
+
+        <div className="p-4 sm:p-5 border-t border-line dark:border-line-dark flex gap-2">
+          <Button variant="secondary" className="flex-1 py-3" onClick={onClose}>Tutup</Button>
+          <Button className="flex-1 py-3" onClick={onPrint} disabled={busy} icon={StrukCetak}>Cetak Thermal</Button>
+        </div>
       </div>
     </div>
   );

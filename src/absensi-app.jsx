@@ -852,7 +852,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
           </div>
         )}
 
-        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em] pt-1 pb-2">WELP v15.3</p>
+        <p className="text-center text-[9px] font-extrabold text-ink-faint dark:text-ink-inv/30 uppercase tracking-[0.22em] pt-1 pb-2">WELP v21.5</p>
       </div>
     </div>
   );
@@ -1441,7 +1441,7 @@ const EmpAjukan = ({ session, me }) => {
 /* ============================================================
    TAB PROFIL, identitas, dokumen pribadi, ganti PIN, tema.
    ============================================================ */
-const EmpProfil = ({ session, dark, toggleDark, onLogout }) => {
+const EmpProfil = ({ session, dark, toggleDark, onLogout, onExit, embedded }) => {
   const { items: employees, updateRow } = useTenantCol({ id: session.lic }, 'karyawan', 'karyawan_db');
   const { items: payroll } = useTenantCol({ id: session.lic }, 'payroll', 'payroll_db');
   const { items: pengajuan } = useTenantCol({ id: session.lic }, 'pengajuan', 'pengajuan_db');
@@ -1825,7 +1825,7 @@ const TABS = [
   { id: 'profil', label: 'Profil', icon: Tim },
 ];
 
-export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark }) => {
+export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark, embedded, onExit }) => {
   // Waktu terpercaya di-offset sejak awal (header host), dipakai
   // watermark foto absensi sebelum data terkirim ke server.
   useEffect(() => { syncTrustedTime(); }, []);
@@ -1958,7 +1958,14 @@ export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark }) => {
       {tab === 'gaji' && <EmpGaji session={session} />}
       {tab === 'ajukan' && <EmpAjukan session={session} me={me} />}
       {tab === 'info' && <EmpInfo session={session} goBack={() => setTab('home')} />}
-      {tab === 'profil' && <EmpProfil session={session} dark={dark} toggleDark={toggleDark} onLogout={onLogout} />}
+      {tab === 'home' && embedded && onExit && (
+        <div className="max-w-md mx-auto w-full px-4 mt-1">
+          <button onClick={onExit} className="w-full py-2.5 rounded-2xl bg-surface dark:bg-surface-dark border border-line dark:border-line-dark text-[11px] font-extrabold text-ink-soft dark:text-ink-inv/70 press flex items-center justify-center gap-1.5">
+            <Beranda className="w-4 h-4" /> Kembali ke Beranda WELP
+          </button>
+        </div>
+      )}
+      {tab === 'profil' && <EmpProfil session={session} dark={dark} toggleDark={toggleDark} onLogout={onLogout} onExit={onExit} embedded={embedded} />}
 
       {/* BOTTOM NAV, safe-area aware */}
       <nav className="fixed bottom-0 inset-x-0 z-40 bg-surface/95 dark:bg-chrome-deep/95 backdrop-blur-md border-t border-line dark:border-chrome-edge pb-safe">
@@ -2033,7 +2040,7 @@ export const AbsensiApp = ({ preLic = '' }) => {
    Employee ID + PIN pribadi → sistem menulis karyawan.uid pada
    record miliknya (audit tertulis) → sesi berikutnya otomatis.
    ============================================================ */
-export const EmployeeArea = ({ licenseInfo, onLogout, dark, toggleDark, triggerAlert }) => {
+export const EmployeeArea = ({ licenseInfo, onLogout, dark, toggleDark, triggerAlert, embedded, onExit }) => {
   const { items: employees } = useTenantCol(licenseInfo, 'karyawan', 'karyawan_db');
   const [linkEmp, setLinkEmp] = useState(null);      // record kandidat saat verifikasi
   const [pin2, setPin2] = useState('');
@@ -2177,7 +2184,7 @@ export const EmployeeArea = ({ licenseInfo, onLogout, dark, toggleDark, triggerA
     empId: resolved.empId || '', role: resolved.role || 'employee',
     hasPin: !!(resolved.cred || resolved.pin), at: Date.now(), deviceId: getDeviceId(),
   };
-  return <EmployeeAreaApp session={session} onLogout={onLogout} dark={dark} toggleDark={toggleDark} />;
+  return <EmployeeAreaApp session={session} onLogout={onLogout} dark={dark} toggleDark={toggleDark} embedded={embedded} onExit={onExit} />;
 };
 
 /* Pemilih Employee ID sederhana (search + list) */

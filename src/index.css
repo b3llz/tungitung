@@ -197,7 +197,7 @@ button:disabled { cursor: not-allowed; }
 .receipt-code { height: 24px; display:flex; align-items:flex-end; justify-content:center; gap:2px; overflow:hidden; }
 .receipt-code i { display:block; width:2px; background:#14181D; border-radius:1px; }
 @media print {
-  .receipt-paper { width: 100%; max-width: 80mm; margin: 0 auto; padding: 5mm !important; font-size: 10px !important; }
+  .receipt-paper { width: 100%; max-width: 80mm; margin: 0 auto; padding: 5mm !important; font-size: 10px !important; font-family: ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif; }
   .receipt-paper img { max-width: 34mm; }
   .receipt-code { break-inside: avoid; }
 }

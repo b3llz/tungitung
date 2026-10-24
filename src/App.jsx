@@ -305,7 +305,7 @@ const MainAdminApp = ({ mode = 'management' }) => {
             <div className={active === 'home' ? 'block' : 'hidden'}><HomeTab licenseInfo={licenseInfo} setActive={setActive} activeTab={active} perms={perms} /></div>
             <div className={active === 'pos' ? 'block' : 'hidden'}><PosTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
             <div className={active === 'area' ? 'block' : 'hidden'}>
-              <EmployeeArea licenseInfo={licenseInfo} triggerAlert={triggerAlert} dark={dark} toggleDark={toggleDarkMode} onLogout={handleLogout} />
+              <EmployeeArea licenseInfo={licenseInfo} triggerAlert={triggerAlert} dark={dark} toggleDark={toggleDarkMode} onLogout={handleLogout} embedded onExit={() => goTab('home')} />
             </div>
             <div className={active === 'calc' ? 'block' : 'hidden'}><CalculatorTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} /></div>
             <div className={active === 'history' ? 'block' : 'hidden'}><HistoryTab activeTab={active} licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
@@ -351,7 +351,10 @@ const MainAdminApp = ({ mode = 'management' }) => {
         {popup.show && <Toast message={popup.message} type={popup.type} onClose={() => setPopup({ ...popup, show: false })} />}
 
         {/* BOTTOM NAV (mobile) */}
-        <BottomNav active={active} setActive={goTab} onMenu={() => setIsMenuOpen(true)} lowStockCount={lowStockCount} scope={scope} perms={perms} isStation={!!licenseInfo?.isStation} />
+        {/* v21.5 FIX NAV GANDA: saat di tab Absen & Gaji (Employee Area),
+            nav bawah milik Employee Area yang aktif. Nav utama DISEMBUNYIKAN
+            supaya tidak ada dua bar nav bertumpuk menutupi kartu & tombol. */}
+        {active !== 'area' && <BottomNav active={active} setActive={goTab} onMenu={() => setIsMenuOpen(true)} lowStockCount={lowStockCount} scope={scope} perms={perms} isStation={!!licenseInfo?.isStation} />}
 
       </div>
     </div>

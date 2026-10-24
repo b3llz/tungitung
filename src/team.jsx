@@ -1429,6 +1429,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
   const [copied, setCopied] = useState(false);
   const [rejectFor, setRejectFor] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
+  const [histEmp, setHistEmp] = useState('ALL');   // v21.5 filter riwayat per karyawan
   // v15 F4/I3: tab internal, 4 subfitur tidak lagi menumpuk di satu
   // halaman panjang: Monitoring · Review Cuti · QR Login · Rekap.
   const [subTab, setSubTab] = useState('monitor');
@@ -1496,9 +1497,9 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
     return { ...e, bid, work, telat, shift, target };
   });
 
-  // Riwayat dikelompokkan per hari (14 hari terakhir)
-  const histAgo = Date.now() - 14 * 864e5;
-  const hist = all.filter(a => a._t >= histAgo);
+  // Riwayat dikelompokkan per hari (30 hari terakhir, bisa difilter karyawan)
+  const histAgo = Date.now() - 30 * 864e5;
+  const hist = all.filter(a => a._t >= histAgo && (histEmp === 'ALL' || a.employeeCid === histEmp || a.employeeName === histEmp));
   const byDay = [];
   for (const a of hist) {
     let g = byDay.find(x => x.date === a._date);
@@ -1842,7 +1843,12 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
       </Card>
 
       {/* RIWAYAT PER HARI */}
-      <Card title="Riwayat Absensi (14 Hari)" icon={Riwayat}>
+      <Card title="Riwayat Absensi (30 Hari)" icon={Riwayat} action={
+        <select value={histEmp} onChange={e => setHistEmp(e.target.value)} className="field !w-auto !py-1.5 !text-[11px]">
+          <option value="ALL">Semua karyawan</option>
+          {staffScope.map(e => <option key={e.cid} value={e.cid}>{e.name}</option>)}
+        </select>
+      }>
         {byDay.length === 0 ? (
           <div className="py-6 text-center">
             <Riwayat className="w-10 h-10 text-ink-faint/40 mx-auto mb-2" />

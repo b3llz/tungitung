@@ -26,6 +26,7 @@ import {
   SHIFT_RESULT_META,
 } from './welp-core/tx.js';
 import { commitFinanceDoc, useSyncStatus, forceFlush, SYNC_STATE_META } from './welp-core/sync.js';
+import { computeShiftReport, eodRowOf } from './welp-core/shiftreport.js';
 import { permsOf } from './core.jsx';
 
 // ------------------------------------------------------------
@@ -76,6 +77,7 @@ export const useFinMirrors = (activeTab = null) => {
     settlements: safeParse('settlement_db', []),
     shiftLogs: safeParse('shift_log_db', []),
     cashEvents: safeParse('cash_event_db', []),
+    eodReports: safeParse('eod_reports_db', []),
     products: safeParse('product_stock_db', []),
     profile: safeParse('store_profile', {}),
   });
@@ -438,7 +440,20 @@ export const ShiftPanel = ({ licenseInfo, triggerAlert, compact = false }) => {
       {modal === 'open' && <OpenShiftModal licenseInfo={licenseInfo} branchId={branchId} stationCode={stationCode} actor={actor} actorRole={actorRole} onSave={(rec) => { saveShiftLog(rec); auditLog(licenseInfo, 'SHIFT_OPEN', { target: rec.id, modalAwal: rec.openingCash }, { actor, actorRole }); triggerAlert('Shift dibuka. Semua transaksi kini tercatat pada shift ini.', 'success'); }} onClose={() => setModal(null)} />}
       {modal === 'in' && <CashEventModal kind="CASH_IN" licenseInfo={licenseInfo} shift={shift} actor={actor} actorRole={actorRole} onSave={(rec) => { saveCashEvent(rec); auditLog(licenseInfo, 'KAS_MASUK', { target: rec.id, amount: rec.amount, note: rec.note }, { actor, actorRole }); triggerAlert(`Uang masuk ${formatIDR(rec.amount)} dicatat.`, 'success'); }} onClose={() => setModal(null)} />}
       {modal === 'out' && <CashEventModal kind="CASH_OUT" licenseInfo={licenseInfo} shift={shift} actor={actor} actorRole={actorRole} onSave={(rec) => { saveCashEvent(rec); auditLog(licenseInfo, 'KAS_KELUAR_SHIFT', { target: rec.id, amount: rec.amount, note: rec.note }, { actor, actorRole }); triggerAlert(`Uang keluar ${formatIDR(rec.amount)} dicatat.`, 'success'); }} onClose={() => setModal(null)} />}
-      {modal === 'close' && <CloseShiftModal licenseInfo={licenseInfo} shift={shift} calc={calc} allOrders={allOrders} cashEvents={cashEvents} actor={actor} actorRole={actorRole} onSave={(rec) => { saveShiftLog(rec); auditLog(licenseInfo, 'SHIFT_CLOSE', { target: rec.shiftLogId, expected: rec.expectedCash, actual: rec.actualCash, difference: rec.difference, result: rec.result }, { actor, actorRole }); triggerAlert(`Shift ditutup. Kas ${SHIFT_RESULT_META[rec.result]?.label || rec.result}: ${formatIDR(Math.abs(rec.difference))}.`, rec.result === 'MATCHED' ? 'success' : 'error'); }} onClose={() => setModal(null)} />}
+      {modal === 'close' && <CloseShiftModal licenseInfo={licenseInfo} shift={shift} calc={calc} allOrders={allOrders} cashEvents={cashEvents} actor={actor} actorRole={actorRole} onSave={(rec) => {
+        saveShiftLog(rec);
+        auditLog(licenseInfo, 'SHIFT_CLOSE', { target: rec.shiftLogId, expected: rec.expectedCash, actual: rec.actualCash, difference: rec.difference, result: rec.result }, { actor, actorRole });
+        // v21.5: laporan Akhir Hari (Z) dibuat OTOMATIS saat shift ditutup,
+        // dihitung dari data transaksi nyata, disimpan append-only
+        // (eod_reports_db) supaya bisa dibuka/cetak ulang kapan saja.
+        try {
+          const report = computeShiftReport({ orders: allOrders, shiftOpen: shift, shiftClose: rec, cashEvents, profile: safeParse('store_profile', {}) });
+          const row = { ...report, ...eodRowOf(report), id: report.reportNo, cid: report.reportNo, savedBy: actor, savedByRole: actorRole };
+          commitFinanceDoc({ tenantId: licenseInfo?.id, localKey: 'eod_reports_db', docId: report.reportNo, data: row });
+          auditLog(licenseInfo, 'EOD_REPORT_SAVE', { target: report.reportNo, net: report.sales.net, receipts: report.receipts }, { actor, actorRole });
+        } catch (e) { /* laporan gagal tidak boleh menggagalkan tutup shift */ }
+        triggerAlert(`Shift ditutup. Kas ${SHIFT_RESULT_META[rec.result]?.label || rec.result}: ${formatIDR(Math.abs(rec.difference))}. Laporan Akhir Hari tersimpan.`, rec.result === 'MATCHED' ? 'success' : 'error');
+      }} onClose={() => setModal(null)} />}
     </>
   );
 };

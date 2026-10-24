@@ -15,6 +15,42 @@ import { formatNumberDisplay, parseNumberID } from './core.jsx';
    mengimpor dari './ui' tetap satu sumber (brand.jsx). */
 export { BrandLogo, BrandLockup, Mascot, AppSymbol };
 
+/* ---------- DETEKSI PERANGKAT (v21.5) ----------
+   Aplikasi menyesuaikan kepadatan UI per perangkat: HP = padat,
+   tablet = sedang, PC = lega. Dipakai drawer, nav, dan list besar
+   agar teks tidak perlu di-scroll khusus hanya karena kebesaran. */
+export const deviceClassOf = (w) => (w < 640 ? 'phone' : w < 1024 ? 'tablet' : 'desktop');
+export const useDevice = () => {
+  const calc = () => deviceClassOf(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  const [dev, setDev] = useState(calc);
+  useEffect(() => {
+    let raf = 0;
+    const on = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setDev(calc())); };
+    window.addEventListener('resize', on);
+    window.addEventListener('orientationchange', on);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', on); window.removeEventListener('orientationchange', on); };
+  }, []);
+  return dev;
+};
+
+/* ---------- PAGE TITLE (v21.5 RESPONSIF) ----------
+   Dulu: judul + kontrol navigasi (Segmented/tombol) dipaksa satu baris
+   -> di HP kontrol menimpa judul (contoh: Operasional Tim).
+   Sekarang: di HP judul di ATAS, kontrol di baris tersendiri di bawah
+   (full width, bisa digeser), di tablet/PC tetap sejajar rapi. */
+export const PageTitle = ({ title, sub, right, mascot }) => (
+  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3 sm:gap-4 mb-5">
+    <div className={`min-w-0 ${mascot ? 'flex items-center gap-3' : ''}`}>
+      {mascot}
+      <div className="min-w-0">
+        {sub && <p className="text-[11px] font-bold text-flame-600 dark:text-apricot mb-0.5 flex items-center gap-1.5">{sub}</p>}
+        <h1 className="text-[22px] md:text-[26px] font-extrabold tracking-tight text-ink dark:text-ink-inv leading-tight">{title}</h1>
+      </div>
+    </div>
+    {right && <div className="w-full sm:w-auto shrink-0 min-w-0">{right}</div>}
+  </div>
+);
+
 /* ---------- TOAST ----------
    v21.3: posisi Mobile pindah ke ATAS-TENGAH (di bawah header)  
    tidak lagi bertabrakan dengan bottom nav, bar keranjang kasir,
@@ -86,16 +122,9 @@ export const Card = ({ children, className = "", title, icon: Icon, action, help
   </section>
 );
 
-/* ---------- PAGE TITLE (gaya WELP: besar, ramah) ---------- */
-export const PageTitle = ({ title, sub, right, mascot }) => (
-  <div className="flex justify-between items-end gap-4 mb-5">
-    <div className="min-w-0">
-      {sub && <p className="text-[11px] font-bold text-flame-600 dark:text-apricot mb-0.5 flex items-center gap-1.5">{sub}</p>}
-      <h1 className="text-[22px] md:text-[26px] font-extrabold tracking-tight text-ink dark:text-ink-inv leading-tight">{title}</h1>
-    </div>
-    {right && <div className="shrink-0">{right}</div>}
-  </div>
-);
+/* ---------- PAGE TITLE ---------- */
+/* v21.5: definisi PageTitle pindah ke atas file (versi responsif:
+   di HP judul dan kontrol nav tidak saling menimpa lagi). */
 
 /* ---------- NUMERIC INPUT ---------- */
 // v15 F4-H3: format ribuan gaya Indonesia (TITIK: 150.000), desimal
@@ -200,10 +229,10 @@ export const Toggle = ({ on, onClick, size = 'md' }) => (
 
 /* ---------- SEGMENTED CONTROL ---------- */
 export const Segmented = ({ items, value, onChange, className = "" }) => (
-  <div className={`inline-flex bg-surface dark:bg-surface-dark border-2 border-line dark:border-line-dark rounded-2xl p-1 shadow-card ${className}`}>
+  <div className={`inline-flex max-w-full bg-surface dark:bg-surface-dark border-2 border-line dark:border-line-dark rounded-2xl p-1 shadow-card overflow-x-auto no-scrollbar ${className}`}>
     {items.map(it => (
       <button key={it.id} onClick={() => onChange(it.id)}
-        className={`px-4 py-2 rounded-xl text-[11px] font-extrabold transition-all whitespace-nowrap ${value === it.id
+        className={`px-3.5 sm:px-4 py-2 rounded-xl text-[11px] font-extrabold transition-all whitespace-nowrap shrink-0 ${value === it.id
           ? 'bg-flame-600 text-white shadow-card'
           : 'text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv/80'}`}>
         {it.label}
