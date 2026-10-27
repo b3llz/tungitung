@@ -14,7 +14,7 @@ import { Badge, EmptyState, Mascot } from './ui';
 import {
   Kasir, HppCalc, Stok, Riwayat, KasKeluar, Laporan, Karyawan,
   Supplier, Uang, Qris, Perhatian, Omzet, LabaKotor, Terang,
-  BadgeCheck, JaringanBuddy, Absensi, Cabang
+  BadgeCheck, JaringanBuddy, Absensi, Cabang, RoketBuddy   // v21.5.2 FIX: RoketBuddy lupa diimpor -> Beranda crash "ada yang macet" saat ada data
 } from './welp-icons.jsx';
 import { canDo } from './welp-core/rbac.js';
 import { normRegions } from './welp-core/org.js';

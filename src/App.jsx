@@ -30,7 +30,7 @@ import { Gelap, Terang } from './welp-icons.jsx';
 
 import {
   db, auth, safeParse, syncSession, useBranding, ensureAuth, sanitizeSession,
-  hydrateDb, useTenantCol, refreshWelpSession, signOutWelpAccount,
+  hydrateDb, useTenantCol, refreshWelpSession, signOutWelpAccount, withTimeout,
 } from './core.jsx';
 import {
   permsOf as rbacPermsOf, canDo, NAV_PERMS_V20, resolveWorkspace,
@@ -129,8 +129,10 @@ const MainAdminApp = ({ mode = 'management' }) => {
           if (auth?.authStateReady) await auth.authStateReady();
           const user = auth?.currentUser;
           if (!user || user.isAnonymous) throw new Error('enterprise-auth-required');
-          // v21.2: functions dulu, fallback jalur langsung (plan Spark).
-          const fresh = await refreshWelpSession(user);
+          // v21.5.2 ANTI-MACET: batas waktu keras 8 dtk. Dulu tanpa timeout,
+          // jaringan ngadat membuat aplikasi menggantung di layar buka sampai
+          // ber menit-menit (refreshWelpSession menunggu server tanpa batas).
+          const fresh = await withTimeout(refreshWelpSession(user), 8000, 'Menyambungkan sesi WELP');
           if (cancelled) return;
           const safe = sanitizeSession(fresh);
           localStorage.setItem('app_license', JSON.stringify(safe));
@@ -138,8 +140,20 @@ const MainAdminApp = ({ mode = 'management' }) => {
           return;
         } catch (e) {
           if (!cancelled) {
-            localStorage.removeItem('app_license');
-            setLicenseInfo(null); setIsLocked(true);
+            // v21.5.2 ANTI-MACET: jangan buang sesi hanya karena server tak
+            // terjangkau. Pakai sesi cache agar aplikasi tetap terbuka (mode
+            // offline: data dari mirror lokal + cache Firestore). Sesi dibuang
+            // hanya bila memang tidak ada cache sama sekali.
+            try {
+              const safe = sanitizeSession(saved);
+              if (!safe?.id) throw new Error('no-cache');
+              localStorage.setItem('app_license', JSON.stringify(safe));
+              setLicenseInfo(safe); setIsLocked(false);
+              console.warn('[WELP sesi] Server belum terjangkau, masuk mode offline dari sesi cache.');
+            } catch (e2) {
+              localStorage.removeItem('app_license');
+              setLicenseInfo(null); setIsLocked(true);
+            }
           }
           return;
         }
@@ -235,9 +249,14 @@ const MainAdminApp = ({ mode = 'management' }) => {
       try {
         const saved = JSON.parse(localStorage.getItem('app_license') || 'null');
         if (saved?.authVersion === 2) {
-          // v21.2: refresh sesi dgn fallback jalur langsung (plan Spark).
-          const fresh = await refreshWelpSession(auth?.currentUser);
-          setLicenseInfo(sanitizeSession(fresh));
+          // v21.5.2 ANTI-MACET: timeout + fallback cache, dulu bisa menggantung
+          // saat ganti kasir di POS Station kalau jaringan sedang buruk.
+          try {
+            const fresh = await withTimeout(refreshWelpSession(auth?.currentUser), 8000, 'Menyegarkan sesi');
+            setLicenseInfo(sanitizeSession(fresh));
+          } catch (e) {
+            if (saved) setLicenseInfo(sanitizeSession(saved));
+          }
         } else if (saved) setLicenseInfo(saved);
       } catch (e) { setLicenseInfo(null); setIsLocked(true); }
     };

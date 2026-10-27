@@ -835,6 +835,7 @@ export const useTenantCol = (licenseInfo, name, localKey) => {
 
   useEffect(() => {
     if (!licId || !db) { setLive(false); return; }
+    let mirrorT = null;   // v21.5.2: timer debounce mirror lokal
     const ref = collection(db, 'tenants', licId, name);
     const unsub = onSnapshot(ref, snap => {
       const rows = snap.docs.map(d => ({ ...d.data(), cid: d.id }));
@@ -847,12 +848,20 @@ export const useTenantCol = (licenseInfo, name, localKey) => {
         return;
       }
       setItems(rows); setLive(true);
-      try { localStorage.setItem(localKey, JSON.stringify(rows)); } catch (e) { }
+      // v21.5.2 ANTI-MACET: mirror ke localStorage ditunda 700ms. Dulu setiap
+      // snapshot (termasuk gema tulisan lokal) langsung JSON.stringify
+      // koleksi besar (bisa megabyte) di main thread -> iPhone tersendat
+      // tiap checkout. Debounce: event rapat hanya ditulis sekali di akhir.
+      if (mirrorT) clearTimeout(mirrorT);
+      mirrorT = setTimeout(() => {
+        mirrorT = null;
+        try { localStorage.setItem(localKey, JSON.stringify(rows)); } catch (e) { }
+      }, 700);
     }, err => {
       console.warn('[WELP sync:' + name + ']', err.code || err.message);
       setLive(false);
     });
-    return () => unsub();
+    return () => { if (mirrorT) clearTimeout(mirrorT); unsub(); };
   }, [licId, name]);
 
   const pushLocal = (rows) => {
