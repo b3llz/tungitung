@@ -457,10 +457,15 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
     clearAuto();
     const p = photoRef.current || photo;
     if (!p || busy || submittedRef.current) return;
-    if (!geo) { setCamErr('Lokasi wajib aktif untuk absensi. Izinkan lokasi lalu coba lagi.'); return; }
-    if (!branch?.lat || !branch?.lng) { setCamErr('Lokasi cabang belum diatur owner. Absensi belum dapat diverifikasi.'); return; }
-    if (geo.acc && geo.acc > 100) { setCamErr(`Akurasi GPS terlalu rendah (±${geo.acc}m). Pindah ke area terbuka lalu coba lagi.`); return; }
-    if (outOfRadius) { setCamErr(`Kamu berada ${dist}m dari cabang. Absensi hanya bisa dilakukan di dalam radius cabang.`); return; }
+    // v21.5.3 FIX "TOMBOL KIRIM ABSEN KAYA MATI": dulu semua penolakan di
+    // bawah hanya menulis camErr, padahal camErr dirender DI DALAM kotak
+    // kamera yang sudah digantikan tampilan foto -> pesan tak pernah
+    // terlihat dan tombol terasa mati. Sekarang pesan muncul sebagai
+    // banner merah tepat di atas tombol kirim (terlihat di mode foto).
+    if (!geo) { setCamErr('Lokasi wajib aktif untuk absensi. Izinkan lokasi di pengaturan iPhone (Safari > Lokasi) lalu ambil ulang foto.'); return; }
+    if (!branch?.lat || !branch?.lng) { setCamErr('Lokasi cabang belum diatur owner. Minta owner buka Manajemen Cabang > titik GPS, lalu coba lagi.'); return; }
+    if (geo.acc && geo.acc > 100) { setCamErr(`Akurasi GPS terlalu rendah (±${geo.acc}m). Pindah ke area terbuka, tunggu ±10 detik, lalu ambil ulang foto.`); return; }
+    if (outOfRadius) { setCamErr(`Kamu berada ${dist}m dari cabang (maks ${aturan.radius}m). Absensi hanya bisa dilakukan di dalam radius cabang.`); return; }
     submittedRef.current = true;
     setBusy(true);
     // v21.3: penjaga waktu 45 detik, apapun yang macet (GPS, upload,
@@ -485,8 +490,16 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-[120] bg-chrome-deep/75 dark:bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center animate-fade-in" onClick={busy ? undefined : onClose}>
+    <div className="fixed inset-0 z-[120] bg-chrome-deep/95 dark:bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center animate-fade-in" onClick={busy ? undefined : onClose}>
       <div className="w-full sm:max-w-md bg-surface dark:bg-surface-dark rounded-t-[1.75rem] sm:rounded-[1.75rem] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] max-h-[92vh] overflow-y-auto custom-scrollbar animate-slide-up" onClick={e => e.stopPropagation()}>
+        {/* v21.5.3: pesan penolakan tampil DI SINI (selalu terlihat,
+            termasuk setelah foto diambil — dulu tersembunyi di kotak kamera) */}
+        {camErr && (
+          <div className="mb-3 px-4 py-3 rounded-2xl bg-brick-soft dark:bg-brick/10 border border-brick/30 text-brick-deep dark:text-brick text-[11.5px] font-bold leading-relaxed flex items-start gap-2 animate-pop">
+            <BahayaBuddy className="w-4 h-4 shrink-0 mt-0.5" />
+            <span className="min-w-0">{camErr}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
             <span className={`w-10 h-10 rounded-2xl flex items-center justify-center ${type === 'in' ? 'bg-leaf-soft dark:bg-leaf/15 text-leaf-deep dark:text-leaf' : 'bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold'}`}>
@@ -550,9 +563,8 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
               )}
             </div>
             {!busy && (
-              <div className="flex items-center gap-2 mt-2">
-                <Button onClick={() => submit(false)} className="flex-1 py-3.5 text-sm" icon={type === 'in' ? AbsenMasuk : AbsenPulang}>Kirim Sekarang</Button>
-                <button onClick={() => { clearAuto(); setPhoto(null); photoRef.current = null; submittedRef.current = false; startCam(); }} className="py-2.5 px-3 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition shrink-0">Ambil ulang</button>
+              <div className="flex items-center justify-center mt-2">
+                <button onClick={() => { clearAuto(); setPhoto(null); photoRef.current = null; submittedRef.current = false; startCam(); }} className="py-2.5 px-3 text-[11px] font-extrabold text-ink-faint hover:text-ink-soft dark:hover:text-ink-inv transition shrink-0">Ambil ulang foto</button>
               </div>
             )}
             {!busy && <p className="text-[9.5px] text-ink-faint font-semibold text-center mt-2">Absen dikirim otomatis beberapa detik setelah foto jadi. Tanggal, jam, alamat lengkap & koordinat GPS tertulis di foto.</p>}
@@ -600,10 +612,11 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
           )}
         </div>
 
-        {/* Kirim: otomatis setelah foto; tombol darurat tetap ada */}
+        {/* Kirim: SATU tombol saja (dulu ada 2: "Kirim Sekarang" + ini,
+            membingungkan). Otomatis terkirim juga beberapa detik setelah foto. */}
         {photo && !busy && (
           <Button onClick={() => submit(false)} className="w-full py-4 mt-4 text-sm" icon={type === 'in' ? AbsenMasuk : AbsenPulang}>
-            {countdown != null ? `Kirim Sekarang (otomatis ${countdown}d)` : `Kirim Absen ${type === 'in' ? 'Masuk' : 'Pulang'}`}
+            {countdown != null ? `Kirim Absen ${type === 'in' ? 'Masuk' : 'Pulang'} (otomatis ${countdown}d)` : `Kirim Absen ${type === 'in' ? 'Masuk' : 'Pulang'}`}
           </Button>
         )}
         {busy && (
@@ -626,7 +639,7 @@ const AbsenFlow = ({ type, session, branch, branchName, aturan, brandLogo, onClo
    BERANDA KARYAWAN, jam realtime, status hari ini, tombol absen,
    ringkasan gaji & pengajuan.
    ============================================================ */
-const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak }) => {
+const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak, onExit }) => {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
 
@@ -664,34 +677,41 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
 
   return (
     <div>
-      {/* HEADER */}
-      <div className="bg-chrome-deep px-4 pt-5 pb-6 relative overflow-hidden">
-        <div className="absolute -right-12 -top-14 w-48 h-48 rounded-full bg-flame-500/20 blur-2xl pointer-events-none" />
+      {/* HEADER — v21.5.3: adaptif mode terang (dulu selalu gelap = keluhan
+          "card hitam di light mode") + tombol kembali selalu terlihat di
+          ATAS tanpa scroll (dulu tersembunyi di bawah halaman) */}
+      <div className="bg-surface dark:bg-chrome-deep border-b border-line dark:border-chrome-edge/60 px-4 pt-4 pb-6 relative overflow-hidden">
+        <div className="absolute -right-12 -top-14 w-48 h-48 rounded-full bg-flame-500/15 dark:bg-flame-500/20 blur-2xl pointer-events-none" />
         <div className="max-w-md mx-auto relative">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-apricot/85 text-[9px] font-extrabold uppercase tracking-[0.24em] flex items-center gap-1.5"><Beranda className="w-3.5 h-3.5" /> Employee Area</p>
-              <h1 className="font-display font-extrabold text-xl text-ink-inv tracking-tight mt-1">Halo, {firstName}</h1>
-              <p className="text-[10.5px] font-bold text-ink-inv/55 mt-0.5 flex items-center gap-1.5 flex-wrap">
+          <div className="flex justify-between items-start gap-2">
+            <div className="min-w-0">
+              <p className="text-flame-600 dark:text-apricot/85 text-[9px] font-extrabold uppercase tracking-[0.24em] flex items-center gap-1.5"><Beranda className="w-3.5 h-3.5" /> Employee Area</p>
+              <h1 className="font-display font-extrabold text-xl text-ink dark:text-ink-inv tracking-tight mt-1">Halo, {firstName}</h1>
+              <p className="text-[10.5px] font-bold text-ink-faint dark:text-ink-inv/55 mt-0.5 flex items-center gap-1.5 flex-wrap">
                 <Cabang className="w-3.5 h-3.5" /> {branchName}
                 <span className="font-mono">ID {session.empId || 'belum diatur'}</span>
-                <span className="inline-flex items-center gap-1 text-[8.5px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-white/10 text-ink-inv/85">{roleLabelOf(session.role)}</span>
-                <span className={`inline-flex items-center gap-1 text-[8.5px] font-extrabold uppercase tracking-wider ${live ? 'text-leaf' : 'text-gold'}`}><span className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-leaf animate-pulse-dot' : 'bg-gold'}`} />{live ? 'Realtime' : 'Lokal'}</span>
+                <span className="inline-flex items-center gap-1 text-[8.5px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-flame-50 dark:bg-white/10 text-flame-700 dark:text-ink-inv/85">{roleLabelOf(session.role)}</span>
+                <span className={`inline-flex items-center gap-1 text-[8.5px] font-extrabold uppercase tracking-wider ${live ? 'text-leaf-deep dark:text-leaf' : 'text-gold-deep dark:text-gold'}`}><span className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-leaf animate-pulse-dot' : 'bg-gold'}`} />{live ? 'Realtime' : 'Lokal'}</span>
               </p>
             </div>
+            {onExit && (
+              <button onClick={onExit} className="shrink-0 py-2 px-3 rounded-xl bg-paper dark:bg-white/10 border border-line dark:border-white/10 text-[10px] font-extrabold text-ink-soft dark:text-ink-inv/80 press flex items-center gap-1.5 hover:border-flame-300 transition">
+                <ArrowLeft className="w-3.5 h-3.5" /> WELP Business
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       <div className="max-w-md mx-auto px-4 space-y-4 pb-32">
         {/* JAM REALTIME */}
-        <div className="card !rounded-3xl overflow-hidden !bg-chrome-deep !border-chrome-edge relative mt-4">
-          <div className="absolute -left-10 -bottom-12 w-40 h-40 rounded-full bg-flame-500/15 blur-2xl pointer-events-none" />
+        <div className="card !rounded-3xl overflow-hidden !bg-flame-600 dark:!bg-chrome-deep !border-flame-500 dark:!border-chrome-edge relative mt-4">
+          <div className="absolute -left-10 -bottom-12 w-40 h-40 rounded-full bg-white/15 dark:bg-flame-500/15 blur-2xl pointer-events-none" />
           <div className="p-6 text-center relative">
-            <p className="text-apricot/85 text-[10px] font-extrabold uppercase tracking-[0.22em] mb-2">{dayLabel(now)}</p>
-            <p className="font-display text-[52px] leading-none font-extrabold text-ink-inv money tracking-tight">{fmtClock(now)}</p>
-            <p className="text-ink-inv/50 text-[10px] font-bold mt-2.5 flex items-center justify-center gap-1.5">
-              <WaktuReal className="w-4 h-4 text-apricot" /> Jam HP hanya tampil. Jam absen dikunci server.
+            <p className="text-white/85 dark:text-apricot/85 text-[10px] font-extrabold uppercase tracking-[0.22em] mb-2">{dayLabel(now)}</p>
+            <p className="font-display text-[52px] leading-none font-extrabold text-white dark:text-ink-inv money tracking-tight">{fmtClock(now)}</p>
+            <p className="text-white/70 dark:text-ink-inv/50 text-[10px] font-bold mt-2.5 flex items-center justify-center gap-1.5">
+              <WaktuReal className="w-4 h-4 text-white dark:text-apricot" /> Jam HP hanya tampil. Jam absen dikunci server.
             </p>
           </div>
         </div>
@@ -814,7 +834,7 @@ const EmpHome = ({ session, goTab, openFlow, myShift, hasShifts, myTarget, myHak
           <div className="mt-4 p-3 rounded-2xl bg-paper dark:bg-white/[.03] border border-line dark:border-line-dark">
             <p className="text-[10px] font-extrabold text-ink-soft dark:text-ink-inv/70 flex items-center gap-1.5 mb-1"><Lokasi className="w-3.5 h-3.5 text-flame-600 dark:text-apricot" /> Aturan absensi cabang</p>
             <p className="text-[10px] text-ink-faint font-semibold leading-relaxed">
-              Masuk {aturan.jamMasuk}, toleransi {aturan.toleransi} menit, radius {aturan.radius} meter{branch?.lat != null ? '. Titik GPS cabang aktif' : '. Titik GPS cabang belum diatur owner'}
+              Masuk {aturan.jamMasuk}, pulang {aturan.jamPulang || '17:00'}, toleransi {aturan.toleransi} menit, radius {aturan.radius} meter{branch?.lat != null ? '. Titik GPS cabang aktif' : '. Titik GPS cabang belum diatur owner'}
             </p>
           </div>
         </div>
@@ -1055,7 +1075,7 @@ const EmpGaji = ({ session }) => {
       {/* MODAL RINCIAN SLIP, v21.3: ruang bawah aman (safe-area) supaya
           baris terakhir TIDAK PERNAH tertutup navbar / home indicator */}
       {view && (
-        <div className="fixed inset-0 z-[120] bg-chrome-deep/75 dark:bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center animate-fade-in" onClick={() => setView(null)}>
+        <div className="fixed inset-0 z-[120] bg-chrome-deep/95 dark:bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center animate-fade-in" onClick={() => setView(null)}>
           <div className="w-full sm:max-w-md bg-surface dark:bg-surface-dark rounded-t-[1.75rem] sm:rounded-[1.75rem] p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] max-h-[92vh] overflow-y-auto custom-scrollbar animate-slide-up" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-start mb-4">
               <div>
@@ -1486,10 +1506,10 @@ const EmpProfil = ({ session, dark, toggleDark, onLogout, onExit, embedded }) =>
 
       <h2 className="font-display font-extrabold text-lg text-ink dark:text-ink-inv flex items-center gap-2"><Tim className="w-5 h-5 text-flame-600 dark:text-apricot" /> Profil</h2>
 
-      {/* KARTU IDENTITAS */}
-      <div className="card !rounded-3xl overflow-hidden !bg-chrome-deep !border-chrome-edge">
+      {/* KARTU IDENTITAS — v21.5.3 adaptif light mode */}
+      <div className="card !rounded-3xl overflow-hidden !bg-flame-600 dark:!bg-chrome-deep !border-flame-500 dark:!border-chrome-edge">
         <div className="p-5 flex items-center gap-3.5 relative">
-          <div className="absolute -right-8 -top-10 w-32 h-32 rounded-full bg-flame-500/20 blur-2xl pointer-events-none" />
+          <div className="absolute -right-8 -top-10 w-32 h-32 rounded-full bg-white/15 dark:bg-flame-500/20 blur-2xl pointer-events-none" />
           <span className="w-14 h-14 rounded-3xl bg-flame-500 text-white flex items-center justify-center font-extrabold text-xl shrink-0">{session.employeeName[0]}</span>
           <div className="min-w-0">
             <p className="font-display font-extrabold text-lg text-ink-inv truncate">{session.employeeName}</p>
@@ -1952,7 +1972,7 @@ export const EmployeeAreaApp = ({ session, onLogout, dark, toggleDark, embedded,
     <div className="min-h-screen bg-paper dark:bg-night text-ink dark:text-ink-inv animate-fade-in">
       {popup.show && <Toast message={popup.message} type={popup.type} onClose={() => setPopup(p => ({ ...p, show: false }))} />}
 
-      {tab === 'home' && <EmpHome session={session} goTab={setTab} openFlow={setFlow} myShift={myShift} hasShifts={branchShifts.length > 0} myTarget={myTarget} myHak={hakCutiOf(cutiPolicyOf(settings), me)} />}
+      {tab === 'home' && <EmpHome session={session} goTab={setTab} openFlow={setFlow} myShift={myShift} hasShifts={branchShifts.length > 0} myTarget={myTarget} myHak={hakCutiOf(cutiPolicyOf(settings), me)} onExit={embedded ? onExit : null} />}
       {/* v21.4: kartu Pengumuman, Jadwal Saya, Poin Saya, Target Saya */}
       {tab === 'home' && <EmpExtras session={session} />}
       {tab === 'absensi' && <EmpAbsensi session={session} target={myTarget} />}

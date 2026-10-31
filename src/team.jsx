@@ -106,8 +106,8 @@ const StepField = ({ label, value, onChange, min, max, step, unit, hint }) => {
         <div className="relative flex-1 min-w-0">
           <input type="text" inputMode="numeric" value={String(value)}
             onChange={e => onChange(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
-            className="field text-center !pr-14" />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-extrabold text-ink-faint pointer-events-none uppercase">{unit}</span>
+            className="field text-center !pr-12" />
+          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-extrabold text-ink-faint pointer-events-none uppercase max-w-[46px] overflow-hidden text-ellipsis">{unit}</span>
         </div>
         <button type="button" aria-label={`Tambah ${unit}`}
           onClick={() => onChange(Math.min(max, num + step))}
@@ -237,7 +237,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
   // v20: region/area untuk struktur organisasi Pusat → Region → Cabang.
   const { items: regions } = useTenantCol(licenseInfo, 'regions', 'regions_db');
   const regionOpts = normRegions(regions);
-  const [form, setForm] = useState({ name: '', location: '', password: '', pin: '', role: 'admin', payrollEnabled: false, jamMasuk: DEFAULT_ATURAN.jamMasuk, toleransi: DEFAULT_ATURAN.toleransi, radius: DEFAULT_ATURAN.radius, hkBulan: DEFAULT_ATURAN.hkBulan, shifts: [], regionId: '' });
+  const [form, setForm] = useState({ name: '', location: '', password: '', pin: '', role: 'admin', payrollEnabled: false, jamMasuk: DEFAULT_ATURAN.jamMasuk, jamPulang: DEFAULT_ATURAN.jamPulang, toleransi: DEFAULT_ATURAN.toleransi, radius: DEFAULT_ATURAN.radius, hkBulan: DEFAULT_ATURAN.hkBulan, shifts: [], regionId: '' });
   const [pin, setPin] = useState('');
   const [geo, setGeo] = useState(null);
   const [geoBusy, setGeoBusy] = useState(false);
@@ -246,7 +246,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
   const [revealPinId, setRevealPinId] = useState(null);   // PIN cabang: tersembunyi, tampil sesaat saat diminta
   const [editingId, setEditingId] = useState(null);
 
-  const resetForm = () => { setForm({ name: '', location: '', password: '', pin: '', role: 'admin', payrollEnabled: false, jamMasuk: DEFAULT_ATURAN.jamMasuk, toleransi: DEFAULT_ATURAN.toleransi, radius: DEFAULT_ATURAN.radius, hkBulan: DEFAULT_ATURAN.hkBulan, shifts: [], regionId: '' }); setPin(''); setGeo(null); setGeoAddr(null); setEditingId(null); };
+  const resetForm = () => { setForm({ name: '', location: '', password: '', pin: '', role: 'admin', payrollEnabled: false, jamMasuk: DEFAULT_ATURAN.jamMasuk, jamPulang: DEFAULT_ATURAN.jamPulang, toleransi: DEFAULT_ATURAN.toleransi, radius: DEFAULT_ATURAN.radius, hkBulan: DEFAULT_ATURAN.hkBulan, shifts: [], regionId: '' }); setPin(''); setGeo(null); setGeoAddr(null); setEditingId(null); };
 
   // v21.3: AMBIL TITIK GPS + ALAMAT LENGKAP OTOMATIS.
   // Setelah izin lokasi diberikan, sistem mengisi sendiri nama jalan,
@@ -294,6 +294,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
       ...(credPin ? { credPin, pin: null } : {}),
       aturan: {
         jamMasuk: form.jamMasuk || DEFAULT_ATURAN.jamMasuk,
+        jamPulang: form.jamPulang || DEFAULT_ATURAN.jamPulang,
         toleransi: Math.max(0, parseInt(form.toleransi, 10) || 0),
         radius: Math.max(20, parseInt(form.radius, 10) || DEFAULT_ATURAN.radius),
         hkBulan: Math.min(31, Math.max(0, parseInt(form.hkBulan, 10) || 0))
@@ -318,7 +319,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
     setEditingId(b.cid);
     // v15 F0: password tidak lagi bisa dibaca (tersimpan hash)  
     // kolom kosong berarti "tidak diganti".
-    setForm({ name: b.name || '', location: b.location || '', password: '', pin: '', role: b.role || 'admin', payrollEnabled: !!b.payrollEnabled, jamMasuk: at.jamMasuk, toleransi: at.toleransi, radius: at.radius, hkBulan: at.hkBulan, shifts: normShifts(b.shifts), regionId: b.regionId || '' });
+    setForm({ name: b.name || '', location: b.location || '', password: '', pin: '', role: b.role || 'admin', payrollEnabled: !!b.payrollEnabled, jamMasuk: at.jamMasuk, jamPulang: at.jamPulang, toleransi: at.toleransi, radius: at.radius, hkBulan: at.hkBulan, shifts: normShifts(b.shifts), regionId: b.regionId || '' });
     setPin(''); setGeo(b.lat != null ? { lat: b.lat, lng: b.lng, acc: b.geoAcc } : null);
     setGeoAddr(b.addrDetail || null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -400,15 +401,24 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
             {editingId && <p className="text-[10px] text-ink-faint font-semibold mt-2">Biarkan kosong bila tidak ingin mengganti PIN lama.</p>}
           </FieldCard>
 
-          {/* ATURAN ABSENSI, unit selalu terlihat: menit & meter */}
+          {/* ATURAN ABSENSI — v21.5.3: 1 kolom di HP (dulu 2 kolom = input
+              HK/toleransi sempit, angka ketutup label unit, "gabisa diinput"),
+              JAM PULANG kini ADA (dulu hilang, hanya jam masuk) */}
           <FieldCard icon={WaktuReal} label="Aturan Absensi Karyawan" desc="Dipakai otomatis di Aplikasi Karyawan & monitoring owner">
-            <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 min-w-0">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0">
               <div className="min-w-0">
                 <label className="kicker block mb-1.5">Jam Masuk</label>
                 <input type="time" className="field !px-2.5 !py-2.5 w-full max-w-full min-w-0 text-[13px] block"
                   style={{ WebkitAppearance: 'none', appearance: 'none' }} value={form.jamMasuk}
                   onChange={e => setForm({ ...form, jamMasuk: e.target.value })} />
                 <p className="text-[9.5px] font-semibold text-ink-faint mt-1.5">Batas hadir tiap hari</p>
+              </div>
+              <div className="min-w-0">
+                <label className="kicker block mb-1.5">Jam Pulang</label>
+                <input type="time" className="field !px-2.5 !py-2.5 w-full max-w-full min-w-0 text-[13px] block"
+                  style={{ WebkitAppearance: 'none', appearance: 'none' }} value={form.jamPulang}
+                  onChange={e => setForm({ ...form, jamPulang: e.target.value })} />
+                <p className="text-[9.5px] font-semibold text-ink-faint mt-1.5">Acuan jam kerja & tampilan karyawan</p>
               </div>
               <div className="min-w-0">
                 <StepField label="Target HK / Bulan" unit="hari" value={form.hkBulan}
@@ -485,7 +495,7 @@ export const BranchTab = ({ licenseInfo, triggerAlert }) => {
                   </p>
                   <p className="text-[10px] text-ink-faint font-bold uppercase tracking-wider mt-1.5 flex items-center gap-3 flex-wrap">
                     <span className="flex items-center gap-1"><Tim className="w-3.5 h-3.5" /> {staff} karyawan</span>
-                    <span className="flex items-center gap-1 normal-case tracking-normal"><WaktuReal className="w-3.5 h-3.5" /> masuk {at.jamMasuk}, toleransi {at.toleransi} menit, radius {at.radius} meter</span>
+                    <span className="flex items-center gap-1 normal-case tracking-normal"><WaktuReal className="w-3.5 h-3.5" /> masuk {at.jamMasuk}, pulang {at.jamPulang || '17:00'}, toleransi {at.toleransi} menit, radius {at.radius} meter</span>
                     {at.hkBulan > 0 && <span className="flex items-center gap-1 normal-case tracking-normal">target {at.hkBulan} HK/bulan</span>}
                   </p>
                   {(normShifts(b.shifts).length > 0) && (
@@ -1639,7 +1649,7 @@ export const AbsensiTab = ({ licenseInfo, triggerAlert, sessionRole, sessionBran
             return (
               <div key={bid}>
                 <p className="kicker px-0.5 mb-2 mt-1 flex items-center gap-2">{bName}
-                  <span className="text-[9px] font-extrabold normal-case tracking-normal text-ink-faint/70">masuk {at.jamMasuk}, toleransi {at.toleransi} menit, radius {at.radius} meter</span>
+                  <span className="text-[9px] font-extrabold normal-case tracking-normal text-ink-faint/70">masuk {at.jamMasuk}, pulang {at.jamPulang || '17:00'}, toleransi {at.toleransi} menit, radius {at.radius} meter</span>
                 </p>
                 <div className="space-y-2">
                   {list.map(e => {

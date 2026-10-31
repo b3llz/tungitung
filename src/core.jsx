@@ -1144,7 +1144,7 @@ export const dateKeyOf = (ms) => {
 //   aturan: { jamMasuk: 'HH:MM', toleransi: menit, radius: meter }
 // Dipakai halaman absensi karyawan & monitoring owner utk kategori.
 // ============================================================
-export const DEFAULT_ATURAN = { jamMasuk: '09:00', toleransi: 15, radius: 150, hkBulan: 26 };
+export const DEFAULT_ATURAN = { jamMasuk: '09:00', jamPulang: '17:00', toleransi: 15, radius: 150, hkBulan: 26 };
 export const getAturan = (branch) => ({
   ...DEFAULT_ATURAN,
   ...(branch?.aturan || {}),

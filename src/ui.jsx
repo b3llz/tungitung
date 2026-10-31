@@ -67,7 +67,7 @@ export const Toast = ({ message, type = 'success', onClose }) => {
   return createPortal(
     <div className="fixed z-[9999] left-1/2 -translate-x-1/2 top-[calc(0.75rem+env(safe-area-inset-top,0px))] sm:left-auto sm:right-5 sm:translate-x-0 w-[calc(100vw-1.5rem)] sm:w-auto sm:max-w-[360px] max-w-[360px] animate-fade-in" role={isError ? 'alert' : 'status'} aria-live={isError ? 'assertive' : 'polite'}>
       <div className={`flex items-start gap-2.5 p-2.5 pr-2 rounded-2xl shadow-pop border backdrop-blur-xl ${
-        isError ? 'bg-brick-deep/95 border-brick/40 text-white' : 'bg-chrome-deep/95 border-chrome-edge text-ink-inv'
+        isError ? 'bg-brick-deep/95 border-brick/40 text-white' : 'bg-surface/95 dark:bg-chrome-deep/95 border-line dark:border-chrome-edge text-ink dark:text-ink-inv'
       }`}>
         <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isError ? 'bg-white/15' : 'bg-flame-500 text-white'}`}>
           {isError ? <AlertCircle className="w-4 h-4" /> : <Check className="w-4 h-4" />}
@@ -76,7 +76,7 @@ export const Toast = ({ message, type = 'success', onClose }) => {
           <p className="text-[8.5px] font-extrabold uppercase tracking-[.18em] opacity-60">{isError ? 'Perlu perhatian' : 'Berhasil'}</p>
           <p className="text-[11px] font-bold leading-snug break-words mt-0.5 line-clamp-3">{message}</p>
         </div>
-        <button type="button" onClick={onClose} aria-label="Tutup notifikasi" className="w-7 h-7 rounded-lg flex items-center justify-center opacity-60 hover:opacity-100 hover:bg-white/10 transition shrink-0">
+        <button type="button" onClick={onClose} aria-label="Tutup notifikasi" className={`w-7 h-7 rounded-lg flex items-center justify-center opacity-60 hover:opacity-100 transition shrink-0 ${isError ? 'hover:bg-white/10' : 'hover:bg-black/5 dark:hover:bg-white/10'}`}>
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -437,3 +437,33 @@ export const MascotGreeting = ({ pose = 'menyapa', title, note, className = '' }
     </div>
   </div>
 );
+
+/* ============================================================
+   SAFE (v21.5.3) — pagar error PER TAB. Dulu satu error di satu
+   fitur menjatuhkan SELURUH aplikasi ke layar "Welp, ada yang
+   macet". Kini hanya fitur itu yang menampilkan kartu error,
+   fitur lain tetap jalan normal, dan KODE ERROR aslinya tampil
+   supaya laporan dari pengguna bisa langsung ditelusuri.
+   ============================================================ */
+export class Safe extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(error) { return { err: error }; }
+  componentDidCatch(error, info) {
+    try { console.error('[WELP Safe:' + (this.props.name || '?') + ']', error, info && info.componentStack); } catch (e) { }
+  }
+  render() {
+    if (this.state.err) {
+      const msg = String((this.state.err && this.state.err.message) || this.state.err || 'Unknown error').slice(0, 200);
+      return (
+        <div className="card p-5 my-4 text-center max-w-md mx-auto">
+          <span className="w-11 h-11 rounded-2xl bg-gold-soft dark:bg-gold/15 text-gold-deep dark:text-gold flex items-center justify-center mx-auto mb-2.5"><AlertCircle className="w-5 h-5" /></span>
+          <p className="font-extrabold text-[13px] text-ink dark:text-ink-inv">{this.props.label || 'Bagian ini'} sementara tidak bisa dibuka</p>
+          <p className="text-[10.5px] font-semibold text-ink-faint mt-1 leading-relaxed">Tenang, fitur lain tetap normal. Coba buka lagi, atau lapor kode di bawah ke admin.</p>
+          <p className="mt-2.5 text-[9px] font-mono text-ink-faint/80 bg-paper dark:bg-white/5 border border-line dark:border-line-dark rounded-xl px-3 py-2 break-words select-text" style={{ userSelect: 'text' }}>{msg}</p>
+          <button onClick={() => this.setState({ err: null })} className="mt-3 px-4 py-2.5 rounded-2xl bg-flame-600 hover:bg-flame-500 text-white text-xs font-extrabold press transition">Coba Buka Lagi</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}

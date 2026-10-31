@@ -18,6 +18,7 @@ class ErrorBoundary extends React.Component {
   }
   render() {
     if (this.state.hasError) {
+      const code = this.state.msg || 'Tidak diketahui';
       return (
         <div className="min-h-screen flex items-center justify-center p-6 bg-chrome-deep text-white font-sans">
           <div className="max-w-sm text-center">
@@ -25,7 +26,10 @@ class ErrorBoundary extends React.Component {
             <h1 className="font-display text-xl font-extrabold mb-2">Welp, ada yang macet</h1>
             <p className="text-sm opacity-70 mb-5">Aplikasi menemui kendala saat memuat halaman ini. Coba muat ulang, ya.</p>
             <button onClick={() => window.location.reload()} className="bg-flame-500 hover:bg-flame-400 text-white px-6 py-3 rounded-2xl font-extrabold">Muat Ulang</button>
-            <p className="text-[10px] opacity-40 mt-4">Kode error: WELP-UI. Muat ulang halaman atau hubungi admin jika masalah berulang.</p>
+            {/* v21.5.3: tampilkan KODE ERROR ASLI supaya screenshot dari
+                pengguna bisa langsung ditelusuri (dulu cuma "WELP-UI" statis) */}
+            <p className="text-[10px] font-mono opacity-60 mt-4 break-words select-text" style={{ userSelect: 'text' }}>Kode error: WELP-UI · {code}</p>
+            <p className="text-[10px] opacity-40 mt-2">Muat ulang halaman atau hubungi admin jika masalah berulang.</p>
             <div className="mt-6 flex justify-center"><AppSymbol className="w-8 h-8 opacity-60" /></div>
           </div>
         </div>

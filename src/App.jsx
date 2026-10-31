@@ -36,7 +36,7 @@ import {
   permsOf as rbacPermsOf, canDo, NAV_PERMS_V20, resolveWorkspace,
   scopeOf, normScope,
 } from './welp-core/rbac.js';
-import { Toast } from './ui';
+import { Toast, Safe } from './ui';
 import { LockScreen, BannedScreen, RestoredScreen } from './lock';
 import { HomeTab } from './home';
 import { CalculatorTab } from './hpp';
@@ -321,45 +321,45 @@ const MainAdminApp = ({ mode = 'management' }) => {
 
           {/* KONTEN, pola mount keep-alive dipertahankan */}
           <main className="px-4 sm:px-6 pt-5 pb-40 lg:pb-12 lg:px-8 max-w-[1400px] mx-auto">
-            <div className={active === 'home' ? 'block' : 'hidden'}><HomeTab licenseInfo={licenseInfo} setActive={setActive} activeTab={active} perms={perms} /></div>
-            <div className={active === 'pos' ? 'block' : 'hidden'}><PosTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
+            <div className={active === 'home' ? 'block' : 'hidden'}><Safe label="Beranda"><HomeTab licenseInfo={licenseInfo} setActive={setActive} activeTab={active} perms={perms} /></Safe></div>
+            <div className={active === 'pos' ? 'block' : 'hidden'}><Safe label="Kasir (POS)"><PosTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></Safe></div>
             <div className={active === 'area' ? 'block' : 'hidden'}>
               <EmployeeArea licenseInfo={licenseInfo} triggerAlert={triggerAlert} dark={dark} toggleDark={toggleDarkMode} onLogout={handleLogout} embedded onExit={() => goTab('home')} />
             </div>
-            <div className={active === 'calc' ? 'block' : 'hidden'}><CalculatorTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} /></div>
-            <div className={active === 'history' ? 'block' : 'hidden'}><HistoryTab activeTab={active} licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
-            <div className={active === 'cashout' ? 'block' : 'hidden'}><CashOutTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
-            <div className={active === 'discount' ? 'block' : 'hidden'}><DiscountTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
-            <div className={active === 'customers' ? 'block' : 'hidden'}><CustomersTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
-            <div className={active === 'growth' ? 'block' : 'hidden'}><GrowthTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
-            <div className={active === 'supply' ? 'block' : 'hidden'}><SupplyTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
-            <div className={active === 'peopleplus' ? 'block' : 'hidden'}><PeoplePlusTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
-            <div className={active === 'employee' ? 'block' : 'hidden'}><BranchTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
-            <div className={active === 'karyawan' ? 'block' : 'hidden'}><KaryawanTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
-            <div className={active === 'absensi' ? 'block' : 'hidden'}><AbsensiTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} sessionRole={role} sessionBranchId={licenseInfo?.branchId || 'PUSAT'} /></div>
-            <div className={active === 'payroll' ? 'block' : 'hidden'}><PayrollTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} sessionRole={role} sessionBranchId={licenseInfo?.branchId || 'PUSAT'} /></div>
-            <div className={active === 'perusahaan' ? 'block' : 'hidden'}><PerusahaanTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
-            <div className={active === 'organization' ? 'block' : 'hidden'}><OrganizationTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
-            <div className={active === 'roles' ? 'block' : 'hidden'}><RolesTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></div>
-            <div className={active === 'approval' ? 'block' : 'hidden'}><ApprovalTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} sessionRole={role} /></div>
-            <div className={active === 'audit' ? 'block' : 'hidden'}><AuditTab licenseInfo={licenseInfo} perms={perms} /></div>
-            <div className={active === 'finance2' ? 'block' : 'hidden'}><FinanceTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} perms={perms} /></div>
+            <div className={active === 'calc' ? 'block' : 'hidden'}><Safe label="Kalkulator HPP"><CalculatorTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} /></Safe></div>
+            <div className={active === 'history' ? 'block' : 'hidden'}><Safe label="Riwayat Transaksi"><HistoryTab activeTab={active} licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></Safe></div>
+            <div className={active === 'cashout' ? 'block' : 'hidden'}><Safe label="Kas Keluar"><CashOutTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></Safe></div>
+            <div className={active === 'discount' ? 'block' : 'hidden'}><Safe label="Diskon, Pajak & Biaya"><DiscountTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></Safe></div>
+            <div className={active === 'customers' ? 'block' : 'hidden'}><Safe label="Customer (CRM)"><CustomersTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></Safe></div>
+            <div className={active === 'growth' ? 'block' : 'hidden'}><Safe label="Promo & Loyalitas"><GrowthTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></Safe></div>
+            <div className={active === 'supply' ? 'block' : 'hidden'}><Safe label="Pembelian & Transfer"><SupplyTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></Safe></div>
+            <div className={active === 'peopleplus' ? 'block' : 'hidden'}><Safe label="Operasional Tim"><PeoplePlusTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></Safe></div>
+            <div className={active === 'employee' ? 'block' : 'hidden'}><Safe label="Manajemen Cabang"><BranchTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></Safe></div>
+            <div className={active === 'karyawan' ? 'block' : 'hidden'}><Safe label="Manajemen Karyawan"><KaryawanTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></Safe></div>
+            <div className={active === 'absensi' ? 'block' : 'hidden'}><Safe label="Kelola Absensi"><AbsensiTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} sessionRole={role} sessionBranchId={licenseInfo?.branchId || 'PUSAT'} /></Safe></div>
+            <div className={active === 'payroll' ? 'block' : 'hidden'}><Safe label="Manajemen Penggajian"><PayrollTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} sessionRole={role} sessionBranchId={licenseInfo?.branchId || 'PUSAT'} /></Safe></div>
+            <div className={active === 'perusahaan' ? 'block' : 'hidden'}><Safe label="Manajemen Perusahaan"><PerusahaanTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></Safe></div>
+            <div className={active === 'organization' ? 'block' : 'hidden'}><Safe label="Organisasi & Region"><OrganizationTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></Safe></div>
+            <div className={active === 'roles' ? 'block' : 'hidden'}><Safe label="Role & Permission"><RolesTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} /></Safe></div>
+            <div className={active === 'approval' ? 'block' : 'hidden'}><Safe label="Pusat Persetujuan"><ApprovalTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} perms={perms} sessionRole={role} /></Safe></div>
+            <div className={active === 'audit' ? 'block' : 'hidden'}><Safe label="Audit Log"><AuditTab licenseInfo={licenseInfo} perms={perms} /></Safe></div>
+            <div className={active === 'finance2' ? 'block' : 'hidden'}><Safe label="Keuangan"><FinanceTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} perms={perms} /></Safe></div>
 
             <div className={active === 'stock' ? 'block' : 'hidden'}>
-              <StockTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} />
+              <Safe label="Stok Barang"><StockTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></Safe>
             </div>
-            <div className={active === 'opname' ? 'block' : 'hidden'}><OpnameTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
-            <div className={active === 'opnamemonitor' ? 'block' : 'hidden'}><OpnameMonitorTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
-            <div className={active === 'inout' ? 'block' : 'hidden'}><InOutTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
-            <div className={active === 'stockhistory' ? 'block' : 'hidden'}><StockHistoryTab activeTab={active} /></div>
-            <div className={active === 'supplier' ? 'block' : 'hidden'}><SupplierTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></div>
+            <div className={active === 'opname' ? 'block' : 'hidden'}><Safe label="Stok Opname"><OpnameTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></Safe></div>
+            <div className={active === 'opnamemonitor' ? 'block' : 'hidden'}><Safe label="Monitoring Opname"><OpnameMonitorTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></Safe></div>
+            <div className={active === 'inout' ? 'block' : 'hidden'}><Safe label="Barang Masuk & Keluar"><InOutTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></Safe></div>
+            <div className={active === 'stockhistory' ? 'block' : 'hidden'}><Safe label="Riwayat Stok & Expired"><StockHistoryTab activeTab={active} /></Safe></div>
+            <div className={active === 'supplier' ? 'block' : 'hidden'}><Safe label="Database Supplier"><SupplierTab triggerAlert={triggerAlert} licenseInfo={licenseInfo} /></Safe></div>
 
-            <div className={active === 'profile' ? 'block' : 'hidden'}><ProfileTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
-            <div className={active === 'report' ? 'block' : 'hidden'}><ReportTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} /></div>
-            <div className={active === 'payment' ? 'block' : 'hidden'}><PaymentTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></div>
-            <div className={active === 'settings' ? 'block' : 'hidden'}><SettingsTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></div>
-            <div className={active === 'hardware' ? 'block' : 'hidden'}><HardwareTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} /></div>
-            <div className={active === 'outlet' ? 'block' : 'hidden'}><OutletTab licenseInfo={licenseInfo} /></div>
+            <div className={active === 'profile' ? 'block' : 'hidden'}><Safe label="Identitas Toko"><ProfileTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></Safe></div>
+            <div className={active === 'report' ? 'block' : 'hidden'}><Safe label="Laporan & Analisa"><ReportTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} /></Safe></div>
+            <div className={active === 'payment' ? 'block' : 'hidden'}><Safe label="Metode Pembayaran"><PaymentTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} setEditingMode={setIsEditingMode} activeTab={active} /></Safe></div>
+            <div className={active === 'settings' ? 'block' : 'hidden'}><Safe label="Pengaturan Utama"><SettingsTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} /></Safe></div>
+            <div className={active === 'hardware' ? 'block' : 'hidden'}><Safe label="Alat Tambahan (Hardware)"><HardwareTab licenseInfo={licenseInfo} triggerAlert={triggerAlert} activeTab={active} /></Safe></div>
+            <div className={active === 'outlet' ? 'block' : 'hidden'}><Safe label="POS Monitoring"><OutletTab licenseInfo={licenseInfo} /></Safe></div>
           </main>
         </div>
 

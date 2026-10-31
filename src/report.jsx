@@ -304,13 +304,13 @@ export const ReportTab = ({ licenseInfo, triggerAlert, activeTab }) => {
 
   /* ---------- tile KPI (ikon bebas, tanpa kotak) ---------- */
   const Kpi = ({ icon: Icon, label, value, note, tone = 'plain', valueClass = '' }) => (
-    <div className={`card !rounded-3xl p-4 ${tone === 'hero' ? '!bg-chrome-deep !border-chrome-edge' : ''}`}>
+    <div className={`card !rounded-3xl p-4 ${tone === 'hero' ? '!bg-flame-600 dark:!bg-chrome-deep !border-flame-500 dark:!border-chrome-edge' : ''}`}>
       <div className="flex items-center gap-2 mb-2">
-        <Icon className={`w-6 h-6 shrink-0 ${tone === 'hero' ? 'text-apricot' : 'text-flame-500 dark:text-apricot'}`} />
-        <p className={`text-[9px] font-extrabold uppercase tracking-widest ${tone === 'hero' ? 'text-ink-inv/60' : 'text-ink-faint'}`}>{label}</p>
+        <Icon className={`w-6 h-6 shrink-0 ${tone === 'hero' ? 'text-white dark:text-apricot' : 'text-flame-500 dark:text-apricot'}`} />
+        <p className={`text-[9px] font-extrabold uppercase tracking-widest ${tone === 'hero' ? 'text-white/70 dark:text-ink-inv/60' : 'text-ink-faint'}`}>{label}</p>
       </div>
       <p className={`text-xl font-extrabold money tracking-tight ${tone === 'hero' ? 'text-white' : 'text-ink dark:text-ink-inv'} ${valueClass}`}>{value}</p>
-      {note && <p className={`text-[9px] mt-1 leading-snug ${tone === 'hero' ? 'text-ink-inv/50' : 'text-ink-faint'}`}>{note}</p>}
+      {note && <p className={`text-[9px] mt-1 leading-snug ${tone === 'hero' ? 'text-white/60 dark:text-ink-inv/50' : 'text-ink-faint'}`}>{note}</p>}
     </div>
   );
 

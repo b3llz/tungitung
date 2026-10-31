@@ -165,9 +165,9 @@ export const OrganizationTab = ({ licenseInfo, triggerAlert, perms }) => {
         </div>
 
         {/* ROOT: PUSAT */}
-        <div className="card p-4.5 border-chrome-edge">
+        <div className="card p-4.5 border-line dark:border-chrome-edge">
           <div className="flex items-center gap-3">
-            <span className="w-10 h-10 rounded-2xl bg-chrome-deep text-white flex items-center justify-center shrink-0"><Toko className="w-5 h-5" /></span>
+            <span className="w-10 h-10 rounded-2xl bg-flame-600 dark:bg-chrome-deep text-white flex items-center justify-center shrink-0"><Toko className="w-5 h-5" /></span>
             <div className="min-w-0 flex-1">
               <p className="font-extrabold text-[14px] text-ink dark:text-ink-inv">Pusat (Head Office)</p>
               <p className="text-[10px] font-bold text-ink-faint">Kontrol penuh seluruh organisasi · {employeeCountForBranch('PUSAT')} karyawan tercatat di Pusat</p>
